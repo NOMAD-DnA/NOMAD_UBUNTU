@@ -1,0 +1,31 @@
+{
+  "engine": "Gazebo Harmonic",
+  "world": "nomad_forest",
+  "vegetation_enabled": false,
+  "height_png_sha256": "def563b89e56569434478987fb0f33bdf9cb4765560b872fb301d4e213fb2205",
+  "mesh_grid": [
+    281,
+    201
+  ],
+  "vertex_count": 56481,
+  "triangle_count": 112000,
+  "bounds": {
+    "x_min": -35.0,
+    "x_max": 35.0,
+    "y_min": -25.0,
+    "y_max": 25.0
+  },
+  "source_axes": "PNG rows +X / columns +Y",
+  "texture_axes": "north-up; OBJ u=+X, v=+Y",
+  "rendered_trees": 0,
+  "collision_trees": 0,
+  "visual_only_trees": 0,
+  "visual_only_grass": 0,
+  "rocks": 4,
+  "no_roadside_boundary": true,
+  "limitations": [
+    "No automatic traversability, branch memory or route planning.",
+    "Vehicle mass and geometry are provisional, not measured hardware.",
+    "Motor effort limits and payload climbing failure are not verified."
+  ]
+}

@@ -1,0 +1,369 @@
+{
+  "schema_version": 1,
+  "model": "nomad_vehicle",
+  "provisional": true,
+  "notes": [
+    "Not the measured team's vehicle; base_link origin is the level ground plane.",
+    "Rear-wheel velocity drive, no suspension; effort limits are not a validated motor-output cap.",
+    "3D odom/TF is ideal ground truth from Gazebo, NOT a state estimator.",
+    "Planar wheel_odom/wheel_tf are separate and must not be bridged to the same ROS odom/TF.",
+    "Depth is ideal co-located RGBD rendering, NOT calibrated physical stereo depth.",
+    "Single-plane GPU lidar samples the actual 3D scene; angular noise is not modeled."
+  ],
+  "body_size_m": [
+    0.85,
+    0.5,
+    0.12
+  ],
+  "body_center_z_m": 0.2,
+  "body_mass_kg": 30.0,
+  "wheel_mass_kg": 1.0,
+  "knuckle_mass_kg": 0.3,
+  "total_mass_kg": 34.6,
+  "wheelbase_m": 0.72,
+  "track_m": 0.6,
+  "wheel_radius_m": 0.15,
+  "wheel_width_m": 0.08,
+  "steering_limit_rad": 0.55,
+  "max_speed_mps": 1.0,
+  "max_acceleration_mps2": 0.6,
+  "driven_joints": [
+    "rear_left_wheel_joint",
+    "rear_right_wheel_joint"
+  ],
+  "physical_links": [
+    "base_link",
+    "front_left_steering_link",
+    "front_left_wheel",
+    "front_right_steering_link",
+    "front_right_wheel",
+    "rear_left_wheel",
+    "rear_right_wheel"
+  ],
+  "dynamic_joints": [
+    {
+      "name": "front_left_steering_joint",
+      "parent": "base_link",
+      "child": "front_left_steering_link",
+      "origin": [
+        0.36,
+        0.3,
+        0.15
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "type": "revolute",
+      "lower": -0.55,
+      "upper": 0.55,
+      "effort": 12.0,
+      "velocity": 2.0
+    },
+    {
+      "name": "front_left_wheel_joint",
+      "parent": "front_left_steering_link",
+      "child": "front_left_wheel",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "type": "continuous",
+      "lower": -1e+16,
+      "upper": 1e+16,
+      "effort": 20.0,
+      "velocity": 20.0
+    },
+    {
+      "name": "front_right_steering_joint",
+      "parent": "base_link",
+      "child": "front_right_steering_link",
+      "origin": [
+        0.36,
+        -0.3,
+        0.15
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "type": "revolute",
+      "lower": -0.55,
+      "upper": 0.55,
+      "effort": 12.0,
+      "velocity": 2.0
+    },
+    {
+      "name": "front_right_wheel_joint",
+      "parent": "front_right_steering_link",
+      "child": "front_right_wheel",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "type": "continuous",
+      "lower": -1e+16,
+      "upper": 1e+16,
+      "effort": 20.0,
+      "velocity": 20.0
+    },
+    {
+      "name": "rear_left_wheel_joint",
+      "parent": "base_link",
+      "child": "rear_left_wheel",
+      "origin": [
+        -0.36,
+        0.3,
+        0.15
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "type": "continuous",
+      "lower": -1e+16,
+      "upper": 1e+16,
+      "effort": 20.0,
+      "velocity": 20.0
+    },
+    {
+      "name": "rear_right_wheel_joint",
+      "parent": "base_link",
+      "child": "rear_right_wheel",
+      "origin": [
+        -0.36,
+        -0.3,
+        0.15
+      ],
+      "axis": [
+        0.0,
+        1.0,
+        0.0
+      ],
+      "type": "continuous",
+      "lower": -1e+16,
+      "upper": 1e+16,
+      "effort": 20.0,
+      "velocity": 20.0
+    }
+  ],
+  "fixed_frames": [
+    {
+      "name": "oak_rgb_optical_frame",
+      "parent": "base_link",
+      "xyz": [
+        0.46,
+        0.0,
+        0.29
+      ],
+      "rpy": [
+        -1.5707963267948966,
+        0.0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "name": "oak_depth_optical_frame",
+      "parent": "base_link",
+      "xyz": [
+        0.46,
+        0.0,
+        0.29
+      ],
+      "rpy": [
+        -1.5707963267948966,
+        0.0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "name": "oak_left_optical_frame",
+      "parent": "base_link",
+      "xyz": [
+        0.46,
+        0.0375,
+        0.29
+      ],
+      "rpy": [
+        -1.5707963267948966,
+        0.0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "name": "oak_right_optical_frame",
+      "parent": "base_link",
+      "xyz": [
+        0.46,
+        -0.0375,
+        0.29
+      ],
+      "rpy": [
+        -1.5707963267948966,
+        0.0,
+        -1.5707963267948966
+      ]
+    },
+    {
+      "name": "scan",
+      "parent": "base_link",
+      "xyz": [
+        0.15,
+        0.0,
+        0.38
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "name": "oak_imu_frame",
+      "parent": "base_link",
+      "xyz": [
+        0.46,
+        0.0,
+        0.29
+      ],
+      "rpy": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "sensors_enabled": true,
+  "sensor_parameters": {
+    "width": 640,
+    "height": 480,
+    "fps": 30.0,
+    "baseline_m": 0.075,
+    "intrinsics": {
+      "rgb": {
+        "fx": 465.60288917518244,
+        "fy": 471.02652132123615,
+        "cx": 320.0,
+        "cy": 240.0,
+        "horizontal_fov": 1.2042771838760873
+      },
+      "mono": {
+        "fx": 432.4551801426587,
+        "fy": 432.97146126514167,
+        "cx": 320.0,
+        "cy": 240.0,
+        "horizontal_fov": 1.2740903539558606
+      }
+    },
+    "camera_mount": [
+      0.46,
+      0.0,
+      0.29
+    ],
+    "depth_min_m": 0.4,
+    "depth_max_m": 8.0,
+    "lidar_mount": [
+      0.15,
+      0.0,
+      0.38
+    ],
+    "lidar_rpy": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "lidar_hz": 10.0,
+    "nrays": 500,
+    "min_range_m": 0.12,
+    "max_range_m": 12.0,
+    "fov_deg": 360.0,
+    "angle_min": -3.141592653589793,
+    "angle_max": 3.129026282975434,
+    "range_noise_sigma_m": 0.01,
+    "imu_hz": 200.0
+  },
+  "rgb_render_clip_m": [
+    0.05,
+    40.0
+  ],
+  "mono_render_clip_m": [
+    0.05,
+    40.0
+  ],
+  "native_topics": {
+    "cmd_vel": "/nomad/vehicle/cmd_vel",
+    "wheel_odom": "/nomad/vehicle/wheel_odom",
+    "wheel_tf": "/nomad/vehicle/wheel_tf",
+    "odom": "/nomad/vehicle/odom",
+    "tf": "/nomad/vehicle/tf",
+    "joint_states": "/nomad/vehicle/joint_states",
+    "rgb_image": "/nomad/raw/oak/rgbd/image",
+    "depth_image": "/nomad/raw/oak/rgbd/depth_image",
+    "rgbd_camera_info": "/nomad/raw/oak/rgbd/camera_info",
+    "left_image": "/nomad/raw/oak/left/image_raw",
+    "left_camera_info": "/nomad/raw/oak/left/camera_info",
+    "right_image": "/nomad/raw/oak/right/image_raw",
+    "right_camera_info": "/nomad/raw/oak/right/camera_info",
+    "scan": "/nomad/raw/scan",
+    "imu": "/nomad/raw/oak/imu"
+  },
+  "camera_source": {
+    "model_reference": "OAK-D Lite FF",
+    "width": 640,
+    "height": 480,
+    "fps": 30.0,
+    "rgb_hfov_deg": 69.0,
+    "rgb_vfov_deg": 54.0,
+    "mono_hfov_deg": 73.0,
+    "mono_vfov_deg": 58.0,
+    "rgb_fx": null,
+    "rgb_fy": null,
+    "mono_fx": null,
+    "mono_fy": null,
+    "cx": null,
+    "cy": null,
+    "baseline_m": 0.075,
+    "depth_min_m": 0.4,
+    "depth_max_m": 8.0,
+    "depth_noise_sigma_m": 0.0,
+    "mount_x_m": 0.46,
+    "mount_y_m": 0.0,
+    "mount_z_m": 0.29,
+    "mono_previews": false
+  },
+  "lidar_source": {
+    "model_reference": "YDLIDAR G2 (12 m version, DeviceMart 12218838)",
+    "hz": 10.0,
+    "fov_deg": 360.0,
+    "nrays": 500,
+    "min_range_m": 0.12,
+    "max_range_m": 12.0,
+    "range_noise_sigma_m": 0.01,
+    "angle_noise_sigma_deg": 0.01,
+    "mount_x_m": 0.15,
+    "mount_y_m": 0.0,
+    "mount_z_m": 0.38,
+    "yaw_deg": 0.0,
+    "pitch_deg": 0.0,
+    "roll_deg": 0.0,
+    "raytrace_3d": true
+  },
+  "imu_source": {
+    "hz": 200.0
+  }
+}
