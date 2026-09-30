@@ -1,0 +1,9 @@
+/build/
+/install/
+/log/
+/backups/
+/archive/
+/.nomad/deps/
+**/__pycache__/
+*.py[cod]
+.DS_Store

@@ -1,0 +1,25 @@
+# Opaque diffuse colours only; no textures or transparency.
+newmtl stone_dark
+Ka 0.048000 0.045000 0.040500
+Kd 0.320000 0.300000 0.270000
+Ks 0.000000 0.000000 0.000000
+Ns 1.0
+d 1.0
+illum 1
+
+newmtl stone_mid
+Ka 0.063000 0.060000 0.054000
+Kd 0.420000 0.400000 0.360000
+Ks 0.000000 0.000000 0.000000
+Ns 1.0
+d 1.0
+illum 1
+
+newmtl stone_light
+Ka 0.073500 0.069000 0.061500
+Kd 0.490000 0.460000 0.410000
+Ks 0.000000 0.000000 0.000000
+Ns 1.0
+d 1.0
+illum 1
+

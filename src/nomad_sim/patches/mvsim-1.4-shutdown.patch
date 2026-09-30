@@ -1,0 +1,55 @@
+diff --git a/agents.md b/agents.md
+index 350b906..3d8bde6 100644
+--- a/agents.md
++++ b/agents.md
+@@ -230,3 +230,7 @@ Uses ZMQ/Protobuf `Client`. Examples: `subscriber-example.py`, `mvsim-teleop.py`
+ - XML-readable parameters declared with `DECLARE_PARAMETER_*` macros from `TParameterDefinitions.h`.
+ - File naming: `CamelCase.h` / `CamelCase.cpp` for classes; `lowercase-hyphenated.cpp` for CLI tool files.
+ - Header guard style: `#pragma once`.
++
++## Local NOMAD compatibility patch (2026-09-29)
++
++ROS 2 shutdown is performed after `rclcpp::spin()` returns and its timer is cancelled, not inside the asynchronous shutdown callback. `terminateSimulation()` joins both the node GUI updater and the World-owned renderer before draining publisher workers and releasing the World. This prevents observation enqueue after the worker pool stops, and concurrent timer access during teardown. The source base remains upstream tag 1.4.0; the local diff is recorded in the sibling `nomad_sim/patches/` directory.
+diff --git a/mvsim_node_src/mvsim_node.cpp b/mvsim_node_src/mvsim_node.cpp
+index 9c19ebe..5424b6b 100644
+--- a/mvsim_node_src/mvsim_node.cpp
++++ b/mvsim_node_src/mvsim_node.cpp
+@@ -332,9 +332,13 @@ void MVSimNode::terminateSimulation()
+ 		thGUI_.join();
+ 	}
+ 
+-	mvsim_world_->free_opengl_resources();
+-
++	// Stop the World-owned renderer before draining observation publishers.
++	if (mvsim_world_->gui_thread_.joinable())
++	{
++		mvsim_world_->gui_thread_.join();
++	}
+ 	ros_publisher_workers_.clear();
++	mvsim_world_->free_opengl_resources();
+ 	// Don't destroy mvsim_server_ yet, since "world" needs to unregister.
+ 	mvsim_world_.reset();
+ 	std::cout << "[MVSimNode::terminateSimulation] All done." << std::endl;
+diff --git a/mvsim_node_src/mvsim_node_main.cpp b/mvsim_node_src/mvsim_node_main.cpp
+index 1186435..fc7bc36 100644
+--- a/mvsim_node_src/mvsim_node_main.cpp
++++ b/mvsim_node_src/mvsim_node_main.cpp
+@@ -91,15 +91,10 @@ int main(int argc, char** argv)
+ 				if (rclcpp::ok()) node->spin();
+ 			});
+ 
+-		rclcpp::on_shutdown(
+-			[&node]()
+-			{
+-				std::cout << "[rclcpp::on_shutdown] Destroying MVSIM node..." << std::endl;
+-				node->terminateSimulation();
+-				std::cout << "[rclcpp::on_shutdown] MVSIM node destroyed." << std::endl;
+-			});
+-
+ 		rclcpp::spin(n);
++		// Teardown on this thread, after the executor stops invoking spin().
++		timer_->cancel();
++		node->terminateSimulation();
+ 		rclcpp::shutdown();
+ #endif
+ 

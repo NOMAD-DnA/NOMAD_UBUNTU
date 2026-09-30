@@ -1,0 +1,51 @@
+# Provisional operating settings, NOT the team's measured calibration.
+camera:
+  model_reference: OAK-D Lite FF
+  width: 640
+  height: 480
+  fps: 30.0
+  # Full-field pinhole approximations from Luxonis specifications.
+  rgb_hfov_deg: 69.0
+  rgb_vfov_deg: 54.0
+  mono_hfov_deg: 73.0
+  mono_vfov_deg: 58.0
+  # Set measured intrinsics here later, otherwise compute from FOV and size.
+  rgb_fx: null
+  rgb_fy: null
+  mono_fx: null
+  mono_fy: null
+  cx: null
+  cy: null
+  baseline_m: 0.075
+  depth_min_m: 0.4
+  depth_max_m: 8.0
+  # Ideal geometry first; this is not a calibrated stereo disparity model.
+  depth_noise_sigma_m: 0.0
+  # Center RGB/depth mount on the current Jackal. x forward, y left, z up.
+  mount_x_m: 0.22
+  mount_y_m: 0.0
+  mount_z_m: 0.29
+  mono_previews: false
+lidar:
+  # Purchase listing and current manufacturer page both specify the 12 m G2.
+  # https://www.devicemart.co.kr/goods/view?no=12218838
+  # https://jp.ydlidar.com/product/ydlidar-g2
+  model_reference: YDLIDAR G2 (12 m version, DeviceMart 12218838)
+  # Select 10 Hz within the specified 5-12 Hz operating range; not measured.
+  hz: 10.0
+  fov_deg: 360.0
+  # 5000 measurements/s / 10 revolutions/s = approximately 500 points/scan.
+  nrays: 500
+  min_range_m: 0.12
+  max_range_m: 12.0
+  # Provisional additive noise, NOT a measured G2 accuracy model.
+  range_noise_sigma_m: 0.01
+  angle_noise_sigma_deg: 0.01
+  mount_x_m: 0.15
+  mount_y_m: 0.0
+  mount_z_m: 0.38
+  yaw_deg: 0.0
+  pitch_deg: 0.0
+  roll_deg: 0.0
+  # Single scan plane, intersected with the actual 3D terrain and obstacles.
+  raytrace_3d: true

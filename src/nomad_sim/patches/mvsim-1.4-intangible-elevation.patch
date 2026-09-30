@@ -1,0 +1,16 @@
+diff --git a/modules/simulator/src/Block.cpp b/modules/simulator/src/Block.cpp
+--- a/modules/simulator/src/Block.cpp
++++ b/modules/simulator/src/Block.cpp
+@@ -618,6 +618,12 @@ bool Block::default_block_z_min_max() const
+ 
+ std::optional<float> mvsim::Block::getElevationAt(const mrpt::math::TPoint2D& worldXY) const
+ {
++	// A render-only decoration must not become a supporting terrain surface.
++	if (intangible_)
++	{
++		return {};
++	}
++
+ 	// Is the point within the block?
+ 	const auto& myPose = getCPose3D();
+ 

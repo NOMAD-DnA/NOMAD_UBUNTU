@@ -1,0 +1,42 @@
+<mvsim_world version="1.0">
+    <!-- 600Hz physics permits both 30Hz camera and 10Hz LiDAR sampling. -->
+    <simul_timestep>0.0016666666666666668</simul_timestep>
+    <variable name="UPSTREAM" value="$env{NOMAD_MVSIM_SHARE}"/>
+    <gui>
+        <ortho>false</ortho>
+        <follow_vehicle>r1</follow_vehicle>
+        <cam_distance>5.0</cam_distance>
+        <cam_azimuth>140</cam_azimuth>
+        <cam_elevation>30</cam_elevation>
+        <fov_deg>65</fov_deg>
+        <show_forces>false</show_forces>
+    </gui>
+    <lights><enable_shadows>false</enable_shadows></lights>
+    <georeference>
+        <latitude>36.894718</latitude><longitude>-2.316988</longitude><height>200</height>
+    </georeference>
+    <element class="elevation_map">
+        <resolution>0.5</resolution>
+        <elevation_image>${UPSTREAM}/mvsim_tutorial/elevation_mesh1.png</elevation_image>
+        <elevation_image_min_z>-1.0</elevation_image_min_z>
+        <elevation_image_max_z>2.0</elevation_image_max_z>
+        <texture_image>https://mrpt.github.io/mvsim-models/textures-cgbookcase/Pebbles02_512_BaseColor.png</texture_image>
+        <texture_extension_x>1.5</texture_extension_x><texture_extension_y>1.5</texture_extension_y>
+        <model_split_size>3.0</model_split_size>
+    </element>
+    <include file="${UPSTREAM}/definitions/jackal.vehicle.xml" default_sensors="false"/>
+    <vehicle name="r1" class="jackal">
+        <init_pose>4 -8 0</init_pose>
+        <include file="../sensors/oak_rgbd.sensor.xml"/>
+        <include file="../sensors/oak_mono.sensor.xml" frame_name="oak_left_optical_frame" sensor_y="$env{NOMAD_LEFT_Y}"/>
+        <include file="../sensors/oak_mono.sensor.xml" frame_name="oak_right_optical_frame" sensor_y="$env{NOMAD_RIGHT_Y}"/>
+        <include file="../sensors/lidar2d.sensor.xml"/>
+    </vehicle>
+    <!-- Deterministic obstacles; terrain is the upstream elevation demo map. -->
+    <block:class name="rock">
+        <static>true</static><shape_from_visual/>
+        <visual><model_uri>https://mrpt.github.io/mvsim-models/rock01.zip/rock01/FallingRock01.dae</model_uri></visual>
+    </block:class>
+    <block class="rock"><init_pose3d>10 -6 0 0 0 0</init_pose3d></block>
+    <block class="rock"><init_pose3d>5 -3 0 25 0 0</init_pose3d></block>
+</mvsim_world>

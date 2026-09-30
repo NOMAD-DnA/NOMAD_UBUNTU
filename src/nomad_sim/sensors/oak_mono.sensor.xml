@@ -1,0 +1,10 @@
+<sensor class="camera" name="${frame_name}">
+    <!-- Camera optical coordinates: +Z forward, +X right, +Y down. -->
+    <pose_3d>$env{NOMAD_CAMERA_X} ${sensor_y} $env{NOMAD_CAMERA_Z} -90 0 -90</pose_3d>
+    <sensor_period>$env{NOMAD_CAMERA_PERIOD}</sensor_period>
+    <ncols>$env{NOMAD_CAMERA_WIDTH}</ncols><nrows>$env{NOMAD_CAMERA_HEIGHT}</nrows>
+    <cx>$env{NOMAD_CAMERA_CX}</cx><cy>$env{NOMAD_CAMERA_CY}</cy>
+    <fx>$env{NOMAD_MONO_FX}</fx><fy>$env{NOMAD_MONO_FY}</fy>
+    <clip_min>0.065</clip_min><clip_max>1000</clip_max>
+    <preview_win_visible>$env{NOMAD_MONO_PREVIEWS}</preview_win_visible>
+</sensor>

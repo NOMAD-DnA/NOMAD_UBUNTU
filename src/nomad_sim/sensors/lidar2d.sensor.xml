@@ -1,0 +1,12 @@
+<sensor class="laser" name="scan">
+    <pose_3d>$env{NOMAD_LIDAR_X} $env{NOMAD_LIDAR_Y} $env{NOMAD_LIDAR_Z} $env{NOMAD_LIDAR_YAW} $env{NOMAD_LIDAR_PITCH} $env{NOMAD_LIDAR_ROLL}</pose_3d>
+    <sensor_period>$env{NOMAD_LIDAR_PERIOD}</sensor_period>
+    <fov_degrees>$env{NOMAD_LIDAR_FOV}</fov_degrees><nrays>$env{NOMAD_LIDAR_NRAYS}</nrays>
+    <max_range>$env{NOMAD_LIDAR_MAX_RANGE}</max_range>
+    <range_std_noise>$env{NOMAD_LIDAR_RANGE_NOISE}</range_std_noise>
+    <angle_std_noise_deg>$env{NOMAD_LIDAR_ANGLE_NOISE}</angle_std_noise_deg>
+    <raytrace_3d>$env{NOMAD_LIDAR_RAYTRACE_3D}</raytrace_3d>
+    <ignore_parent_body>true</ignore_parent_body>
+    <viz_visiblePoints>true</viz_visiblePoints><viz_visibleLines>false</viz_visibleLines>
+    <viz_visiblePlane>false</viz_visiblePlane><viz_pointSize>2</viz_pointSize>
+</sensor>

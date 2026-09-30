@@ -1,0 +1,826 @@
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Changelog for package mvsim
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+1.4.0 (2026-07-17)
+------------------
+* fix(ros): populate twist in /odom topic
+* add custom icon
+* feat(ros): add disable_sim_time_clock param to opt out of sim clock
+* ci: add ubuntu-26.04 build matrix jobs (gcc, clang)
+* feat(ros): use simulation time for stamps and publish /clock; show achieved real-time factor in GUI
+* feat: allow sensors' GUI preview subwindow to start minimized
+* fix: GNSS ROS publisher never set NavSatFix.status.status
+* feat: add exactly reproducible trajectories controller for offline experiments
+* feat: visualize trajectory paths in 3D GUI
+* fix: avoid duplicated text when rebuilding mixed-content XML nodes
+* build: auto-enable ccache when available
+* fix: improve robustness of remote resource downloads
+* docs: fix Lyrical arm64 binary badge URL; update ROS 2 build status and EOL distro info
+* fix: XYZ wheel-corner markers must not be visible to camera/lidar sensors
+* fix: robust against corrupted downloads
+* fix: visual artifacts in wheel positions with custom viz
+* cmake minimum version: bump to 3.22 in examples
+* Add configurable maximum joystick speed via XML params
+* Add agents.md file
+* Contributors: Jose Luis Blanco-Claraco
+
+1.3.0 (2026-03-17)
+------------------
+* docs: add logo to web
+* Modernize README
+* Clean up leftovers from temporary benchmark code
+* Creation of .rawlog files use ZStd if available
+* walls demo world: make all walls same thickness, and expose optional env var
+* Add MVSIM_SAVE_RAWLOG_FILENAME env var to some demo worlds
+* XML parser: env vars now can have a default value
+* docs: fix wrong referenc for {} usage
+* remove leftover dep
+* Merge pull request `#95 <https://github.com/MRPT/mvsim/issues/95>`_ from MRPT/nav-benchmark-greenhouse
+  Nav benchmark greenhouse
+* Merge branch 'develop' into nav-benchmark-greenhouse
+* Add auto_start_recording property to vehicles
+* logistic center demo: add lidar sensors
+* Remove temporary adaptative friction class
+* remove temporary deps
+* Refactoring to use CsvLogger (by Claude Opus)
+* Refactor torque calculation by removing comments and logger
+  Removed logging and comments related to torque calculation.
+* Changes for control benchmark paper
+* Contributors: Fernando Cañadas Aránega, Jose Luis Blanco-Claraco
+
+1.2.0 (2026-02-24)
+------------------
+* Merge pull request `#94 <https://github.com/MRPT/mvsim/issues/94>`_ from MRPT/feat/tune-pid
+  Feature: tune pid
+* Support zones with different friction and rolling resistance
+* Better docs, expose more params
+* FIX: sliding bug on slopes
+* Add new unit test for ramps bug
+* fix stop exactly with any controller. Add rolling resistance
+* new PID tuning tool
+* add backwards compat method
+* Merge pull request `#93 <https://github.com/MRPT/mvsim/issues/93>`_ from MRPT/feat/add-trajectory-tests
+  Add unit test for vehicle trajectory
+* CsvLogger: feature not to write to disk
+* minor edits in demo world
+* Fix bug in velocity composition
+* Clearer distinction between COM and REF point velocities
+* Add unit test for vehicle trajectory
+* Merge pull request `#92 <https://github.com/MRPT/mvsim/issues/92>`_ from MRPT/feat/truck-trailer-demo
+  Feat/truck-trailer-demo
+* DefaultFriction: fix missing logged variables
+* Add new Ackermann ideal twist controller
+* Revert "fix bug in setTwist()": it was actually a serious regression
+  This reverts commit 07a9fd2a0ab5b4665a4f2d07638f75c1737dbdec.
+* clang-tidy warning fixes
+* Add env var MVSIM_COLLISION_SHAPE_CACHE_VERBOSE
+* Contributors: Jose Luis Blanco-Claraco
+
+1.1.0 (2026-02-16)
+------------------
+* Merge pull request `#91 <https://github.com/MRPT/mvsim/issues/91>`_ from MRPT/fix/lidar-3d
+  Lidar3D: fix min clip bug; add real intensity color
+* Lidar3D: fix min clip bug; add real intensity color
+* Contributors: Jose Luis Blanco-Claraco
+
+1.0.0 (2026-02-08)
+------------------
+* Merge pull request `#89 <https://github.com/MRPT/mvsim/issues/89>`_ from MRPT/fix/elevation-2-wheels
+  Fix elevation maps for 2-wheels vehicles
+* Merge pull request `#88 <https://github.com/MRPT/mvsim/issues/88>`_ from MRPT/feat/human-actors
+  Add: human actors
+* Merge pull request `#86 <https://github.com/MRPT/mvsim/issues/86>`_ from MRPT/feat/publish-log-to-ros
+  Optional publish to ROS2 all CsvLogger entries
+* Merge pull request `#85 <https://github.com/MRPT/mvsim/issues/85>`_ from MRPT/feat/per-block-scale
+  Feat/per-block-scale
+* Implement per block scale (Fixes `#38 <https://github.com/MRPT/mvsim/issues/38>`_)
+* Merge pull request `#84 <https://github.com/MRPT/mvsim/issues/84>`_ from MRPT/fix/box2d-bugs
+  Fix/box2d-bugs
+* docs: add ROS2 topics
+* fix bug in setTwist()
+* Fix wrong collision detection (Fixes `#42 <https://github.com/MRPT/mvsim/issues/42>`_)
+* Fix linear acceleration
+* Merge pull request `#83 <https://github.com/MRPT/mvsim/issues/83>`_ from MRPT/feat/new-joints
+  Implement joints between archors
+* Demo worlds: update to add RGBD camera in greenhouse
+* ROS node: fix missing publication of RGBD CameraInfo for RGB channel
+* Merge pull request `#82 <https://github.com/MRPT/mvsim/issues/82>`_ from MRPT/feat/rgbd-publish-new-types
+  RGBD cameras: implement publishing depth and RGB clouds
+* RGBD cameras: implement publishing depth and RGB clouds
+* Merge pull request `#81 <https://github.com/MRPT/mvsim/issues/81>`_ from MRPT/fix/py-bytes
+  Fix: use py-bytes
+* Fix trying to decode strings as utf-8 (Closes `#62 <https://github.com/MRPT/mvsim/issues/62>`_)
+* Merge pull request `#80 <https://github.com/MRPT/mvsim/issues/80>`_ from MRPT/feat/imu-noise
+  IMU: add random walk and fix bug in acceleration
+* Fix g sign
+* Bump copyright year
+* BUG FIX: Fix wrong linear acceleration in IMU readings
+* Implement IMU noise model with random walk biases
+* Rename ROS1 launch files so they don't interfere with autocomplete for ROS2
+* indoor_outdoor demo: add IMU to robot
+* Contributors: Jose Luis Blanco-Claraco
+
+0.16.0 (2026-01-29)
+-------------------
+* docs: add new demo worlds
+* Remove debian leftover
+* Merge pull request `#78 <https://github.com/MRPT/mvsim/issues/78>`_ from MRPT/feat/new-indoor-outdoor-world
+  Feat/new-indoor-outdoor-world
+* fix: ros node didn't publish CGenericPointsMap
+* Functional walls with doors and windows with thickness
+* Update vertical plane to have doors, windows, and thickness
+* fix: lidar3d error with latest mrpt api
+* docs: improve vehicles and physics docs
+* CircleCI: update to build for u22.04
+* Remove #if pragmas for too old mrpt versions
+* Implement GNSS honor 'gps_no_coverage' property
+* Add new world element: PropertyRegion
+* misc clang-tidy fixes
+* fix warnings for deprecated mrpt classes
+* Merge pull request `#70 <https://github.com/MRPT/mvsim/issues/70>`_ from MRPT/feature/noisy-odometry
+  Implement noisy odometry
+* Implement noisy odometry
+* Contributors: Jose Luis Blanco-Claraco
+
+0.15.0 (2025-12-29)
+-------------------
+* Fix build against upcoming mrpt 2.15.4
+* Implement missing visualization of 3D LiDAR FOV 'frustrum'
+* Merge pull request `#69 <https://github.com/MRPT/mvsim/issues/69>`_ from MRPT/feat/imu-with-heading
+  IMU sensor: add support for optional global heading sensor
+* Implement IMU sensor orientation mode
+* Fix clang-tidy style warnings
+* Fix misused get parameter API usage for use_sim_time
+* cmake now builds embedded box2d using --parallel
+* Contributors: Jose Luis Blanco-Claraco
+
+0.14.2 (2025-11-10)
+-------------------
+* Fix cmake requested mrpt 2.5.6, made version-less for forward compatibility
+* Contributors: Jose Luis Blanco-Claraco
+
+0.14.1 (2025-11-01)
+-------------------
+* Fix build against mrpt >2.15.0
+* Remove dead code used for very old MRPT versions
+* Clarify docs on session logging
+* Contributors: Jose Luis Blanco-Claraco
+
+0.14.0 (2025-07-06)
+-------------------
+* Merge pull request `#67 <https://github.com/MRPT/mvsim/issues/67>`_ from MRPT/wip/fpi
+  Add Tire-Force Ellipse (Friction Ellipse) method (Student Project by Francisco Pérez Ibáñez)
+  Co-authored-by: Francisco Pérez Ibáñez <fpi684@inlumine.ual.es>
+* scripts: better force plots
+* fix: build against later tf2
+* Update README.md: Mark Noetic as EOL
+* better integration with VSCode and colcon
+* Modernize the CsvLogger interface: more efficient, better log file names, does log more details on each wheel
+* Copyright notices: update year
+* Update CI to use u24.04, remove obsolete u20.04
+* Contributors: Jose Luis Blanco-Claraco, Francisco Pérez Ibáñez
+
+0.13.3 (2025-05-28)
+-------------------
+* Readme: add new demo video and add Kilted badges
+* Format: space indentation in main cmake file
+* Fix build after deprecation of ament_target_dependencies()
+* Update broken link to ROS Index
+* Contributors: Jose Luis Blanco-Claraco
+
+0.13.2 (2025-02-05)
+-------------------
+* FIX: another missing if() protecting access to uninitialized js data
+* Contributors: Jose Luis Blanco Claraco, Jose Luis Blanco-Claraco
+
+0.13.1 (2025-02-04)
+-------------------
+* Merge pull request `#65 <https://github.com/MRPT/mvsim/issues/65>`_ from MRPT/fix/no-joystick-crash
+  BUGFIX: Crash due to access uninitialized memory when no joystick is …
+* BUGFIX: Crash due to access uninitialized memory when no joystick is found
+* Merge pull request `#64 <https://github.com/MRPT/mvsim/issues/64>`_ from MRPT/feature/new-dem-param
+  New offset parameters for DEM XYZRGB files
+* New offset parameters for DEM XYZRGB files
+* greenhouse demo world: add ROS 1 launch file too
+* version.h
+* Contributors: Jose Luis Blanco-Claraco
+
+0.13.0 (2024-12-24)
+-------------------
+* Add ROS1 generic launcher
+* Port demos to the generic ros2 launch file so all rosargs are now exposed in all demos
+* create generic launch_world ros2 file
+* ROS node: new param "publish_tf_odom2baselink"
+* ROS2 warehouse demo launch: add use_rviz argument
+* Update README.md: Mark ROS2 Iron as EOL
+* Readme: remove obsolete ROS1 wiki link
+* ElevationMap from XML: Ensure trimmed input string in kernel
+* Alternative reference method for UTM world coordinates
+* Implement world georeferenciation via UTM zone number
+* Fix targets order for prev commit
+* Fix build without ZMQ
+* Contributors: Jose Luis Blanco-Claraco
+
+0.12.1 (2024-12-04)
+-------------------
+* Merge pull request `#58 <https://github.com/MRPT/mvsim/issues/58>`_ from MichaelGrupp/fix-navsatfix-ros1
+  Fix ROS1 build
+* Merge pull request `#59 <https://github.com/MRPT/mvsim/issues/59>`_ from MichaelGrupp/fix-segfault
+  Fix segfault caused by uninitialized publisher
+* Fix segfault caused by uninitialized publisher
+  Crash occurs for example when running the demo_warehouse.launch with
+  ROS 1. Debug build + gdb revealed that the issue was this publisher.
+* Contributors: Jose Luis Blanco-Claraco, Michael Grupp
+
+0.12.0 (2024-12-04)
+-------------------
+* DEM: add optional kernel filtering
+* document GPS sensors
+* Add new <marker> tag
+* Update README.md: Add link to ROSCon video
+* Fix loss of precision in box2d due to float in case of UTM coordinates
+* Merge pull request `#57 <https://github.com/MRPT/mvsim/issues/57>`_ from MRPT/wip/support_utm_coords
+  Support UTM coords
+* Elevation queries: port float->double
+* Support world-wise coordinates offset for rendering
+* Elevation map: new input mode from DEM XYZRGB files
+* Moved Python and C++ tutorials directory to root level
+* Logger: show active logging status in GUI; better reordering of csv columns
+* Fix doxygen docs generation on RTD
+* ROS node: new argument "force_publish_vehicle_namespace"
+* Allow vehicle names to be parameterizable via expressions, environment variables, etc.
+* FIX: Wrong sensor pose rendering
+* Elevation map demo world: add GNSS sensor
+* LiDAR3D sensor: generate per-point timestamp (constants)
+* FIX: cmake export dependency on mrpt-topography
+* ROS node: publish NavSatFix messages
+* Add missing build dependency
+* Fix clang-format
+* Add new sensor: GNSS (GPS) devices
+* IMU C++ class: fix interface to replace the sensor with the GUI
+* imu.sensor.xml: Add a simple 3D model to visualize the sensor
+* Contributors: Jose Luis Blanco-Claraco
+
+0.11.2 (2024-10-20)
+-------------------
+* Fix FTBFS in ROS 1
+* Contributors: Jose Luis Blanco-Claraco
+
+0.11.1 (2024-10-17)
+-------------------
+* Great performance improvement for worlds with many (>100) block objects.
+  Terrain elevation query function has been refactored to use a 2D hash-map instead of naively visiting all objects.
+* ROS node: use correct QoS for gridmap publication, and ensure it is published only once.
+* ROS 2: turtlebot demo: Fix RViz wrong camera topic name
+* ROS 2 1robot demo: update rviz config
+* ROS 2: Use correct QoS for (possibly namespaced) /tf & /tf_static
+* FIX: demo_1robot ROS2 launch error (wrong order in listing ros launch arguments)
+* version.h
+* Contributors: Jose Luis Blanco-Claraco
+
+0.11.0 (2024-10-12)
+-------------------
+* docs: add new demo world
+* Add ros2 launch for new demo world
+* Colission fixed for elevation meshes at high speed
+* New world demo: road circuit
+* ElevationMap: Add option for rotating texture images
+* Implement cylinder ground bumps
+* demo_1robot: add launch arguments headless and use_rviz
+* HorizontalPlane: also supports elevation API now
+* Implement moving vehicles over ramps and blocks in general
+* Remove #if for older mrpt versions
+* FIXBUG: 2D LaserScanner sensor wouldn't render custom visuals correctly if robot moves in 3D
+* Jackal robot model: Add new param "lidar2d_raytrace"
+* Finish texture partition of split meshes
+* Fix correct query point for determining elevation offset for blocks and vehicles
+* Automatically correct elevation of objects initialized on elevation maps
+* Move vehicle tilt calculation from ElevationMesh outside to World so it works with many other object types
+* source files: split simulation-related stuff into a new World_simul.cpp
+* CMake: prefer explicit file lists instead of file(GLOB ...)
+* Add getElevationAt() virtual interface for all Simulable objects
+* Update README.md
+* Fix headless ros param name in demo params YAML file
+* Use new assimp feature to improve rendering of transparent meshes
+* elevation map demo: add trees
+* docs: add link to 3D objects repository
+* fix build for ROS 1
+* ROS: publish camera_info too for each camera sensor
+  **Backwards-incompatible change**: Camera topics now are named as: `veh/camera_name/image_raw`
+  instead of `veh/camera_name`, so the corresponding `camera_info` exists within its same namespace: `veh/camera_name/camera_info`.
+* Contributors: Jose Luis Blanco-Claraco
+
+0.10.0 (2024-08-28)
+-------------------
+* Depend on new mrpt_lib packages (deprecate mrpt2)
+* Merge pull request `#52 <https://github.com/MRPT/mvsim/issues/52>`_ from finani/fix-fake-amcl
+  Fix fake amcl topic (QoS Durability)
+* Update outdated copyright years in source files
+* Merge pull request `#51 <https://github.com/MRPT/mvsim/issues/51>`_ from finani/nav2-compatible
+  Nav2 compatible
+* Update codebase to new clang-format style
+* Merge pull request `#48 <https://github.com/MRPT/mvsim/issues/48>`_ from finani/refactoring-node
+  Refactoring node
+* Merge pull request `#45 <https://github.com/MRPT/mvsim/issues/45>`_ from finani/develop
+  Add tf pub for each robot (support namespace)
+* Merge pull request `#43 <https://github.com/MRPT/mvsim/issues/43>`_ from kr-jschoi/fix-bug
+  Fix namespace switching bug between mvsim.chassis_shape and mvsim.chassis_shape.wheel3 in /chassis_markers
+* Contributors: Inhwan Wee, Jose Luis Blanco-Claraco, finani, kr-jschoi
+
+0.9.4 (2024-05-08)
+------------------
+* Better detection of "in collision" flag.
+* Update to clang-format-14
+* Upgrade Joystick API so it works correctly with an arbitrary number of axes
+* ROS nodes: add collision state publishers for each vehicle
+* remove dead code
+* Contributors: Jose Luis Blanco-Claraco
+
+0.9.3 (2024-04-24)
+------------------
+* Fix usage of (new explicit) TPoint3D constructors
+* Contributors: Jose Luis Blanco-Claraco
+
+0.9.2 (2024-03-21)
+------------------
+* BUG FIX: 3D lidars should not 'see' XYZ corners of wheels
+* BUG FIX: gridmaps were published at a too high rate in the ROS 2 node
+* remove dead code
+* update header version
+* Contributors: Jose Luis Blanco-Claraco
+
+0.9.1 (2024-03-05)
+------------------
+* Fix use of mrpt bridge to publish XYZIRT point clouds too for ROS 1
+* Contributors: Jose Luis Blanco-Claraco
+
+0.9.0 (2024-03-02)
+------------------
+* Do not publish tf world->map
+* Expose do_fake_localization as ROS 2 launch file argument
+* fix build with older mrpt
+* 3D Lidar: also generate "ring" ID per point
+* Contributors: Jose Luis Blanco-Claraco
+
+0.8.3 (2023-12-05)
+------------------
+* Generate ground truth trajectory files in the TUM format
+* ROS nodes: add a timeout for cmd_vel commands, so the robots stop if input messages stop
+* Add rviz_plugin_tutorials dependency for ROS1
+* Contributors: Jose Luis Blanco-Claraco, Michael Grupp
+
+0.8.2 (2023-10-06)
+------------------
+* 3D LIDARs: Bilinear interpolation (when it makes sense) to obtain much smoother point cloud simulations
+* Add missing build dep on python3-pip.
+  This was triggering errors on ROS 1 build farm dev builds.
+* Contributors: Jose Luis Blanco-Claraco
+
+0.8.1 (2023-09-07)
+------------------
+* Move the rawlog-generation option to the World global options instead of sensor-wise.
+* Create CITATION.cff
+* helios 32fov70 sensor.xml: Fix missing MVSIM_CURRENT_FILE_DIRECTORY tag
+* Fix crash in edge case with world file path in the current directory
+* Contributors: Jose Luis Blanco-Claraco
+
+0.8.0 (2023-09-02)
+------------------
+* Recursive "include"s are now possible.
+* All vehicle and sensor definitions are now exposed in public directory 'definitions' and are safe to be included from user worlds
+* ROS warehouse demos: fix wrong camera topicn ame in rviz
+* Add missing ROS 2 launch demo for greenhouse world
+* Add new variable: MVSIM_CURRENT_FILE_DIRECTORY
+* BUGFIX: In parseVars() in the XML parser
+* Debugging feature: MVSIM_VERBOSE_PARSE now also traces <variable> definitions
+* Contributors: Jose Luis Blanco-Claraco
+
+0.7.4 (2023-08-30)
+------------------
+* Add new LIDAR 3D models: Helios 32.
+* Removed LIDAR3D fbo_nrows parameter, automatically computed now from geometry solutions.
+* More optimal simulation of asymmetric 3D lidars.
+* Progress with RTD documentation.
+* Add proper bibliography; fix all docs warnings
+* ROS 2 warehouse demo: show 2D lidar in RVIZ too; add headless launch argument
+* New GUI editor feature: move sensor poses
+* Contributors: Jose Luis Blanco-Claraco
+
+0.7.3 (2023-08-23)
+------------------
+* Update python module install method to pip (fixes deprecation)
+* Improved docs
+* Contributors: Jose Luis Blanco-Claraco
+
+0.7.2 (2023-08-12)
+------------------
+* Joystick driving: added support for direct driving the vehicles with a joystick.
+* Fix rviz for ros1 demo
+* Better docs and more modern RST style.
+* More shadow tuning parameters.
+* IMU sensor now reads real vehicle linear acceleration.
+* Contributors: Jose Luis Blanco-Claraco
+
+0.7.1 (2023-06-11)
+------------------
+* ROS node: fix potential race condition creating publisher for highrate sensors
+* Add IMU sensors
+* New property <visual enabled='true|false'>
+* lidar2d xml: add option "sensor_custom_visual"
+* FIX: Crash if launching an empty world
+* Trigger an error if using use_sim_time to avoid mistakes
+* Add new (fake) controller: twist_ideal
+* ROS 1: don't enforce /use_sim_time
+* Add ROS 2 launch for the 2-robot demo
+* Fix cmake leftover
+* Contributors: Jose Luis Blanco-Claraco
+
+0.7.0 (2023-04-21)
+------------------
+* Automatic detection of collision shapes
+* Add turtlebot world demo
+* Rely on custom build of Box2D to increase the maximum polygon vertices count (8 to 12).
+* fix inconsistent use_sim_time value for ROS 2 (it should be false)
+* Expose shadow rendering parameters in the XML world file
+* Abort simulation on exceptions in headless mode too
+* ROS 1 and 2 nodes now quit cleanly and quickly with SIGINT
+* Add ros2 launch for turtlebot world demo
+* Automatic determination of zmin/zmax for blocks if not explicitly set in XML
+* Force c++17 for python module
+* Exit simulator on exceptions in GUI-related threads
+* More automated testing
+* Add unit tests in C++ too
+* Refactor collision shape determination
+* New UI checkbox: show collision shapes
+* Allow simply geometry definitions without external 3D model file for "blocks"
+* Light options are now under <light> XML tag.
+* Largest default physics simulation timestep changed from 50ms to 5ms
+* GUI: change light direction
+* Add GUI checkbox to enable/disable shadows
+* Add rplidar A2 sensor model
+* Contributors: Jose Luis Blanco-Claraco
+
+0.6.1 (2023-03-04)
+------------------
+* New XML parameters to enable and tune shadowmap generation
+* Use finer timestep for prevent wrong simulation of ramp sliding
+* Fix code notation
+* Temporary workaround to GH CI problem
+* Contributors: Jose Luis Blanco-Claraco
+
+0.6.0 (2023-02-26)
+------------------
+* Support for SkyBox rendering (requires MRPT >=2.7.0)
+* More camera options in world.xml files (initial azimuth, elevation, etc.)
+* Terrain elevation models now support repeated textures (requires MRPT >=2.7.0)
+* Faster 3D Lidar rendering (Requires MRPT >=2.7.0)
+* Add Ouster OS1 sensor file
+* Fix default friction coefficients; draw motor torques too
+* More accurate Velodyne simulation based on sensor_rpm parameter
+* Clearer code and code style conventions
+* Add "<static>" XML tag for large, static world objects
+* Support for XML tag <if ...>
+* Refactor xml parser as a registry of tag->function
+* Examples renamed for conciseness: 'mvsim_demo\_*' to 'demo\_*'
+* Added a "greenhouse" example world
+* Wheels: allow linked-yaw-objects in vehicle viz
+* Support several <visual> tags in custom visualization models
+* pybind11 sources simplification.
+  Simplify into one single source tree with conditional compilation for different pybind versions.
+* Emit clearer warnings and earlier detection of wrong bounding boxes
+* Add reference to (preprint) paper
+* Controllers: Made threadsafe
+* Contributors: Fernando Cañadas, Jose Luis Blanco-Claraco
+* BUGFIX: program did not quit if using a non-existing launch file.
+* BUGFIX: unneeded friction coefficient for chassis body
+* BUGFIX: bbox for compound vehicle models
+* BUGFIX: <for> loops ignored more than one inner tag
+* BUGFIX: Add epsilon value for bbox determination in 3D models
+
+0.5.2 (2023-01-27)
+------------------
+* FIX build farm errors in armhf builds
+* Contributors: Jose Luis Blanco-Claraco
+
+0.5.1 (2023-01-26)
+------------------
+* FIX: Stuck unit test runs in armhf build farms
+* Add demo with a large number of robots (100) in a simple setup
+* Support <for> loops in world definition files
+* Contributors: Jose Luis Blanco-Claraco
+
+0.5.0 (2023-01-09)
+------------------
+* New warehouse demo world file, including ros2 launch.
+* New feature: download models from remote servers.
+* Add 3D Lidar sensor.
+* Add support for headless simulations (mvsim launch --headless), suitable for running inside docker containers
+* New world element: vertical planes.
+* Add <for /> loops in XML world files
+* Support for formulas in XML files via  exprtk expressions
+* Fix naming convention; fix warnings
+* Move to clang-format-11
+* More consistent class member naming convention
+* Add simple Velodyne sensor DAE model
+* Add wget as build and runtime dep
+* PubSub system: Implemented the feature to notify subscribed clients about a new publisher for a topic
+* New 3D model: pioneer3
+* ROS: Add build and test dep python3-protobuf
+* Added unit tests
+* mvsim cli: add the --realtime-factor flag
+* more topic echo types
+* publish 2D lidar observations as custom protobuf msgs too
+* Add new protobuf msg type ObservationLidar2D.proto
+* add shutdown service
+* Fixed Python topic subscription and parsing
+* avoid potential crash during shutdown
+* FIX: Timelogger verbosity level is now copied from the main World object.
+* BUGFIX: Lidar sensors with ignore_parent_body=true should neither see the wheels
+* Tune PID parameters of examples
+* Refactoring and simplification of mutexes
+* cache GetServiceInfoRequest() calls (more efficient service calls in comms::Client)
+* factorize World services into its own .cpp file for clarity
+* Contributors: Jose Luis Blanco-Claraco
+
+0.4.3 (2022-11-14)
+------------------
+* add names to gl objects (useful to debug)
+* configurable gui open timeout
+* GUI: new button Editor->Export 3Dscene file
+* Add a warning if using a physics timestep is incompatible with the sensor periods
+* FIX: more accurate simulation of timesteps; more mutexes
+* automatic determination of timestep; FIX bug: constant offset in simul time
+* fix FBO api for mrpt 2.5.6
+* fix build against mrpt 2.5.6; fix infinite loop while hitting quit button
+* refactor TCLAP objects to avoid global object initialization fiasco crashes
+* handle old and new versions of tf_geometry_msgs
+* mvsim cli new command: topic hz
+* Fix ROS2 obsolete header
+* fix build for u18.04
+* fix for older zmq versions
+* fix newest zmq deprecated warnings
+* FIX: DAE file error to load on newer version of assimp
+* provide cmake config types for gcc sanitizers
+* fix zmq API in bionic
+* avoid zmq_message_t ctor; more parallel threads for ZMQ
+* make the get_pose() service to answer immediately without needing to acquire the main simulation mutex
+* fix escaping
+* more portable makefile comparison for libbox2d version
+* d/rules: auto detection of system libbox2d version
+* Contributors: Jose Luis Blanco-Claraco
+
+0.4.2 (2022-10-19)
+------------------
+* Disable Python wrappers for python <3.8
+* Honor DESTDIR when building and installing
+* Honor cli-provided PYTHON_INSTALL_DIRECTORY via cmake flags
+* Fix protobuf-generated broken Python3 imports (using protoletariat)
+* Add new WorldElement type: pointcloud
+* Add Python3 example for teleop twist
+* Contributors: Jose Luis Blanco-Claraco
+
+0.4.1 (2022-10-13)
+------------------
+* Add more documentation, demo files, and screenshots
+* Support animations from keyframe list for blocks and vehicles
+* Refactor common xml params in Simulable interface
+* Support PARENT_NAME usage in sensor definition files; add "<publish>" tags to tutorial sensors
+* 2D lidar sensor: new XML parameter maxRange
+* change threshold to decimate sensors preview subwindows
+* BUGFIX: Uninitialized quaternion in rviz marker (Closes `#14 <https://github.com/MRPT/mvsim/issues/14>`_)
+* Allow expressions in include tags
+* Expose more lidar params in its XML
+* Contributors: Jose Luis Blanco-Claraco
+
+0.4.0 (2022-09-27)
+------------------
+* Major new release with tons of new features.
+* New sensors: RGB, depth, RGB+D cameras
+* Support for ROS1 and ROS2.
+* Sensors now can have 3D models.
+* New GUI controls to customize visualization.
+* New 3 and 4 wheels differential kinematic models.
+* Allow "include"s in XML files.
+* Add 3D Jackal robot model.
+* ROS nodes: publishers in parallel thread
+* mvsim-cli new flag to enable full profiling
+* Use new nanogui feature to limit GUI refresh rate
+* Fix running faster than real-time
+* More consistent timestamping of simulated sensors
+* mvsim now shows program version info
+* get_pose() service now also gets twist
+* Fix elevation maps
+* pybind11 per-version directory
+* Remove trailing '/' in tf frame names for consistency with modern conventions.
+* Rename COPYING -> LICENSE
+* Contributors: Jose Luis Blanco-Claraco
+
+0.3.2 (2022-06-21)
+------------------
+* Install models/ subdirectory too
+* Changes towards building for both ros1 & ros2
+* Copyright date bump
+* Fix build and dependencies for ROS1.
+* Fix build w/o python
+* Fix consistent include path for installed targets
+* BUGFIX: Fix random SIGSEGV due to unsafe shared global object for random number generation
+* Fix no installation of mvsim_msgs python module
+* Fix demo robot starts out of the map
+* Contributors: Jose Luis Blanco-Claraco
+
+0.3.1 (2022-04-25)
+------------------
+* update 2 robots demo
+* Add pybind11 as build dep
+* fix ros node compilation
+* fix build w/o ros
+* Fix compilation of the ROS1 node against the latest mvsim libraries
+* Fix cmake policy error in pybind11
+* Add missing ros deps
+* Add missing build dep box2d-dev
+* Update README.md
+* Contributors: Jose Luis Blanco Claraco, Jose Luis Blanco-Claraco
+
+0.3.0 (2022-03-04)
+------------------
+* RGBD camera simulation
+* MRPT 2.x is now required to build mvsim.
+* Update build dep to mrpt2
+* License changed to 3-clause BSD.
+* Merge pull request `#11 <https://github.com/ual-arm-ros-pkg/mvsim/issues/11>`_ from SRai22/patch-1
+  Update install.rst: needs libprotobuf-dev and libpython3-dev for building from source
+* New checkboxes to see sensor poses and FOVs
+* Lidar: ignore parent body option
+* Lidar: realistic 3D raytrace mode
+* enable textures in planes
+* add support for ground and ceiling planes
+* clean elevation mesh code
+* save_to_rawlog option
+* register callbacks instead of virtual functions
+* New command "topic echo NAME"
+* Add support for intangible blocks; publish relative poses
+* Add support and example for standalone sensors
+* allow changing the server IP or address
+* add optional profiler to Client
+* Protect main socket with mutex
+* fix walls rendering; add new walls demo xml
+* allow custom user 3D objects
+* timelog format fix
+* show class name in timelogger
+* World: expose GUI object
+* GUI and minor tweaks
+* much faster models loading
+* fix wrong collision resetting
+* safer report collisions
+* Fix usage of the update_fps parameter
+* Fix build against mrpt 2.1.8
+* force build against python3
+* more standard python3 deb pkg generation
+* solved python pkg problem in bionic
+* fix python in bionic
+* debian: fix python3 install dir
+* add missing python3 dep
+* fix deb python packaging
+* remove useless cmake include
+* first fully-working set_pose from python
+* Progress with python wrappers
+* Enhance python wrapper
+* Document a minimum size limitation in box2d.
+* small preliminary test for camera sensor
+* Use newer mrpt-gui window manager
+* Fix wallHeight wall parameter correct usage
+* editor: basic rotate and move objects
+* refactor gui code into smaller methods
+* fix rendering of non-custom objects
+* functional replace by coordinates
+* Progress with replace GUI
+* progress with bbox rendering
+* progress with mouse move UI
+* refactor: unify all simulable objects in one list
+* update asserts to latest mrpt2 names
+* Better service response
+* safer multithread gui
+* avoid possible exception in serialization
+* Return collision state
+* Detect and report collisions
+* add setStatic method
+* progress debugging ramps
+* Add incremental set_pose srv
+* add get_pose() service
+* Import walls working
+* walls progress
+* progress loading wall models
+* Start doxygen integration in docs
+* fix not seeing the robot owns body
+* subscription works; example updated
+* Feature: XML variables parsing
+* update pybind11
+* done topic subscriptions; fix proper thread joinable checks.
+* basic subscription works
+* progress subscribe topics
+* fix crash upon exit due to unjoined threads
+* use -dbg postfix for debug libraries
+* implemented command topic list
+* docs on world xml parameters
+* fix visualization of sensors in custom viz models
+* add missing file
+* Add ZMQ monitor to connections
+* fix install include dir
+* fix copy pb hdr files
+* clear leftover traces
+* auto bbox from visuals
+* More modular debian packaging
+* services and set_pose() is working
+* progress implementing services
+* Blocks and vehicles publishes their pose
+* Large code refactor:
+  - Use mrpt::math types for twist and points
+  - Use smart pointers
+  - Remove duplicated code via new methods in base class Simulable
+* done with publishTopic()
+* advertise topics
+* done list nodes command
+* implement query node list
+* refactor Client without parallel thread
+* refactor mvsim-cli sources
+* progress server
+* fix cmake exported targets
+* fix install
+* unregister nodes
+* basic python bindings
+* refactor into modules
+* progress with server parsing messages
+* verbosity levels in client
+* ignore files
+* refactor into one main cli tool: mvsim
+* zmq forwards header
+* add thread names
+* fix build against zmq<4.4
+* First zmq message interchanges
+* basic server thread infraestructure
+* progress defining client/server protocol
+* Add alternative 3D visualization to blocks and vehicles
+* start refactor for visual objects
+* fix -Werror error in u18.04
+* Add zmq and protobuf
+* prefer std::move
+* Enforce override keyword
+* use system logger instead of cout
+* avoid raw pointer for box2d instance
+* refactor param structures
+* fix opengl memory leak
+* Port to nanogui
+* done port to mrpt2
+* prefer nullptr
+* narrower mrpt dependencies
+* port docs to sphinx
+* add circle-ci
+* reorganize badges
+* fix main doc file
+* fix debian installed files path
+* use system libbox2d
+* add debian packaging files
+* modernize: cmake exported targets
+* show box2d system library version
+* cmake commands to lower case
+* Contributors: Jose Luis Blanco-Claraco, Shravan S Rai
+
+0.2.1 (2019-04-12)
+------------------
+* Fix build against latest mrpt-master & 1.5.x versions.
+* add ROS build farm badges
+* Contributors: Jose Luis Blanco Claraco, Jose Luis Blanco-Claraco, Julian Lopez Velasquez
+
+0.2.0 (2018-06-28)
+------------------
+* fix build against mrpt1
+* update to package XML format 2
+* fix build in mrpt 2.0
+* use docker in travis
+* Allow mvsim to be built w/o ROS again
+* Merge pull request `#10 <https://github.com/ual-arm-ros-pkg/mvsim/issues/10>`_ from spsancti/master
+  GSoC contribution to mvsim
+  See discussion thread: https://github.com/MRPT/GSoC2017-discussions/issues/2
+* Added description of world files
+* Added description of loggers and Ward-Iagnemma friction model
+* Added refernce to Torsen-defferntial
+* Added desctiption of Ackermann-drivetrain dynamics
+* Added Doxyfile
+* Added user manual with basic friction model described
+* Added text logger for CSV format
+* Add mvsim slam demo.
+* fix catkin deps: it now requires mrpt_bridge
+* LaserScanner: new option to make all fixtures invisible
+* Contributors: Borys Tymchenko, Jose Luis Blanco Claraco, Logrus
+
+0.1.2 (2015-05-24)
+------------------
+* Cleaner build against mrpt 1.3.0
+* Fix build against mrpt 1.3.0
+* Contributors: Jose Luis Blanco
+
+0.1.1 (2014-12-28)
+------------------
+* First public release.
+* Contributors: Jose Luis Blanco

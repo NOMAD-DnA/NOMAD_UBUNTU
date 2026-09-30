@@ -1,0 +1,22 @@
+<sensor class="rgbd_camera" name="oak">
+    <!-- Virtual depth is aligned to the central RGB, not stereo-matched. -->
+    <pose_3d>$env{NOMAD_CAMERA_X} $env{NOMAD_CAMERA_Y} $env{NOMAD_CAMERA_Z} 0 0 0</pose_3d>
+    <relativePoseIntensityWRTDepth>0 0 0 -90 0 -90</relativePoseIntensityWRTDepth>
+    <sensor_period>$env{NOMAD_CAMERA_PERIOD}</sensor_period>
+    <sense_depth>true</sense_depth><sense_rgb>true</sense_rgb>
+    <publish_ros_depth_image>true</publish_ros_depth_image>
+    <publish_ros_colored_pointcloud>false</publish_ros_colored_pointcloud>
+    <show_3d_pointcloud>false</show_3d_pointcloud>
+    <preview_win_visible>true</preview_win_visible>
+    <depth_ncols>$env{NOMAD_CAMERA_WIDTH}</depth_ncols><depth_nrows>$env{NOMAD_CAMERA_HEIGHT}</depth_nrows>
+    <depth_cx>$env{NOMAD_CAMERA_CX}</depth_cx><depth_cy>$env{NOMAD_CAMERA_CY}</depth_cy>
+    <depth_fx>$env{NOMAD_RGB_FX}</depth_fx><depth_fy>$env{NOMAD_RGB_FY}</depth_fy>
+    <depth_resolution>0.001</depth_resolution>
+    <depth_clip_min>$env{NOMAD_DEPTH_MIN}</depth_clip_min><depth_clip_max>$env{NOMAD_DEPTH_MAX}</depth_clip_max>
+    <depth_noise_sigma>$env{NOMAD_DEPTH_NOISE}</depth_noise_sigma>
+    <rgb_ncols>$env{NOMAD_CAMERA_WIDTH}</rgb_ncols><rgb_nrows>$env{NOMAD_CAMERA_HEIGHT}</rgb_nrows>
+    <rgb_cx>$env{NOMAD_CAMERA_CX}</rgb_cx><rgb_cy>$env{NOMAD_CAMERA_CY}</rgb_cy>
+    <rgb_fx>$env{NOMAD_RGB_FX}</rgb_fx><rgb_fy>$env{NOMAD_RGB_FY}</rgb_fy>
+    <rgb_clip_min>0.01</rgb_clip_min><rgb_clip_max>1000</rgb_clip_max>
+    <visual><model_uri>$env{NOMAD_MVSIM_SHARE}/models/simple_camera.dae</model_uri><model_pitch>90</model_pitch></visual>
+</sensor>
