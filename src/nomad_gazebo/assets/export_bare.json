@@ -21,8 +21,49 @@
   "collision_trees": 0,
   "visual_only_trees": 0,
   "visual_only_grass": 0,
-  "rocks": 4,
+  "visual_only_path_grass": {
+    "seed": 251002,
+    "route": "rock_branch",
+    "center_fraction": 0.525,
+    "spacing_m": 0.45,
+    "cross_path_width_m": 7.5,
+    "yaw_offset_rad": 0.3,
+    "along_path_depth_m": 1.3,
+    "height_range_m": [
+      2.04,
+      2.89
+    ],
+    "background_spacing_m": 3.4,
+    "background_height_range_m": [
+      0.2,
+      0.45
+    ],
+    "clumps": 0,
+    "background_clumps": 0,
+    "collision_enabled": false
+  },
+  "rocks": 0,
+  "collision_boundary_trees": 0,
   "no_roadside_boundary": true,
+  "visual_only_shoulder_stones": 260,
+  "ground_texture": "Continuous Poly Haven CC0 mud/litter blend; no road mask, 2801x2001 atlas",
+  "ground_relief": "Rear plateau 4 m; short steep left ascent, long gentle right ascent; rolling relief <= +/-0.325 m; spawn flat",
+  "terrain_profile": {
+    "rear_plateau_height_m": 4.0,
+    "left_ramp_length_m": 7.8,
+    "right_ramp_length_m": 22.0,
+    "road_material_mask": false
+  },
+  "forest_density": {
+    "multiplier": 2.5,
+    "seed": 251001,
+    "min_tree_spacing_m": 1.1,
+    "min_path_clearance_m": 2.3,
+    "description": "Increase original background trees across the map, without regional fences or blockades.",
+    "original_trees": 145,
+    "total_trees": 363,
+    "added_trees": 218
+  },
   "limitations": [
     "No automatic traversability, branch memory or route planning.",
     "Vehicle mass and geometry are provisional, not measured hardware.",

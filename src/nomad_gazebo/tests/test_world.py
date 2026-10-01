@@ -82,13 +82,18 @@ class GazeboWorldTests(unittest.TestCase):
         cls.package = PACKAGE
         cls.geometry = cls.package / "assets" / "geometry"
         cls.authoring = cls.package / "assets" / "authoring"
-        cls.layout = json.loads((cls.authoring / "layout.json").read_text())
+        cls.layout = json.loads((cls.authoring / "forest_layout.json").read_text())
         cls.export = json.loads((cls.package / "assets" / "export.json").read_text())
         cls.bounds = cls.layout["bounds"]
         with Image.open(cls.authoring / "height.png") as image:
             cls.height_pixels = np.asarray(image).copy()
             cls.height_mode = image.mode
-        cls.heights = cls.height_pixels.astype(float) * cls.layout["height_max_m"] / 255
+        from importlib.util import module_from_spec, spec_from_file_location
+        spec = spec_from_file_location('nomad_generate_world', cls.package / 'scripts' / 'generate_world.py')
+        cls.generator = module_from_spec(spec)
+        spec.loader.exec_module(cls.generator)
+        cls.base_heights = cls.generator.elevated_backdrop(cls.height_pixels.shape, cls.layout)
+        cls.heights = cls.generator.woodland_relief(cls.base_heights, cls.layout)
         cls.terrain = parse_obj(cls.geometry / "terrain.obj")
         cls.sdf = ET.parse(cls.package / "worlds" / "forest.sdf").getroot()
         cls.world = cls.sdf.find("world")
@@ -142,7 +147,7 @@ class GazeboWorldTests(unittest.TestCase):
         self.assertEqual(self.export["bounds"], self.bounds)
         self.assertTrue(self.export["no_roadside_boundary"])
 
-    def test_terrain_vertices_reproduce_the_png_grid(self):
+    def test_terrain_vertices_reproduce_authored_grid_plus_rolling_relief(self):
         vertices = self.terrain["vertices"]
         rows, cols = self.height_pixels.shape
         self.assertEqual(vertices.shape, (rows * cols, 3))
@@ -154,6 +159,14 @@ class GazeboWorldTests(unittest.TestCase):
         np.testing.assert_allclose(grid[:, :, 0], np.broadcast_to(x[:, None], (rows, cols)), atol=1e-6)
         np.testing.assert_allclose(grid[:, :, 1], np.broadcast_to(y[None, :], (rows, cols)), atol=1e-6)
         np.testing.assert_allclose(grid[:, :, 2], self.heights, rtol=0, atol=1e-5)
+        relief = self.heights-self.base_heights
+        self.assertGreaterEqual(float(self.heights.min()), -0.325-1e-8)
+        self.assertLessEqual(float(self.heights.max()), 4.325+1e-8)
+        self.assertGreater(float(relief.max()-relief.min()), 0.4)
+        spawn = self.layout['paths']['entrance'][0]
+        spawn_i = round((spawn[0]-self.bounds['x_min'])/resolution)
+        spawn_j = round((spawn[1]-self.bounds['y_min'])/resolution)
+        self.assertAlmostEqual(float(relief[spawn_i, spawn_j]), 0)
 
     def test_terrain_faces_and_normals_point_up(self):
         data = self.terrain
@@ -192,7 +205,8 @@ class GazeboWorldTests(unittest.TestCase):
         spec = spec_from_file_location('nomad_generate_world', self.package / 'scripts' / 'generate_world.py')
         module = module_from_spec(spec)
         spec.loader.exec_module(module)
-        np.testing.assert_array_equal(exported, np.flipud(np.transpose(module.warm_forest_floor(source), (1, 0, 2))))
+        expected = module.warm_forest_floor(Image.fromarray(source), self.package/'assets/materials', self.layout)
+        np.testing.assert_array_equal(exported, np.flipud(np.transpose(expected, (1, 0, 2))))
 
     def test_world_plugins_gravity_physics_and_local_resources(self):
         self.assertEqual(self.sdf.attrib["version"], "1.9")
@@ -214,7 +228,7 @@ class GazeboWorldTests(unittest.TestCase):
                 self.assertEqual(len(values), 6)
                 self.assertTrue(all(math.isfinite(value) for value in values))
 
-    def test_authoring_branch_and_hill_profile_preserved(self):
+    def test_branch_layout_and_high_rear_plateau(self):
         waypoints = self.layout["waypoints"]
         np.testing.assert_allclose(waypoints["rocks"], [3, 1])
         np.testing.assert_allclose(waypoints["hill_join"], [7.945125, 9.527875], atol=1e-8)
@@ -241,11 +255,18 @@ class GazeboWorldTests(unittest.TestCase):
             points = np.column_stack([np.interp(at, hill_arc, hill[:, axis]) for axis in (0, 1)])
             return np.asarray([self.z_at(point) for point in points])
         grade = np.degrees(np.arctan(levels(samples + 1) - levels(samples)))
-        self.assertGreaterEqual(float(grade[samples <= 12.5].max()), 16)
-        self.assertLessEqual(float(grade[samples <= 12.5].max()), 24)
-        self.assertLess(float(grade[(samples >= 14.5) & (samples <= 26.5)].min()), -10)
-        self.assertGreater(float(levels(np.arange(12.75, 14.25, 0.25)).min()), 2.3)
-        self.assertLess(self.z_at(waypoints["goal"]), 0.1)
+        left_grade = float(grade.max())
+        right = np.asarray(self.layout['paths']['flat_to_wall'])
+        right_arc = np.r_[0.0, np.cumsum(np.linalg.norm(np.diff(right, axis=0), axis=1))]
+        right_samples = np.arange(0, self.layout['route_corridor_profile']['right_block_arc_m']-1, 0.25)
+        def right_levels(at):
+            points = np.column_stack([np.interp(at, right_arc, right[:, axis]) for axis in (0, 1)])
+            return np.asarray([self.z_at(point) for point in points])
+        right_grade = float(np.degrees(np.arctan(right_levels(right_samples+1)-right_levels(right_samples))).max())
+        self.assertGreater(left_grade, right_grade+8)
+        self.assertGreater(self.z_at(waypoints['goal']), 3.6)
+        self.assertGreater(self.z_at(waypoints['wall']), 3.6)
+        self.assertLess(self.z_at(waypoints['start']), 0.01)
 
     def test_tree_distance_policy_and_visual_only_batches(self):
         threshold = self.layout["tree_collision_distance_m"]
@@ -262,7 +283,8 @@ class GazeboWorldTests(unittest.TestCase):
                 far.append(tree)
         self.assertTrue(expected_near)
         self.assertTrue(far)
-        actual = {name: model for name, model in self.named_models.items() if name.startswith("tree_")}
+        actual = {name: model for name, model in self.named_models.items()
+                  if name.startswith("tree_") and name != 'tree_boundaries'}
         self.assertEqual(set(actual), set(expected_near))
         self.assertEqual(self.export["collision_trees"], len(actual))
         self.assertEqual(self.export["visual_only_trees"], len(far))
@@ -297,23 +319,54 @@ class GazeboWorldTests(unittest.TestCase):
             np.testing.assert_allclose(baked, np.concatenate(expected), rtol=0, atol=1e-7)
         self.assertEqual(self.export["visual_only_grass"], len(self.layout["grass"]))
 
+    def test_whole_map_forest_density_and_removed_blocking_regions(self):
+        for name in ('woodland_patches', 'tree_boundaries', 'route_corridors', 'dead_end_pocket'):
+            self.assertNotIn(name, self.named_models)
+        original = json.loads((self.authoring/'layout.json').read_text())
+        density = self.export['forest_density']
+        self.assertEqual(density['multiplier'], 2.5)
+        self.assertEqual(len(self.layout['trees']), math.ceil(len(original['trees'])*2.5))
+        self.assertEqual(self.layout['trees'][:len(original['trees'])], original['trees'])
+        self.assertEqual(self.export['collision_boundary_trees'], 0)
+        self.assertTrue(self.export['no_roadside_boundary'])
+        for tree in self.layout['trees'][len(original['trees']):]:
+            self.assertGreaterEqual(tree['road_distance_m'], density['min_path_clearance_m']-.0001)
+
+    def test_tall_path_grass_is_visual_only(self):
+        model = self.named_models['path_grass']
+        self.assertFalse(model.findall('.//collision'))
+        self.assertEqual(len(model.findall('.//visual')), 1)
+        self.assertNotIn('path_grass', {m.get('name') for m in
+                         ET.parse(PACKAGE/'worlds/forest_bare.sdf').getroot().findall('.//model')})
+        spec = self.export['visual_only_path_grass']
+        self.assertFalse(spec['collision_enabled'])
+        self.assertEqual(spec['route'], 'rock_branch')
+        self.assertGreater(spec['clumps'], 0)
+        source = parse_obj(PACKAGE/'assets/models/grass_clump.obj')['vertices']
+        source_height = np.asarray(source)[:, 2].max()
+        wall = self.layout['path_grass_wall']
+        self.assertAlmostEqual(wall['yaw_offset_rad'], 0.3)
+        route = np.asarray(self.layout['paths'][spec['route']])
+        arc = np.r_[0, np.cumsum(np.linalg.norm(np.diff(route, axis=0), axis=1))]
+        index = min(len(route)-2, max(0, int(np.searchsorted(arc, spec['center_fraction']*arc[-1])-1)))
+        direction = route[index+1]-route[index]
+        direction /= np.linalg.norm(direction)
+        rotation = np.asarray([[math.cos(0.3), -math.sin(0.3)],
+                               [math.sin(0.3), math.cos(0.3)]])
+        np.testing.assert_allclose(wall['tangent'], rotation@direction)
+        self.assertGreater(spec['cross_path_width_m'], spec['along_path_depth_m']*3)
+        for instance in self.layout['path_grass']:
+            height = source_height*instance['scale_xyz'][2]
+            self.assertGreaterEqual(height, 2.04-1e-8)
+            self.assertLessEqual(height, 2.89+1e-8)
+            offset = np.asarray(instance['center'])-wall['center']
+            self.assertLessEqual(abs(offset@wall['tangent']), spec['along_path_depth_m']/2)
+            self.assertLessEqual(abs(offset@wall['sideways']), spec['cross_path_width_m']/2)
+        self.assertFalse(self.named_models['meadow_grass'].findall('.//collision'))
+        self.assertGreater(spec['background_spacing_m'], spec['spacing_m']*4)
+
     def test_finite_rock_wall_geometry_and_vehicle_spawn(self):
-        for index, rock in enumerate(self.layout["rocks"]):
-            model = self.named_models[f"rock_{index:04d}"]
-            np.testing.assert_allclose(pose(model)[:3], [*rock["center"], self.z_at(rock["center"])])
-            self.assertAlmostEqual(pose(model)[5], math.radians(rock["yaw_deg"]))
-            cylinder = model.find("link/collision/geometry/cylinder")
-            self.assertAlmostEqual(float(cylinder.findtext("radius")), 0.65)
-            self.assertAlmostEqual(float(cylinder.findtext("length")), 1.1)
-            self.assertAlmostEqual(pose(model.find("link/collision"))[2], 0.55)
-        wall = self.layout["wall"]
-        model = self.named_models["dead_end_wall"]
-        np.testing.assert_allclose(pose(model)[:3], [*wall["center"], self.z_at(wall["center"])])
-        for kind in ("visual", "collision"):
-            node = model.find("link/" + kind)
-            np.testing.assert_allclose(tuple(map(float, node.findtext("geometry/box/size").split())),
-                                       [0.65, 4.8, 2.2])
-            self.assertAlmostEqual(pose(node)[2], 1.1)
+        self.assertFalse(any(name.startswith('rock_') for name in self.named_models))
         includes = self.world.findall("include")
         self.assertEqual(len(includes), 1)
         self.assertEqual(includes[0].findtext("uri"), "model://nomad_vehicle")

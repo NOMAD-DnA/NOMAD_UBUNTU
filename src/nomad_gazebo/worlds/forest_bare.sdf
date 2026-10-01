@@ -145,119 +145,17 @@
         </collision>
       </link>
     </model>
-    <model name="rock_0000">
+    <model name="roadside_details">
       <static>true</static>
-      <pose>4.186937404552959 0.2114541245602225 0.0 0 0 0.0</pose>
+      <pose>0 0 0 0 0 0</pose>
       <link name="link">
-        <visual name="rock">
+        <visual name="visual_only">
           <geometry>
             <mesh>
-              <uri>../assets/models/rock.obj</uri>
+              <uri>../assets/geometry/roadside_details.obj</uri>
             </mesh>
           </geometry>
         </visual>
-        <collision name="blocking_rock">
-          <pose>0 0 0.55 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.65</radius>
-              <length>1.1</length>
-            </cylinder>
-          </geometry>
-        </collision>
-      </link>
-    </model>
-    <model name="rock_0001">
-      <static>true</static>
-      <pose>3.395645801517653 0.7371513748534075 0.0 0 0 0.29670597283903605</pose>
-      <link name="link">
-        <visual name="rock">
-          <geometry>
-            <mesh>
-              <uri>../assets/models/rock.obj</uri>
-            </mesh>
-          </geometry>
-        </visual>
-        <collision name="blocking_rock">
-          <pose>0 0 0.55 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.65</radius>
-              <length>1.1</length>
-            </cylinder>
-          </geometry>
-        </collision>
-      </link>
-    </model>
-    <model name="rock_0002">
-      <static>true</static>
-      <pose>2.604354198482347 1.2628486251465925 0.0 0 0 0.5934119456780721</pose>
-      <link name="link">
-        <visual name="rock">
-          <geometry>
-            <mesh>
-              <uri>../assets/models/rock.obj</uri>
-            </mesh>
-          </geometry>
-        </visual>
-        <collision name="blocking_rock">
-          <pose>0 0 0.55 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.65</radius>
-              <length>1.1</length>
-            </cylinder>
-          </geometry>
-        </collision>
-      </link>
-    </model>
-    <model name="rock_0003">
-      <static>true</static>
-      <pose>1.813062595447041 1.7885458754397776 0.0 0 0 0.8901179185171081</pose>
-      <link name="link">
-        <visual name="rock">
-          <geometry>
-            <mesh>
-              <uri>../assets/models/rock.obj</uri>
-            </mesh>
-          </geometry>
-        </visual>
-        <collision name="blocking_rock">
-          <pose>0 0 0.55 0 0 0</pose>
-          <geometry>
-            <cylinder>
-              <radius>0.65</radius>
-              <length>1.1</length>
-            </cylinder>
-          </geometry>
-        </collision>
-      </link>
-    </model>
-    <model name="dead_end_wall">
-      <static>true</static>
-      <pose>21.0 10.0 0.0 0 0 0.8557695266327598</pose>
-      <link name="link">
-        <visual name="wall">
-          <pose>0 0 1.1 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>0.65 4.8 2.2</size>
-            </box>
-          </geometry>
-          <material>
-            <ambient>0.5 0.48 0.43 1</ambient>
-            <diffuse>0.5 0.48 0.43 1</diffuse>
-            <specular>0 0 0 1</specular>
-          </material>
-        </visual>
-        <collision name="wall_collision">
-          <pose>0 0 1.1 0 0 0</pose>
-          <geometry>
-            <box>
-              <size>0.65 4.8 2.2</size>
-            </box>
-          </geometry>
-        </collision>
       </link>
     </model>
     <include>
