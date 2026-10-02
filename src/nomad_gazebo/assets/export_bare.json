@@ -38,6 +38,16 @@
       0.2,
       0.45
     ],
+    "background_exclusions": [
+      {
+        "center": [
+          -30.654947068540718,
+          -18.369343395146668
+        ],
+        "radius_m": 0.1,
+        "reason": "User requested removal of the single grass clump immediately right of the spawn vehicle"
+      }
+    ],
     "clumps": 0,
     "background_clumps": 0,
     "collision_enabled": false

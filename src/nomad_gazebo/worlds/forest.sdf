@@ -2479,7 +2479,7 @@
     <include>
       <uri>model://nomad_vehicle</uri>
       <name>nomad_vehicle</name>
-      <pose>-30.0 -18.0 0.03 0 0 -0.7705162004864949</pose>
+      <pose>-30.0 -18.0 0.03 0 0 0.826751851501263</pose>
     </include>
   </world>
 </sdf>

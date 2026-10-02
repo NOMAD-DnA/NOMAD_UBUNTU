@@ -1,0 +1,125 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: odom
+    Background Color: 35; 35; 35
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/RobotModel
+      Name: Vehicle
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+    - Class: rviz_default_plugins/Axes
+      Name: Vehicle position and heading
+      Enabled: true
+      Reference Frame: base_link
+      Length: 1
+      Radius: 0.06
+    - Class: rviz_default_plugins/Grid
+      Name: Grid
+      Enabled: true
+      Cell Size: 1
+    - Class: rviz_default_plugins/Map
+      Name: Observed map
+      Enabled: true
+      Topic:
+        Value: /nomad/observed_map
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 0.7
+    - Class: rviz_default_plugins/Map
+      Name: Fused sensor cost (reference)
+      Enabled: true
+      Topic:
+        Value: /nomad/costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.6
+    - Class: rviz_default_plugins/Map
+      Name: Navigation cost (LiDAR obstacles disabled)
+      Enabled: false
+      Topic:
+        Value: /nomad/navigation_costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.7
+    - Class: rviz_default_plugins/Map
+      Name: Navigation local clearance
+      Enabled: false
+      Topic:
+        Value: /nomad/navigation_local_costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 0.5
+    - Class: rviz_default_plugins/Map
+      Name: Depth terrain cost and hazards
+      Enabled: false
+      Topic:
+        Value: /nomad/terrain_costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Color Scheme: costmap
+      Alpha: 0.7
+    - Class: rviz_default_plugins/Image
+      Name: Camera terrain labels
+      Enabled: false
+      Topic:
+        Value: /nomad/terrain_labels
+        Reliability Policy: Reliable
+    - Class: rviz_default_plugins/Map
+      Name: Local clearance
+      Enabled: false
+      Topic:
+        Value: /nomad/local_costmap
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 0.5
+    - Class: rviz_default_plugins/Path
+      Name: GPP
+      Enabled: true
+      Topic:
+        Value: /nomad/global_path
+      Color: 0; 180; 255
+      Line Width: 0.07
+    - Class: rviz_default_plugins/Path
+      Name: LPP and reverse
+      Enabled: true
+      Topic:
+        Value: /nomad/local_path
+      Color: 255; 210; 0
+      Line Width: 0.1
+    - Class: rviz_default_plugins/LaserScan
+      Name: LiDAR
+      Enabled: true
+      Topic:
+        Value: /scan
+        Reliability Policy: Best Effort
+      Size (m): 0.04
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Value: /goal_pose
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Target Frame: base_link
+      Scale: 25
+      X: 0
+      Y: 0
+Window Geometry:
+  Width: 1200
+  Height: 800

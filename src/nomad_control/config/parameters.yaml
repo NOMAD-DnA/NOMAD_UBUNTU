@@ -1,0 +1,5 @@
+nomad_control:
+  ros__parameters:
+    control_rate: 20.0
+    command_wall_timeout: 0.35
+    track: 0.6

@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_bringup</name><version>0.2.0</version>
+  <description>Replaceable NOMAD autonomy module.</description>
+  <maintainer email="user@example.com">NOMAD planning team</maintainer>
+  <license>Apache-2.0</license>
+  <buildtool_depend>ament_python</buildtool_depend>
+  <depend>ament_index_python</depend>
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>python3-yaml</depend>
+  <depend>nomad_interfaces</depend>
+  <depend>nomad_perception</depend>
+  <depend>nomad_vio</depend>
+  <depend>nomad_control</depend>
+  <depend>nomad_path_planning</depend>
+  <test_depend>python3-pytest</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>rosgraph_msgs</test_depend>
+  <test_depend>sensor_msgs</test_depend>
+  <export><build_type>ament_python</build_type></export>
+</package>
