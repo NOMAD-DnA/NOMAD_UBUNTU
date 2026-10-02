@@ -200,3 +200,11 @@ local_max_age), 각각 wall-clock 3초를 확인한다. 계산 주기를 입력 
 LPP는 wall-clock 10Hz로 계산하되 궤적/신선도는 sim time을 유지한다.
 GPP의 이전 목표 재시도 대기는 새 목표에 적용하지 않는다. 지면 반사 대조는
 셀별로 묶어 처리하며 누적 높이 증거나 판정 조건을 생략하지 않는다.
+
+## Fork2 연결길 경사 조정 (2026-10-02)
+
+`assets/authoring/layout.json`의 `fork2_ramp`가 `rock_branch`에만 완만한 경사로를 적용한다. 기존 양 끝 높이 사이를 smoothstep으로 연결하고 중심 폭 4m, 양쪽 4m 전이 구간으로 주변 지형에 연결한다. 중심선 최대 경사는 약 45.3°에서 16.9°로 낮아진다. Fork1 주변 반경 10m와 급경사 구간의 높이는 그대로다. 지형 시각·충돌 메시와 나무 접지 높이를 함께 재생성한다. 등판 성공은 실제 주행으로 별도 확인한다.
+
+## 맵 선택
+
+기존 `./run_forest.sh` 실행 시 패키지 `maps/`의 목록에서 번호로 고른다. `maps/맵이름/map.json`과 `worlds/forest.sdf`, 상대 경로의 `assets/`, `models/`로 맵을 추가하면 목록에 자동 표시된다. 초기 등록: `01_original`(기존 급경사), `02_fork2_gentle`(Fork2 완화). 비대화형 실행은 Fork2 완화 맵을 기본 선택한다. `NOMAD_MAP`에 맵 폴더명을 지정하거나 기존 `world_file:=...`로 직접 지정할 수도 있다. `vegetation:=False`는 선택한 맵의 `worlds/forest_bare.sdf`를 사용한다.

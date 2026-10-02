@@ -1,0 +1,7 @@
+{
+  "multiplier": 2.5,
+  "seed": 251001,
+  "min_tree_spacing_m": 1.1,
+  "min_path_clearance_m": 2.3,
+  "description": "Increase original background trees across the map, without regional fences or blockades."
+}

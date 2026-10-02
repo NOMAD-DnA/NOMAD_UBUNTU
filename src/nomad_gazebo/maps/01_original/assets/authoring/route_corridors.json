@@ -1,0 +1,12 @@
+{
+  "description": "Irregular woodland patches outside passable routes; no aligned tree fences.",
+  "clear_width_m": 4.0,
+  "boundary_thickness_m": 0.45,
+  "forest_band_depth_m": 1.8,
+  "blocked_patch_depth_m": 2.8,
+  "probe_step_m": 0.3,
+  "max_probe_clearance_m": 0.45,
+  "mouth_open_length_m": 2.5,
+  "right_block_arc_m": 39.0,
+  "sample_step_m": 0.5
+}

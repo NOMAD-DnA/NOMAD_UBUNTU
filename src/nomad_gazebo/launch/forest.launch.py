@@ -1,5 +1,6 @@
 """Gazebo Harmonic world, bridges and explicit command watchdog; no MVSim node."""
 import os
+import shlex
 import tempfile
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def launch_nodes(context):
     arguments += [str(world)]
     gz = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(str(Path(get_package_share_directory('ros_gz_sim'))/'launch/gz_sim.launch.py')),
-        launch_arguments={'gz_args': ' '.join(arguments), 'gz_version': '8', 'on_exit_shutdown': 'true'}.items())
+        launch_arguments={'gz_args': shlex.join(arguments), 'gz_version': '8', 'on_exit_shutdown': 'true'}.items())
     lidar = settings['lidar']
     remap_dict = yaml.safe_load(LaunchConfiguration('ros_remappings').perform(context))
     if not isinstance(remap_dict, dict) or not all(isinstance(k,str) and isinstance(v,str) for k,v in remap_dict.items()):
@@ -46,7 +47,11 @@ def launch_nodes(context):
     handle.close()
     cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(
         function=lambda context: Path(handle.name).unlink(missing_ok=True))]))
-    return [cleanup, gz,
+    map_root = world.parent.parent
+    resources = [str(share), str(share/'models'), str(world.parent), str(map_root), str(map_root/'models')]
+    return [SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.pathsep.join(resources)),
+            SetEnvironmentVariable('SDF_PATH', str(world.parent)+os.pathsep+os.environ.get('SDF_PATH', '')),
+            cleanup, gz,
             Node(package='ros_gz_bridge', executable='parameter_bridge', name='nomad_gz_bridge',
                  parameters=[{'config_file': handle.name, 'use_sim_time': True}], output='screen', remappings=remaps),
             Node(package='robot_state_publisher', executable='robot_state_publisher',

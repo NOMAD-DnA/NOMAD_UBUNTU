@@ -1,0 +1,9 @@
+{
+  "description": "Organic closed rock cave with domed roof; entrance aligned to right approach, no masonry walls.",
+  "center_uv_m": [-4.0, -1.0],
+  "radii_uv_m": [6.0, 6.0],
+  "entrance_width_m": 3.4,
+  "rock_thickness_m": 1.2,
+  "clearance_above_highest_ground_m": 2.8,
+  "roof_dome_height_m": 1.6
+}

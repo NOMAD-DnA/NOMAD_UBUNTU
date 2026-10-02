@@ -123,6 +123,42 @@ def elevated_backdrop(shape, data):
     return 4.0*smoothstep((y-ramp_start)/ramp_length)
 
 
+def fork2_ramp(terrain, data):
+    """Ease only the Fork2 connecting corridor; retain Fork1's steep ascent."""
+    profile = data.get('fork2_ramp')
+    if not profile or not profile.get('enabled', True):
+        return terrain
+    path = np.asarray(data['paths'][profile['path']], dtype=float)
+    segments = np.diff(path, axis=0)
+    lengths = np.linalg.norm(segments, axis=1)
+    if np.any(lengths <= 0):
+        raise ValueError('Fork2 ramp path must have distinct consecutive points')
+    arc = np.r_[0., np.cumsum(lengths)]
+    resolution, bounds = data['height_resolution_m'], data['bounds']
+    x, y = np.meshgrid(bounds['x_min']+np.arange(terrain.shape[0])*resolution,
+                       bounds['y_min']+np.arange(terrain.shape[1])*resolution, indexing='ij')
+    points = np.column_stack((x.ravel(), y.ravel()))
+    distance = np.full(len(points), np.inf)
+    nearest_arc = np.zeros(len(points))
+    for i, (start, delta, length) in enumerate(zip(path[:-1], segments, lengths)):
+        fraction = np.clip(((points-start)@delta)/(length*length), 0., 1.)
+        candidate = np.linalg.norm(points-(start+fraction[:, None]*delta), axis=1)
+        closer = candidate < distance
+        distance[closer] = candidate[closer]
+        nearest_arc[closer] = arc[i]+fraction[closer]*length
+    half_width = profile['clear_width_m']/2
+    feather = profile['blend_width_m']
+    if half_width <= 0 or feather <= 0:
+        raise ValueError('Fork2 ramp widths must be positive')
+    weight = np.clip((half_width+feather-distance)/feather, 0., 1.)
+    weight = weight*weight*(3-2*weight)
+    fraction = nearest_arc/arc[-1]
+    start_height, end_height = [level(point, terrain, data) for point in (path[0], path[-1])]
+    floor = start_height+(end_height-start_height)*fraction*fraction*(3-2*fraction)
+    weight = weight.reshape(terrain.shape)
+    return terrain*(1-weight)+floor.reshape(terrain.shape)*weight
+
+
 def woodland_relief(heights, data):
     """Continuous rolling woodland ground, including the driving corridors."""
     resolution, b = data['height_resolution_m'], data['bounds']
@@ -161,7 +197,7 @@ def woodland_relief(heights, data):
     weight = weight*weight*(3-2*weight)
     low_floor = .65*np.clip(nearest_arc/profile['right_block_arc_m'], 0, 1)
     base = base*(1-weight.reshape(heights.shape))+low_floor.reshape(heights.shape)*weight.reshape(heights.shape)
-    return base + blend*ripple
+    return fork2_ramp(base + blend*ripple, data)
 
 
 def roadside_details(folder, heights, data):
@@ -735,7 +771,7 @@ def generate(package, map_package=None):
                   ground_texture='Continuous Poly Haven CC0 mud/litter blend; no road mask, 2801x2001 atlas',
                   ground_relief='Rear plateau 4 m; short steep left ascent, long gentle right ascent; rolling relief <= +/-0.325 m; spawn flat',
                   terrain_profile=dict(rear_plateau_height_m=4.0, left_ramp_length_m=7.8,
-                                       right_ramp_length_m=22.0, road_material_mask=False),
+                                       right_ramp_length_m=22.0, fork2_ramp=data.get('fork2_ramp'), road_material_mask=False),
                   forest_density=density_spec,
                   limitations=['No automatic traversability, branch memory or route planning.',
                                'Vehicle mass and geometry are provisional, not measured hardware.',
