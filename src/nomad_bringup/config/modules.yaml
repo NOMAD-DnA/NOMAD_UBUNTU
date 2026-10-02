@@ -1,0 +1,6 @@
+# builtin: run included module. external: connect to separately launched team module.
+perception: builtin
+vio: builtin
+control: builtin
+# gazebo for builtin simulator VIO; vio for an external VIO that publishes TF.
+tf_owner: gazebo

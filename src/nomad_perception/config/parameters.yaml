@@ -1,0 +1,44 @@
+nomad_perception:
+  ros__parameters:
+    resolution: 0.2
+    initial_size: 80.0
+    max_size: 160.0
+    inflation: 0.7
+    mapping_range: 8.0
+    navigation.lidar_enabled: false
+    local_max_age: 2.0
+    sensor_timeout: 0.6
+    wall_timeout: 3.0
+    max_tilt: 0.35
+    tilt_guard_enabled: false
+    terrain.enabled: true
+    terrain.mode: geometry
+    terrain.ground_filter_enabled: true
+    terrain.ground_memory_seconds: 10.0
+    terrain.grass_enabled: true
+    terrain.grass_max_height: 0.6
+    terrain.patch_radius: 0.35
+    terrain.geometry_min_samples: 6
+    terrain.slope_limit: 0.35
+    terrain.slope_enabled: false
+    terrain.objects_only: true
+    terrain.obstacle_height: 0.12
+    terrain.roughness_limit: 0.04
+    terrain.step_limit: 0.18
+    terrain.dirt_cost: 0
+    terrain.neutral_cost: 35
+    terrain.field_cost: 65
+    terrain.memory_seconds: 30.0
+    terrain.max_range: 6.0
+    terrain.pixel_stride: 2
+    terrain.max_surface_slope: 0.52
+    terrain.sync_tolerance: 0.04
+    terrain.min_samples_per_cell: 3
+    terrain.dirt_hue:
+    - 5
+    - 20
+    terrain.field_hue:
+    - 22
+    - 95
+    terrain.min_saturation: 30
+    terrain.min_value: 30

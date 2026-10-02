@@ -623,6 +623,11 @@ def world_file(package, data, heights, vegetation=True):
     sub(include, 'uri', 'model://nomad_vehicle'); sub(include, 'name', 'nomad_vehicle')
     start, next_point = data['paths']['entrance'][:2]
     yaw = math.atan2(next_point[1]-start[1], next_point[0]-start[0])
+    spawn_profile = package/'assets/authoring/spawn_pose.json'
+    if spawn_profile.exists():
+        yaw = float(json.loads(spawn_profile.read_text())['yaw_rad'])
+        if not math.isfinite(yaw):
+            raise ValueError('Spawn yaw must be finite')
     sub(include, 'pose', f'{start[0]} {start[1]} 0.03 0 0 {yaw}')
     filename = 'forest.sdf' if vegetation else 'forest_bare.sdf'
     save_xml(root, package/'worlds'/filename)
@@ -672,6 +677,14 @@ def path_grass(package, data):
             spread = rng.uniform(0.8, 1.2)
             background.append(dict(center=center.tolist(), yaw_deg=float(rng.uniform(0, 360)),
                                    scale_xyz=[spread, spread, height/source_height]))
+    # Filter only after all random draws, preserving every other clump exactly.
+    for exclusion in spec.get('background_exclusions', []):
+        center = np.asarray(exclusion['center'], dtype=float)
+        radius = float(exclusion['radius_m'])
+        if center.shape != (2,) or not np.all(np.isfinite(center)) or not math.isfinite(radius) or radius <= 0:
+            raise ValueError('Invalid background grass exclusion')
+        background = [clump for clump in background
+                      if np.linalg.norm(np.asarray(clump['center'])-center) > radius]
     data['meadow_grass'] = background
     return dict(spec, clumps=len(instances), background_clumps=len(background), collision_enabled=False)
 

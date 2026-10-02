@@ -1,0 +1,31 @@
+dstar_lite_gpp:
+  ros__parameters:
+    unknown_penalty: 4.5
+ackermann_rollout_lpp:
+  ros__parameters:
+    managed_recovery: true
+    forward_speed: 0.4
+    allow_unknown: false
+    require_sensor_health: true
+    sensor_health_timeout: 0.6
+nomad_recovery_supervisor:
+  ros__parameters:
+    recovery.behind_seconds: 0.3
+    recovery.stuck_seconds: 4.0
+    recovery.stuck_radius: 0.3
+    recovery.min_retreat: 2.0
+    recovery.max_retreat: 60.0
+    recovery.exit_horizon: 3.0
+    recovery.exit_separation: 1.0
+    recovery.exit_speed: 0.3
+    recovery.adjust_length: 0.6
+    recovery.adjust_attempts: 3
+    recovery.exit_blocked_seconds: 0.3
+    recovery.speed: 0.2
+    recovery.timeout: 360.0
+    recovery.max_attempts: 4
+    recovery.gate_ttl: 120.0
+nomad_planning_command:
+  ros__parameters:
+    allow_unknown: false
+    health_label: navigation sensors/TF

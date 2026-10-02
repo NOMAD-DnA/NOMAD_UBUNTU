@@ -1,5 +1,24 @@
 # NOMAD Gazebo 시뮬레이션 환경
 
+## 모듈 분리 구조 (2026-10-02)
+
+현재 자율주행은 인지 / VIO / Path Planning / Control로 분리했다. 이전 단일 planning 패키지 설명보다 이 절과 각 모듈 문서를 우선한다.
+
+- [인지 입력·출력·교체](src/nomad_perception/README.md)
+- [VIO 입력·출력·TF 소유권](src/nomad_vio/README.md)
+- [Path Planning: GPP·LPP·후진 복구·명령 선택](src/nomad_path_planning/README.md)
+- [Control: 속도·조향 명령 실행·실측 피드백](src/nomad_control/README.md)
+- [공통 메시지](src/nomad_interfaces/README.md) / [전체 실행·통합 가이드](src/nomad_bringup/README.md)
+
+토픽명은 `src/nomad_bringup/config/topics.yaml`, 교체 공급자는 `modules.yaml`, 공통 차량 기하는 `vehicle.yaml`에서 관리한다. YAML 수정 후 관련 노드를 재시작한다. 메시지 타입 변환에는 어댑터가 필요하다.
+
+Planning은 `/nomad/planning/drive_command`의 `nomad_interfaces/msg/DriveCommand`로 목표 속도(m/s, 음수 후진)와 전륜 중심 조향각(rad, 양수 왼쪽), 유효기간과 정지 요청을 보낸다. Control은 `/nomad/control/vehicle_state`로 실측 피드백을 보낸다. 경로·지도·도착·후진 선택은 Planning에만 있다. 기본 Control의 `/cmd_vel`은 Gazebo용 내부 출력이다.
+
+기본 VIO는 ground truth 어댑터이며 실제 VIO 추정기가 아니다. `vio: external`이면 `tf_owner: vio`를 함께 설정하고 Gazebo ground-truth 동적 TF를 끈다. 센서 정적 TF는 유지한다. 이미 실행 중인 사용자 시뮬레이션을 자동 종료/초기화하지 않는다.
+
+빌드: `source .nomad/env.sh` 후 `colcon build --base-paths src --packages-up-to nomad_bringup nomad_gazebo --symlink-install`. 전체 실행은 기존 `./run_autonomy.sh`. 자세한 단독 실행 명령은 통합 가이드를 따른다.
+
+
 Ubuntu 24.04, ROS 2 Jazzy, Gazebo Harmonic에서 NOMAD의 야지 주행을 시험하는 워크스페이스입니다. 기본 실행은 `nomad_gazebo` 패키지입니다. 이전 MVSim 소스와 맵 제작 자료는 `src/mvsim`, `src/nomad_sim`에 보존했지만 기본 빌드·실행에는 사용하지 않습니다.
 
 ## 준비와 빌드
@@ -86,3 +105,64 @@ Gazebo는 자체 Transport로 센서·차량을 계산하고 `ros_gz_bridge`가 
 두 번째 갈림길 왼쪽 연결 경로(`rock_branch`)의 중앙에 높이 2.04~2.89m 풀을 벽처럼 모았다. 길에 수직인 방향에서 위에서 볼 때 반시계 방향으로 0.3rad 더 돌리고 양끝을 늘려 폭 7.5m, 두께 1.3m로 배치한다. 오른쪽 경로에는 높은 풀을 두지 않는다. 별도로 맵 전체에는 높이 0.2~0.45m 풀을 약 3.4m 간격으로 듬성듬성 배치한다. 두 풀 영역은 각각 하나의 시각 메시로 묶고 충돌체는 넣지 않아 차량이 통과할 수 있다. 카메라 시야가 가려질 수 있으며 GPU LiDAR에서도 보일 수 있다. 식생 렌더링 부하는 추가된다.
 
 높이·간격은 `src/nomad_gazebo/assets/authoring/path_grass.json`에서 설정한다. 생성기로 재생성하고 빌드한 뒤 Gazebo를 다시 실행하면 적용된다. `vegetation:=False`에서는 이 풀도 숨긴다.
+
+## 야지 계획 비용 (2026-10-01)
+
+`nomad_path_planning`의 기본 지형 모드는 `terrain.mode: geometry`다.
+깊이 영상과 촬영 시각 TF로 관측 표면의 기울기·평면 잔차 거칠기·높이 불연속을
+평가하고, 기준 초과 영역을 LiDAR 장애물과 함께 costmap에 차단 비용 100으로
+추가한다. `/nomad/terrain_costmap`은 팽창 전 기하 비용/위험 영역이며,
+`/nomad/terrain_labels`는 이전 colour 모드에서만 발행한다.
+기본 기준 약 20°/RMS 4cm/잔차 범위 18cm는 실측 차량 한계가 아닌 초기값이다.
+설정과 관측 누락·식생·낙차 등의 한계는 `src/nomad_path_planning/README.md`를 따른다.
+월드·차량·센서 생성 입력은 이 변경으로 수정하지 않는다.
+
+낮은 풀은 정렬 RGB-D의 색상·지면 대비 높이·반복 관측으로 구분해 통과 가능으로
+처리한다(`terrain.grass_enabled`). 초기 휴리스틱으로서 카메라 밖/높은 풀은
+구분하지 못한다. 센서에서 풀을 숨기지 않으며 여유 반경은 0.70m 그대로다.
+관측 조건과 한계는 [계획 README](src/nomad_path_planning/README.md#통과-가능한-낮은-풀-인식)를 따른다.
+
+## 출발점 오른쪽 풀 한 포기 제거 (2026-10-01)
+
+사용자 요청으로 낮은 풀 중심 `(-30.654947, -18.369343)` 한 포기만 제거했다.
+`assets/authoring/path_grass.json`의 `background_exclusions`에 반경 0.1m의
+생성 제외 항목을 기록한다. 모든 난수 배치 생성 후 제외하므로 다른 풀 위치는
+변하지 않는다. 낮은 풀은 300개에서 299개이며 나무·높은 풀·지형·차량은 유지한다.
+통과 영역 costmap 예외는 사용하지 않는다. 기존 Gazebo 세션은 재시작해야 반영된다.
+
+시작 방향은 `assets/authoring/spawn_pose.json`의 `yaw_rad`에서 설정한다.
+현재 값은 0.8267518515rad(약 47.37°)로, 요청 당시 차량 방향에서 왼쪽으로 90°
+회전한 값이다. 시작 위치 `(-30, -18, 0.03)`은 유지하며 재실행부터 적용된다.
+
+계획기는 깊이 관측에서 차량 접지 기준과 이어지는 지면을 확인하여 일치하는
+LiDAR 지면 반사를 장애물에서 제외한다(`terrain.ground_filter_enabled`).
+내리막 지면 누락을 줄이기 위해 깊이는 2픽셀 간격으로 사용한다. 누적 LiDAR
+높이는 작은 XY 구간별 최소/최대 범위를 보존해 기록 개수 초과로 폐기하지 않는다.
+확인된 지면 높이는 최대 10초 보관해 카메라 가장자리 밖의 LiDAR 지면 반사도
+제외한다. 신선한 깊이 입력이 있어야 사용하며 새 물체가 관측되면 옛 지면 기록을
+폐기한다. 처음부터 관측하지 못한 지면은 제외 대상이 아니다.
+최신 기본 `terrain.objects_only: true`에서는 연결 지면의 경사·거칠기 위험 비용을
+끄고 지면 위 12cm 이상 돌출 물체를 깊이 장애물로 판정한다. 기준 지면이 없는
+부분은 미확인으로 유지하며 LiDAR 장애물과 팽창은 유지한다.
+현재는 사용자 요청으로 `terrain.slope_enabled: false`, `tilt_guard_enabled: false`로
+경사 비용·경사 차단·지면 후보 경사 제한·차량/스캔 기울기 정지를 비활성화했다.
+고체 장애물 판정과 3D TF 보정은 유지한다. 계획 노드 재시작 후 적용된다.
+관측과 허용 오차 조건은
+[계획 README](src/nomad_path_planning/README.md#깊이-기반-지면-반사-구분)에 있다.
+
+2026-10-02부터 `navigation.lidar_enabled: false`로 자율주행의 LiDAR 판정을 끈다.
+기존 LiDAR+카메라 코스트맵과 기울기 계산은 유지하고, GPP/LPP/제어/복구는 별도의
+`/nomad/navigation_costmap`, `/nomad/navigation_local_costmap`을 사용한다.
+주행 지도는 카메라로 물체를 판정하고 LiDAR 장애물/팽창만 제외한다. 기존 LiDAR
+자유 공간 관측은 보존해 차체 아래 카메라 사각지대 때문에 출발이 막히지 않게 한다.
+물체 여유 반경과 미관측 차단은 유지하며 반사 뒤의 미관측 영역은 열지 않는다.
+계획 노드 재시작부터 반영되며 자세한 설정은
+[계획 README](src/nomad_path_planning/README.md#자율주행-lidar-제외-2026-10-02)에 있다.
+
+깊이 계산 중 위치·센서 수신이 밀리지 않도록 센서 수신/health와 지도 계산을
+분리했다. 새 깊이 입력은 0.6초, 완료된 지역 지도는 기존 2초 유효 기간으로
+별도 검사하며 입력 중단과 계산 정지 모두 정지 조건으로 유지한다.
+
+곡면에서도 지면을 연결하도록 시작점은 가까운 관측의 낮은 표면 띠로 선택한다.
+전진 LPP는 목표가 1.5m보다 가까우면 목표 거리까지만 후보를 생성해, 목표 뒤의
+차단·미관측 영역 때문에 도착 전부터 멈추지 않도록 한다.

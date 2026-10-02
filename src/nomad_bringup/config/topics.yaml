@@ -1,0 +1,54 @@
+# Edit values, then restart affected nodes; no rebuild required with symlink-install.
+topics:
+  sensors:
+    odometry: /odom
+    joint_states: /joint_states
+    scan: /scan
+    rgb_image: /oak/rgb/image_raw
+    depth_image: /oak/depth/image_raw
+    rgb_info: /oak/rgb/camera_info
+    depth_info: /oak/depth/camera_info
+    left_image: /oak/left/image_rect
+    right_image: /oak/right/image_rect
+    left_info: /oak/left/camera_info
+    right_info: /oak/right/camera_info
+    imu: /oak/imu
+  localization:
+    odometry: /nomad/localization/odometry
+    status: /nomad/localization/status
+  perception:
+    global_costmap: /nomad/navigation_costmap
+    local_costmap: /nomad/navigation_local_costmap
+    status: /nomad/perception/status
+  planning:
+    goal_request: /goal_pose
+    goal: /nomad/goal
+    current_pose: /nomad/current_pose
+    inputs_ready: /nomad/sensors_ready
+    global_path: /nomad/global_path
+    local_path: /nomad/local_path
+    recovery_path: /nomad/recovery_path
+    recovery_reference: /nomad/recovery_reference
+    recovery_gates: /nomad/recovery_gates
+    local_motion: /nomad/planning/local_motion
+    recovery_motion: /nomad/planning/recovery_motion
+    lpp_failed: /nomad/lpp_failed
+    drive_command: /nomad/planning/drive_command
+    status: /nomad/planning/status
+    gpp_status: /nomad/gpp_status
+    lpp_status: /nomad/lpp_status
+    recovery_status: /nomad/recovery_status
+    command_status: /nomad/planning_status
+  control:
+    vehicle_state: /nomad/control/vehicle_state
+    status: /nomad/control/status
+    simulator_command: /cmd_vel
+  debug:
+    observed_map: /nomad/observed_map
+    lidar_costmap: /nomad/costmap
+    lidar_local_costmap: /nomad/local_costmap
+    perception_ready: /nomad/perception_ready
+    mapping_status: /nomad/mapping_status
+    terrain_costmap: /nomad/terrain_costmap
+    terrain_status: /nomad/terrain_status
+    terrain_labels: /nomad/terrain_labels

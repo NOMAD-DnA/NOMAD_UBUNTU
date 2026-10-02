@@ -8,5 +8,12 @@
   "along_path_depth_m": 1.3,
   "height_range_m": [2.04, 2.89],
   "background_spacing_m": 3.4,
-  "background_height_range_m": [0.2, 0.45]
+  "background_height_range_m": [0.2, 0.45],
+  "background_exclusions": [
+    {
+      "center": [-30.654947068540718, -18.369343395146668],
+      "radius_m": 0.1,
+      "reason": "User requested removal of the single grass clump immediately right of the spawn vehicle"
+    }
+  ]
 }
