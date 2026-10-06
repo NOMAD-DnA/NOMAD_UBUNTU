@@ -129,3 +129,17 @@ def test_invalid_names_and_weights_are_errors():
     with pytest.raises(ValueError,match='Unknown LPP'): local('typo')
     for value in (float('nan'),.5):
         with pytest.raises(ValueError): create('weighted_astar',weight=value)
+
+
+def test_hybrid_long_unknown_goal_with_bounded_expansions():
+    # A distant RViz goal is mostly in unknown space. Unit-cost Euclidean
+    # guidance floods SE(2) states because unknown traversal costs 4.5x more.
+    r=Request(dict(width=400,height=400,resolution=.2,origin_x=-40.,origin_y=-40.,
+                   data=[-1]*160000),(-28.,0.,0.),(-2.,12.))
+    for y in range(192,209):
+        for x in range(55,90):
+            r.grid['data'][y*400+x]=0
+    result=create('hybrid_astar',seconds=5.,expansions=1500).plan(r)
+    assert result.path
+    assert math.dist(result.path[-1][:2],r.goal)<.3
+    assert math.isfinite(Grid(r).path_cost(result.path))

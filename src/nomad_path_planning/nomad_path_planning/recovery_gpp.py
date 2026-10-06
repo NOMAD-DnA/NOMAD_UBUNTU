@@ -65,7 +65,7 @@ class RecoveryGPP(DStarLiteNode):
             max_steer=self.declare_parameter('max_steer', .4).value,
             reference_offset=self.declare_parameter('reference_offset', .36).value,
             unknown_penalty=self.unknown_penalty,
-            seconds=self.declare_parameter('gpp.time_budget', 1.0).value,
+            seconds=self.declare_parameter('gpp.time_budget', 0.0).value,
             expansions=self.declare_parameter('gpp.max_expansions', 50000).value)
         weight=self.declare_parameter('gpp.weighted_astar_weight', 1.5).value
         self.strategy = create_gpp(self.algorithm, weight=weight, **options)

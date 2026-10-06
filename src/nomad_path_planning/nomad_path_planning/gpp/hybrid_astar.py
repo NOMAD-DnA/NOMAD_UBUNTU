@@ -1,7 +1,54 @@
 """Bounded forward Hybrid A*, integrating at rear axle, publishing base_link poses."""
 import heapq
 import math
-from .base import Grid, Result, Budget
+import time
+from .base import Grid, Result, Budget, BudgetExceeded
+
+
+class CostToGoal:
+    """Lazy reverse grid search for cost-aware SE(2) search guidance.
+
+    This discretized estimate is guidance, not a continuous optimality bound.
+    All motion edges still pass the original collision and gate checks.
+    """
+    def __init__(self, grid, goal, budget):
+        self.grid, self.budget = grid, budget
+        self.width, self.height = grid.g['width'], grid.g['height']
+        self.weights = [math.inf if v >= 80 else grid.unknown_penalty if v < 0
+                        else 1+4*v/79 for v in grid.g['data']]
+        cell = grid.cell(*goal)
+        self.queue = [(0., cell)]
+        self.best, self.closed = {cell: 0.}, {}
+
+    def __call__(self, pose):
+        target = self.grid.cell(*pose[:2])
+        while target not in self.closed and self.queue:
+            cost, cell = heapq.heappop(self.queue)
+            if cell in self.closed:
+                continue
+            # Share the deadline with the kinematic search. Grid expansions
+            # do not consume the SE(2) expansion count.
+            if time.monotonic() > self.budget.deadline:
+                raise BudgetExceeded('planning budget exhausted')
+            self.closed[cell] = cost
+            x, y = cell
+            weight = self.weights[y*self.width+x]
+            for dx, dy in ((1,0),(-1,0),(0,1),(0,-1),(1,1),(1,-1),(-1,1),(-1,-1)):
+                nx, ny = x+dx, y+dy
+                if not (0 <= nx < self.width and 0 <= ny < self.height):
+                    continue
+                other = self.weights[ny*self.width+nx]
+                if not math.isfinite(other):
+                    continue
+                if dx and dy and not (math.isfinite(self.weights[y*self.width+nx])
+                                      and math.isfinite(self.weights[ny*self.width+x])):
+                    continue
+                candidate = cost+(weight+other)*.5*self.grid.r*(math.sqrt(2) if dx and dy else 1.)
+                nxt = (nx, ny)
+                if candidate < self.best.get(nxt, math.inf):
+                    self.best[nxt] = candidate
+                    heapq.heappush(self.queue, (candidate, nxt))
+        return self.closed.get(target, math.inf)
 
 
 def wrap(a):
@@ -21,7 +68,7 @@ def advance(pose, curvature, distance, offset):
 
 class HybridAStar:
     def __init__(self, wheelbase=.72,max_steer=.4,reference_offset=.36,
-                 unknown_penalty=4.5,seconds=1.,expansions=50000):
+                 unknown_penalty=4.5,seconds=0.,expansions=50000):
         self.curvature = math.tan(max_steer)/wheelbase
         self.offset = reference_offset
         self.unknown_penalty = unknown_penalty
@@ -40,8 +87,11 @@ class HybridAStar:
         spatial = max(.12,grid.r*.7)
         def key(p):
             return (round(p[0]/spatial),round(p[1]/spatial),round(wrap(p[2])*72/(2*math.pi))%72)
-        def heuristic(p):
+        def distance(p):
             return math.hypot(p[0]-request.goal[0],p[1]-request.goal[1])
+        guidance = CostToGoal(grid, request.goal, budget)
+        def heuristic(p):
+            return max(distance(p), guidance(p))
         first = request.start
         # Immutable records avoid corrupting reconstructed chains when a bin is improved.
         records = [(first,None,[])]
@@ -53,7 +103,7 @@ class HybridAStar:
             if cost != best.get(key(pose)):
                 continue
             budget.tick()
-            if heuristic(pose) <= .29:
+            if distance(pose) <= .29:
                 segments=[]
                 while records[idx][1] is not None:
                     segments.append(records[idx][2]); idx=records[idx][1]

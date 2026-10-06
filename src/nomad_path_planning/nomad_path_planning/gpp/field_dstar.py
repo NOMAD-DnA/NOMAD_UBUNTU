@@ -51,7 +51,7 @@ class FieldGraph(DStarLite):
 
 
 class FieldDStar:
-    def __init__(self,unknown_penalty=4.5,seconds=1.,expansions=50000):
+    def __init__(self,unknown_penalty=4.5,seconds=0.,expansions=50000):
         self.unknown_penalty=unknown_penalty
         self.seconds,self.expansions=seconds,expansions
         self.graph=None; self.signature=None

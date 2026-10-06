@@ -29,8 +29,10 @@ class BudgetExceeded(RuntimeError):
 
 
 class Budget:
-    def __init__(self, seconds=1.0, expansions=50000):
-        self.deadline = time.monotonic() + seconds
+    def __init__(self, seconds=0.0, expansions=50000):
+        if not math.isfinite(seconds) or seconds < 0:
+            raise ValueError('seconds must be finite and nonnegative (0 disables timeout)')
+        self.deadline = time.monotonic() + seconds if seconds > 0 else math.inf
         self.limit = expansions
         self.count = 0
 

@@ -2,7 +2,7 @@ dstar_lite_gpp:
   ros__parameters:
     gpp_algorithm: dstar_lite
     lpp_algorithm: rollout
-    gpp.time_budget: 1.0
+    gpp.time_budget: 0.0  # 0 disables the wall-clock planning timeout
     gpp.max_expansions: 50000
     gpp.weighted_astar_weight: 1.5
     unknown_penalty: 4.5

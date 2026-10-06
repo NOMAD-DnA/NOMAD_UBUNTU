@@ -12,7 +12,7 @@ NAMES=('dstar_lite','astar','weighted_astar','hybrid_astar','state_lattice','fie
 
 class DStarStrategy:
     """Adapter for non-legacy combinations. The default node retains its fallback."""
-    def __init__(self,unknown_penalty=4.5,seconds=1.,expansions=50000):
+    def __init__(self,unknown_penalty=4.5,seconds=0.,expansions=50000):
         self.unknown_penalty=unknown_penalty
         self.seconds,self.expansions=seconds,expansions
         self.graph=None; self.signature=None
@@ -43,11 +43,11 @@ class DStarStrategy:
 
 
 def create(name, *, wheelbase=.72,max_steer=.4,reference_offset=.36,
-           unknown_penalty=4.5,seconds=1.,expansions=50000,weight=1.5):
+           unknown_penalty=4.5,seconds=0.,expansions=50000,weight=1.5):
     if name not in NAMES:
         raise ValueError(f'Unknown GPP {name!r}; choose {", ".join(NAMES)}')
     values=(wheelbase,max_steer,reference_offset,unknown_penalty,seconds,weight)
-    if not all(math.isfinite(v) for v in values) or not (wheelbase>0 and 0<max_steer<math.pi/2 and reference_offset>=0 and unknown_penalty>=1 and seconds>0 and expansions>0 and weight>=1):
+    if not all(math.isfinite(v) for v in values) or not (wheelbase>0 and 0<max_steer<math.pi/2 and reference_offset>=0 and unknown_penalty>=1 and seconds>=0 and expansions>0 and weight>=1):
         raise ValueError('Invalid GPP geometry/budget/weight parameters')
     common=dict(unknown_penalty=unknown_penalty,seconds=seconds,expansions=expansions)
     if name in ('astar','weighted_astar'):
