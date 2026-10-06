@@ -18,7 +18,8 @@ from nomad_path_planning.history_recovery import EntryGate, allowed_path
 from std_msgs.msg import Bool
 from std_msgs.msg import String
 
-from nomad_path_planning.rollout import AckermannRollout
+from nomad_path_planning.lpp.rollout import AckermannRollout
+from nomad_path_planning.lpp.registry import create as create_lpp
 
 
 class LocalPlannerNode(Node):
@@ -39,7 +40,11 @@ class LocalPlannerNode(Node):
         self.sensor_ready = not self.require_sensor_health
         self.sensor_ready_at = -math.inf
 
-        self.planner = AckermannRollout(
+        self.algorithm = self.declare_parameter('lpp_algorithm', 'rollout').value
+        self.planner = create_lpp(
+            self.algorithm,
+            lookahead=self.declare_parameter('rpp.lookahead', .8).value,
+            lateral_accel=self.declare_parameter('rpp.lateral_accel', .35).value,
             wheelbase=self.wheelbase,
             max_steer=self.max_steer,
             steer_samples=9,
@@ -113,7 +118,7 @@ class LocalPlannerNode(Node):
         self.create_timer(0.1, self.try_plan, clock=self.wall_clock)
 
         self.get_logger().info(
-            'Ackermann Rollout LPP started'
+            f'LPP started: {self.algorithm}'
         )
 
     def on_gates(self, msg):
@@ -346,7 +351,7 @@ class LocalPlannerNode(Node):
         self.publish_failed(False)
 
         self.publish_local_path(
-            best['trajectory'], best['steer'], self.planner.speed
+            best['trajectory'], best['steer'], best.get('speed', self.planner.speed)
         )
 
         valid_count = sum(

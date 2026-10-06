@@ -96,6 +96,13 @@ source install/local_setup.bash
 ros2 launch nomad_bringup forest.launch.py
 ```
 
+실행하면 기존 숲 실행과 같은 맵 번호 선택 메뉴가 나타난다. 특정 맵은
+`NOMAD_MAP=08_vio_reverse_dead_end ./run_autonomy.sh`로 바로 선택한다.
+`vegetation:=false`는 선택한 맵의 무식생 버전을 사용하고,
+`world_file:=/path/to/world.sdf`를 지정하면 메뉴를 건너뛴다.
+비대화형 실행의 기본 맵은 `02_fork2_gentle`이며 `--check`는 맵 선택 없이 환경만 확인한다.
+
+
 Gazebo가 별도 실행 중이고 기본 토픽/TF 설정이 일치한다면 자율주행 모듈만 시작한다.
 
 ```bash
@@ -153,3 +160,7 @@ wall 주기와 시뮬레이션 센서 Hz는 서로 다르다. 실제 지도 처�
 - 노드 한 개가 종료되면 같은 launch 그룹의 나머지 노드도 종료한다. 별도로 실행한 외부 모듈은 소유자가 관리한다.
 
 검증 방법과 실제 결과: [docs/VALIDATION.md](docs/VALIDATION.md).
+
+## GPP / LPP 선택
+
+전체 실행에 `gpp:=hybrid_astar lpp:=rpp`처럼 전달한다. 같은 인자는 `planning.launch.py`, `autonomy.launch.py`, `forest.launch.py`에도 적용된다. 생략하면 기존 YAML 설정(D* Lite + rollout)을 따른다. 기존 맵 선택과 함께 사용할 수 있다. 지원 목록·상위 5개 조합의 실행 예·Field D* 변형 및 참조 경로 어댑터의 범위는 [Planning 알고리즘 선택 문서](../nomad_path_planning/README.md#알고리즘-선택-실행-2026-10-06)를 참조한다.

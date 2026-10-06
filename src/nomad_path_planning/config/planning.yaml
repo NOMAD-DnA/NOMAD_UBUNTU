@@ -1,8 +1,16 @@
 dstar_lite_gpp:
   ros__parameters:
+    gpp_algorithm: dstar_lite
+    lpp_algorithm: rollout
+    gpp.time_budget: 1.0
+    gpp.max_expansions: 50000
+    gpp.weighted_astar_weight: 1.5
     unknown_penalty: 4.5
 ackermann_rollout_lpp:
   ros__parameters:
+    lpp_algorithm: rollout
+    rpp.lookahead: 0.8
+    rpp.lateral_accel: 0.35
     managed_recovery: true
     forward_speed: 0.4
     allow_unknown: false

@@ -4,7 +4,62 @@
 
 Planning은 인지 지도·VIO 자세·목표점·차량 피드백을 받아 **목표 속도와 목표 조향각**을 Control에 전달한다. GPP, LPP, 경로 충돌 검사, 목표 도착 판단, 후진 경로 선택과 최종 명령 선택은 모두 Planning에 속한다.
 
-## 1. 내부 구조
+## 알고리즘 선택 실행 (2026-10-06)
+
+기본 실행은 기존 **D* Lite + Ackermann rollout**이며, 기본 조합의 A* 복구와 후진 복구·최종 명령 검사를 유지한다. 아래 명령은 `/home/user/nomad_ws`에서 실행한다. 기존 실행을 종료한 뒤 한 조합씩 실행하며, 기존 맵 선택 메뉴도 그대로 사용할 수 있다.
+
+`./run_autonomy.sh`를 터미널에서 실행하면 **맵 번호 → 알고리즘 조합 번호** 순서로 선택한다. 조합 번호는 아래 표 순서대로 1~6이며, Enter는 3번(D* Lite + rollout)이다. 잘못된 번호는 다시 입력받는다.
+
+번호를 미리 지정하려면 `NOMAD_PLANNER_PAIR=1 ./run_autonomy.sh`처럼 실행한다. `NOMAD_MAP`과 함께 사용할 수 있다. 명시적인 `gpp:=`, `lpp:=`, `params_file:=` 인자가 있으면 조합 메뉴와 `NOMAD_PLANNER_PAIR`를 건너뛰고 해당 설정을 사용한다. 비대화형 실행에서 번호를 지정하지 않으면 기존 YAML 설정을 유지한다. `--check`는 메뉴 없이 기존 준비 상태 검사만 수행한다.
+
+| 비교표 조합 | 실행 명령 |
+|---|---|
+| Hybrid A* → RPP | `./run_autonomy.sh gpp:=hybrid_astar lpp:=rpp` |
+| State Lattice(A*) → RPP | `./run_autonomy.sh gpp:=state_lattice lpp:=rpp` |
+| D* Lite → Ackermann rollout | `./run_autonomy.sh gpp:=dstar_lite lpp:=rollout` |
+| A* → Ackermann rollout | `./run_autonomy.sh gpp:=astar lpp:=rollout` |
+| Weighted A* → Ackermann rollout | `./run_autonomy.sh gpp:=weighted_astar lpp:=rollout` |
+| Field D* 변형 → RPP | `./run_autonomy.sh gpp:=field_dstar lpp:=rpp` |
+
+비교표 4번의 A*/Weighted A*를 분리했으므로 실제 선택 예시는 6개다. 맵 고정은 기존처럼 명령 앞에 `NOMAD_MAP=04_vio_flat_loop`를 붙인다. `headless:=true rviz:=false`도 함께 전달할 수 있다. 선택은 시작 시 적용하며 실행 중 변경하려면 다시 시작한다.
+
+### 구조와 확장
+
+```text
+nomad_path_planning/
+  gpp/
+    base.py             # Request / Result / GlobalPlanner 계약, 지도·예산 검사
+    registry.py         # 이름 → 전략 객체 생성 (Factory)
+    dstar_lite.py        # 기존 D* Lite 구현
+    astar.py            # A* / Weighted A*
+    hybrid_astar.py      # SE(2), 차량 곡선 전개 탐색
+    state_lattice.py     # 정렬된 자세 격자·곡률 제한 primitive + A*
+    field_dstar.py       # 보간 Bellman 갱신 + 증분 g/rhs 탐색 변형
+    reference.py         # 기하 경로 → Ackermann 참조 경로 Adapter
+  lpp/
+    registry.py         # LocalPlanner 계약 / Factory
+    rollout.py          # 기존 Ackermann rollout 구현
+    rpp.py              # 차량 기준 Regulated Pure Pursuit
+```
+
+ROS 노드는 입출력·복구를 담당하고 알고리즘 객체를 Strategy로 선택한다. 새 알고리즘은 공통 계약을 구현하고 해당 registry에 등록한다. 기존 루트의 `dstar_lite.py`, `rollout.py`는 이전 import를 유지하는 호환 진입점이다. 실행 파일·노드 이름도 호환성을 위해 유지하므로 `dstar_lite_gpp`라는 노드가 Hybrid A*를 실행할 수 있다. 시작 로그의 `Selected GPP=..., LPP=...`로 실제 선택을 확인한다.
+
+GPP 출력은 odom 좌표계의 base_link 경로 `nav_msgs/Path`다. LPP는 이 경로·현재 자세·지역 지도를 받아 예측 궤적과 그 궤적의 속도·조향각을 `PlannedMotion`으로 함께 발행한다. Control과 연결되는 기존 계약은 바뀌지 않는다.
+
+### 구현 범위와 설정
+
+- Hybrid A*는 전진 bicycle 곡선과 이산 자세 키를 사용한다. State Lattice는 격자 끝점·방향에 정렬된 곡률 제한 곡선 primitive를 사용한다. 두 구현은 목표 위치를 사용하며 목표 yaw 정렬과 전역 후진 탐색은 지원하지 않는다. 후진은 기존 복구 모듈이 담당한다.
+- RPP는 추종 곡률을 계산하고 곡률·지형 비용·목표 거리로 속도를 조절하는 자체 구현이다. Nav2 RPP 패키지를 호출하는 구현은 아니다. 조향 한계를 초과하거나 예측 궤적이 장애물/미관측 구간을 통과하면 실패를 반환한다. 별도의 지역 우회 경로를 탐색하지 않는다.
+- **Field D*는 원 논문의 해석적 두 셀 보간식을 그대로 재현한 표준 구현이 아니다.** 인접 삼각형의 보수적 비용과 선형 보간 최소화를 사용하는 증분 변형이다. 실제 보간된 rhs 갱신을 수행하고 추출 경로에는 충돌 검사와 비용 비증가 조건의 단축을 적용한다. 논문 알고리즘의 성능·최적성 보장을 이 구현의 보장으로 간주하지 않는다.
+- Field D* 등 기하 경로를 RPP와 조합하면 경로 주변 1.2m corridor 안에서 Hybrid A* 어댑터를 추가 실행한다. 조향 가능한 참조 경로를 만드는 단계이며 상태 메시지에 함께 표시된다. 따라서 이 조합의 계산 시간에는 어댑터 비용도 포함해야 한다. 적합한 참조 경로가 없으면 정지·재시도한다.
+- 신규 전략의 탐색 예산은 기본 단계당 `gpp.time_budget: 1.0`초, `gpp.max_expansions: 50000`이다. 참조 어댑터는 별도 탐색 예산을 사용하고 지도 준비·경로 검사는 이 제한 밖이므로 전체 콜백의 엄격한 시간 제한은 아니다. 기본 레거시 조합의 탐색 동작은 유지한다.
+- Weighted A* 기본 가중치는 `gpp.weighted_astar_weight: 1.5`, RPP 기본 설정은 `rpp.lookahead: 0.8`m, `rpp.lateral_accel: 0.35`m/s²다. 차량 설정은 기존 `vehicle_file`을 공유한다.
+- `config/planning.yaml` 또는 `params_file`로 기본값을 설정할 수 있다. GPP 노드에는 `gpp_algorithm`, `lpp_algorithm`을, LPP 노드에는 `lpp_algorithm`을 설정한다. `gpp:=...`, `lpp:=...` 인자는 관련 노드의 YAML 설정보다 우선한다. 인자를 생략하면 YAML 값이 적용된다.
+- 이름 오타는 launch에서 거부한다. 신규 전략이 실패해도 다른 GPP로 몰래 변경하지 않는다. 모든 조합이 모든 지형에서 성공하거나 비교표의 이론적 순위를 재현한다는 뜻은 아니다.
+
+검증은 알고리즘 경로·곡률·장애물·지도 갱신·진입 금지 gate 검사와, 격리된 ROS 도메인에서 6개 조합의 경로/주행 메시지·잘못된 지도 정지·입력 복구를 포함한다. Gazebo 실제 지형에서의 완주 성능은 별도로 평가해야 한다.
+
+## 1. 내부 구조 (기본 조합)
 
 ```mermaid
 flowchart LR
@@ -75,7 +130,7 @@ stop_requested: false
 
 속도는 뒷축 중심의 종방향 속도, 조향각은 가상의 전륜 중심 조향각이다. 경로점은 base_link 위치를 나타내므로 `reference_offset=0.36m`로 축 기준 차이를 반영한다. 메시지 필드·수신 규칙은 [공통 명세](../nomad_interfaces/README.md)에 정의한다.
 
-## 4. GPP → LPP 데이터와 탐색 과정
+## 4. GPP → LPP 데이터와 탐색 과정 (기본 조합)
 
 1. VIO 현재 위치와 목표를 costmap 셀로 변환한다.
 2. D* Lite가 목표에서 시작해 목표까지의 비용을 계산한다. `g`는 현재 저장된 비용 추정, `rhs`는 인접 셀 비용으로 계산한 한 단계 갱신값이다. 불일치 셀을 큐에서 처리해 일관성을 회복한다.

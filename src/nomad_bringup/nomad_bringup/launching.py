@@ -22,6 +22,16 @@ def start(context,module):
         if not re.fullmatch(r"(?:/[A-Za-z_][A-Za-z_0-9]*)+", legacy_command_topic):
             raise ValueError("cmd_vel_topic must be an absolute ROS topic name")
         topics["control.simulator_command"] = legacy_command_topic
+    algorithm_overrides = {}
+    if module in ('all','planning'):
+        from nomad_path_planning.gpp.registry import NAMES as GPP_NAMES
+        from nomad_path_planning.lpp.registry import NAMES as LPP_NAMES
+        for argument, parameter, choices in (('gpp','gpp_algorithm',GPP_NAMES),('lpp','lpp_algorithm',LPP_NAMES)):
+            choice=value(argument).strip()
+            if choice:
+                if choice not in choices:
+                    raise ValueError(f'Unknown {argument}={choice!r}; choose {choices}')
+                algorithm_overrides[parameter]=choice
     specs = selected_specs(providers,module)
     domain = os.getenv('ROS_DOMAIN_ID','0')
     # All-stack and single-module launches share locks, so they cannot duplicate nodes.
@@ -43,6 +53,8 @@ def start(context,module):
         params = [str(share/'config'/config),value('vehicle_file')]
         if override:
             params.append(override)
+        if role in ('gpp','lpp') and algorithm_overrides:
+            params.append(algorithm_overrides)
         nodes.append(Node(package=package,executable=executable,output='screen',
                           parameters=params,remappings=remappings(topics,role),
                           on_exit=Shutdown(reason=f'{package}/{executable} exited')))
@@ -61,6 +73,8 @@ def description(module='all'):
         DeclareLaunchArgument('modules_file',default_value=str(share/'config/modules.yaml')),
         DeclareLaunchArgument('vehicle_file',default_value=str(share/'config/vehicle.yaml')),
         DeclareLaunchArgument('params_file',default_value='',description='Optional ROS parameter overrides'),
+        DeclareLaunchArgument('gpp',default_value='',description='GPP strategy; empty uses planning.yaml/params_file'),
+        DeclareLaunchArgument('lpp',default_value='',description='LPP strategy; empty uses planning.yaml/params_file'),
         DeclareLaunchArgument('rviz',default_value='false'),
         DeclareLaunchArgument('cmd_vel_topic',default_value='',description='Legacy actuator-output override; prefer topics_file'),
         OpaqueFunction(function=lambda context:start(context,module)),
