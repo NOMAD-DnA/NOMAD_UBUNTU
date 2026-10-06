@@ -1,0 +1,9 @@
+{
+  "id": "07_vio_undulating_terrain",
+  "name": "암석 능선 · 굴곡 야지",
+  "kind": "rough",
+  "description": "노출된 바위·둔덕·횡경사·오르내림이 있는 지형에서 자세 변화 비교.",
+  "seed": 740,
+  "road_width_m": 4,
+  "art_revision": 2
+}

@@ -1,0 +1,3620 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.9">
+  <world name="nomad_forest">
+    <gravity>0 0 -9.81</gravity>
+    <physics name="nomad_physics" type="ignored">
+      <max_step_size>0.0016666666666666668</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.62 0.75 0.86 1</background>
+      <shadows>false</shadows>
+    </scene>
+    <light name="sun" type="directional">
+      <pose>0 0 20 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>-0.4 -0.2 -1</direction>
+      <cast_shadows>false</cast_shadows>
+    </light>
+    <gui fullscreen="false">
+      <plugin filename="MinimalScene" name="3D View">
+        <gz-gui>
+          <title>3D View</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="string" key="state">docked</property>
+        </gz-gui>
+        <engine>ogre2</engine>
+        <scene>scene</scene>
+        <ambient_light>0.6 0.6 0.6</ambient_light>
+        <background_color>0.62 0.75 0.86</background_color>
+        <camera_pose>-50 -45 58 0 0.75 0.75</camera_pose>
+      </plugin>
+      <plugin filename="GzSceneManager" name="GzSceneManager">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="InteractiveViewControl" name="InteractiveViewControl">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="CameraTracking" name="CameraTracking">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="EntityContextMenuPlugin" name="EntityContextMenuPlugin">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="SelectEntities" name="SelectEntities">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="WorldControl" name="WorldControl">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">72</property>
+          <property type="double" key="width">180</property>
+          <property type="double" key="z">1</property>
+          <anchors target="3D View">
+            <line own="left" target="left" />
+            <line own="bottom" target="bottom" />
+          </anchors>
+        </gz-gui>
+        <play_pause>true</play_pause>
+        <step>true</step>
+        <start_paused>false</start_paused>
+      </plugin>
+      <plugin filename="WorldStats" name="WorldStats">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">110</property>
+          <property type="double" key="width">290</property>
+          <property type="double" key="z">1</property>
+          <anchors target="3D View">
+            <line own="right" target="right" />
+            <line own="bottom" target="bottom" />
+          </anchors>
+        </gz-gui>
+        <sim_time>true</sim_time>
+        <real_time>true</real_time>
+        <real_time_factor>true</real_time_factor>
+        <iterations>true</iterations>
+      </plugin>
+      <plugin filename="EntityTree" name="EntityTree">
+        <gz-gui />
+      </plugin>
+      <plugin filename="ComponentInspector" name="ComponentInspector">
+        <gz-gui />
+      </plugin>
+    </gui>
+    <model name="terrain">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/terrain.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/terrain.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_005">
+      <static>true</static>
+      <pose>-23.74728719564652 4.71142771278582 0.009430678626121328 0 0 5.68341908159201</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1037293258001493 1.1037293258001493 1.1037293258001493</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.765966921280239 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.22074586516002986</radius>
+              <length>3.531933842560478</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_007">
+      <static>true</static>
+      <pose>-6.293588800439682 13.55242502400182 0.8007505266098273 0 0 0.8162940006053361</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7989688896494025 1.7989688896494025 1.7989688896494025</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.8783502234390443 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.35979377792988054</radius>
+              <length>5.756700446878089</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_010">
+      <static>true</static>
+      <pose>-31.69071476683939 5.799187152429241 -0.02215507995898214 0 0 1.699551294341331</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.4601741965381356 1.4601741965381356 1.4601741965381356</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.336278714461017 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.29203483930762714</radius>
+              <length>4.672557428922034</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_025">
+      <static>true</static>
+      <pose>-13.276341670110689 -11.89721545183179 0.7928453746427766 0 0 3.922718837163446</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1458944786385494 1.1458944786385494 1.1458944786385494</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.833431165821679 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.22917889572770989</radius>
+              <length>3.666862331643358</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_026">
+      <static>true</static>
+      <pose>-17.65965859949798 -19.472591499583118 0.47760870097271657 0 0 1.5537920347137826</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.55673858618915 1.55673858618915 1.55673858618915</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.4907817379026405 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.31134771723783006</radius>
+              <length>4.981563475805281</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_027">
+      <static>true</static>
+      <pose>-32.656983271442016 -5.753634908888614 0.21888108581349097 0 0 2.712591995568711</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3163363295710189 1.3163363295710189 1.3163363295710189</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.1061381273136304 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2632672659142038</radius>
+              <length>4.212276254627261</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_030">
+      <static>true</static>
+      <pose>-6.838054801052387 24.097928054166218 0.6409375628328468 0 0 1.8420546594271203</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5101867661153476 1.5101867661153476 1.5101867661153476</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.4162988257845566 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.30203735322306957</radius>
+              <length>4.832597651569113</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_033">
+      <static>true</static>
+      <pose>-23.739253999120052 -15.622844189202766 0.1153574259995338 0 0 1.2297393752088968</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.4612864012952456 1.4612864012952456 1.4612864012952456</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.338058242072393 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2922572802590491</radius>
+              <length>4.676116484144786</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_035">
+      <static>true</static>
+      <pose>-0.6944197450645646 -16.28772859136997 0.6846292504664656 0 0 5.097573754092246</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.31694152696172 1.31694152696172 1.31694152696172</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.107106443138752 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.263388305392344</radius>
+              <length>4.214212886277504</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_037">
+      <static>true</static>
+      <pose>-26.236115699963612 -13.504457012007546 0.16057850078164362 0 0 3.585415213021652</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.437822450414941 1.437822450414941 1.437822450414941</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.300515920663906 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.28756449008298823</radius>
+              <length>4.601031841327812</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_039">
+      <static>true</static>
+      <pose>-2.5717278783547712 -14.939464476773919 0.9371561032422369 0 0 5.153898931738391</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3302403800585585 1.3302403800585585 1.3302403800585585</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.1283846080936937 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2660480760117117</radius>
+              <length>4.256769216187387</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_040">
+      <static>true</static>
+      <pose>-1.1061359489396452 -25.091046535095707 0.8661596419446858 0 0 3.356134354959896</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2975089270482345 1.2975089270482345 1.2975089270482345</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.0760142832771753 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2595017854096469</radius>
+              <length>4.152028566554351</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_042">
+      <static>true</static>
+      <pose>-29.18652233858538 -10.725371664027968 0.35534283526409133 0 0 1.710666110183999</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2694490893673749 1.2694490893673749 1.2694490893673749</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.0311185429878 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.253889817873475</radius>
+              <length>4.0622370859756</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_047">
+      <static>true</static>
+      <pose>-13.536181052587096 -21.21866772276849 0.7080946075535787 0 0 3.372255730874749</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.8033204049654459 1.8033204049654459 1.8033204049654459</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.8853126479447138 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3606640809930892</radius>
+              <length>5.7706252958894275</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_050">
+      <static>true</static>
+      <pose>-22.528222273151854 -7.353233757469077 -0.10902726072797081 0 0 5.37809941848425</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.6044228122951985 1.6044228122951985 1.6044228122951985</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.567076499672318 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.32088456245903973</radius>
+              <length>5.134152999344636</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_051">
+      <static>true</static>
+      <pose>25.248967756138725 17.21050427596017 2.7728254936335675 0 0 4.054797229250412</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7249098421022357 1.7249098421022357 1.7249098421022357</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.759855747363577 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.34498196842044715</radius>
+              <length>5.519711494727154</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_053">
+      <static>true</static>
+      <pose>-19.454563290203577 -6.444492305446776 0.4661522673060686 0 0 1.751435295693052</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1809182876905497 1.1809182876905497 1.1809182876905497</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.8894692603048797 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.23618365753810996</radius>
+              <length>3.7789385206097594</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_054">
+      <static>true</static>
+      <pose>-28.481551397186305 12.689320493782844 0.05267729503384749 0 0 4.343758265578293</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2595461972461752 1.2595461972461752 1.2595461972461752</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.0152739155938804 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.25190923944923505</radius>
+              <length>4.030547831187761</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_059">
+      <static>true</static>
+      <pose>-31.964217781927935 -2.936461379875759 0.0 0 0 5.911413301086224</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3568447631971734 1.3568447631971734 1.3568447631971734</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.1709516211154773 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.27136895263943467</radius>
+              <length>4.341903242230955</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_065">
+      <static>true</static>
+      <pose>24.457651218509476 14.278219807285602 0.7009766329042418 0 0 5.3257457272270825</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2717046956988256 1.2717046956988256 1.2717046956988256</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.034727513118121 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.25434093913976513</radius>
+              <length>4.069455026236242</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_066">
+      <static>true</static>
+      <pose>-24.32741554638034 1.4943120799815333 0.0 0 0 0.05663431140513494</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.16634691332975 1.16634691332975 1.16634691332975</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.8661550613276 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.23326938266595</radius>
+              <length>3.7323101226552</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_069">
+      <static>true</static>
+      <pose>-1.1114009333897954 15.636129962233149 0.5721477040604617 0 0 3.1060984069651902</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.9391842858547345 0.9391842858547345 0.9391842858547345</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.5026948573675751 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.1878368571709469</radius>
+              <length>3.0053897147351503</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_072">
+      <static>true</static>
+      <pose>-16.770473143734264 10.652227281919778 0.36253165502038964 0 0 3.325448024082017</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1987599998118583 1.1987599998118583 1.1987599998118583</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9180159996989734 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.23975199996237168</radius>
+              <length>3.836031999397947</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_075">
+      <static>true</static>
+      <pose>28.2225630124111 -9.554475139353482 -0.1421955524333917 0 0 5.602045413154341</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2480439982903286 1.2480439982903286 1.2480439982903286</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9968703972645259 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.24960879965806573</radius>
+              <length>3.9937407945290517</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_077">
+      <static>true</static>
+      <pose>-18.361296366333363 9.103025834376098 0.39481014141068205 0 0 3.0501125574067327</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.9926797807486402 0.9926797807486402 0.9926797807486402</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.5882876491978244 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.19853595614972805</radius>
+              <length>3.176575298395649</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_078">
+      <static>true</static>
+      <pose>-9.900320157292139 -14.401477858635333 0.8857124431410559 0 0 0.6427639457512218</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.952438705476013 0.952438705476013 0.952438705476013</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.523901928761621 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.1904877410952026</radius>
+              <length>3.047803857523242</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_080">
+      <static>true</static>
+      <pose>-0.9724898220835385 -22.8911420694354 0.48623917429165425 0 0 2.4140685081277065</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.0421492229770055 1.0421492229770055 1.0421492229770055</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.667438756763209 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.20842984459540112</radius>
+              <length>3.334877513526418</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_094">
+      <static>true</static>
+      <pose>-2.7662138534195293 14.512765500442583 0.8914661388534235 0 0 5.401350426669341</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.6666037909532645 1.6666037909532645 1.6666037909532645</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.6665660655252235 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.33332075819065293</radius>
+              <length>5.333132131050447</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_100">
+      <static>true</static>
+      <pose>-2.8213500491230334 -23.10175073394997 0.5316661522117653 0 0 2.9509796798564474</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1534133446143469 1.1534133446143469 1.1534133446143469</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.845461351382955 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.23068266892286937</radius>
+              <length>3.69092270276591</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_102">
+      <static>true</static>
+      <pose>-20.918706636194234 6.006033082981453 0.3098943282150593 0 0 6.253051255335334</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.198435194205103 1.198435194205103 1.198435194205103</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9174963107281648 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2396870388410206</radius>
+              <length>3.8349926214563297</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_104">
+      <static>true</static>
+      <pose>28.751849869676818 9.924569714537888 0.43422264244355135 0 0 3.1851830915829193</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5669524513801418 1.5669524513801418 1.5669524513801418</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.507123922208227 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3133904902760284</radius>
+              <length>5.014247844416454</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_106">
+      <static>true</static>
+      <pose>-19.057626697485098 -21.429688175406504 1.1408397657122222 0 0 1.000990727459679</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.9429300864191067 0.9429300864191067 0.9429300864191067</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.5086881382705708 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.18858601728382135</radius>
+              <length>3.0173762765411416</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_107">
+      <static>true</static>
+      <pose>17.496365396079497 -20.101052250353064 0.39404402331313226 0 0 1.1338845751314337</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3843335435280517 1.3843335435280517 1.3843335435280517</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.214933669644883 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.27686670870561036</radius>
+              <length>4.429867339289766</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_108">
+      <static>true</static>
+      <pose>-4.673912379977352 -16.11857310948409 0.9173448478450703 0 0 4.205197216302796</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3300202291052394 1.3300202291052394 1.3300202291052394</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.1280323665683833 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2660040458210479</radius>
+              <length>4.256064733136767</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_109">
+      <static>true</static>
+      <pose>16.350984833224167 -22.434822562332542 1.2152132815893821 0 0 2.2077109779601747</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5861974616751477 1.5861974616751477 1.5861974616751477</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.5379159386802366 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.31723949233502957</radius>
+              <length>5.075831877360473</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_114">
+      <static>true</static>
+      <pose>-12.301881939422575 12.945647165655316 0.3383598516213291 0 0 2.4276722496816645</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.8754748947221667 0.8754748947221667 0.8754748947221667</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.4007598315554668 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17509497894443335</radius>
+              <length>2.8015196631109336</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_116">
+      <static>true</static>
+      <pose>18.34391992662364 10.233785066652338 1.522372054525186 0 0 1.4962436887757913</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.9015878346819907 0.9015878346819907 0.9015878346819907</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.442540535491185 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.18031756693639814</radius>
+              <length>2.88508107098237</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_118">
+      <static>true</static>
+      <pose>4.214497332983825 -23.755848658581105 0.5907177686552141 0 0 2.435933843547309</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1882747736186925 1.1882747736186925 1.1882747736186925</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9012396377899081 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.23765495472373852</radius>
+              <length>3.8024792755798162</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_120">
+      <static>true</static>
+      <pose>-9.919427201797852 23.42828917748814 0.5233286322261401 0 0 5.089609233991469</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.550121981894094 1.550121981894094 1.550121981894094</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.4801951710305503 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3100243963788188</radius>
+              <length>4.960390342061101</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_124">
+      <static>true</static>
+      <pose>12.074988859806325 -14.42589918851727 0.11758999165868661 0 0 3.5026901283701157</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1078354053719548 1.1078354053719548 1.1078354053719548</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.7725366485951277 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.22156708107439096</radius>
+              <length>3.5450732971902554</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_132">
+      <static>true</static>
+      <pose>-23.159342853530227 18.844382334908275 0.38741092598045135 0 0 2.6802246936426855</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.8939544678904451 0.8939544678904451 0.8939544678904451</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.4303271486247122 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17879089357808903</radius>
+              <length>2.8606542972494244</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_139">
+      <static>true</static>
+      <pose>-1.875117931666864 24.60243727265535 0.5796699866888116 0 0 0.02228610749726361</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.8754748954382711 0.8754748954382711 0.8754748954382711</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.4007598327012338 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.17509497908765423</radius>
+              <length>2.8015196654024677</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_144">
+      <static>true</static>
+      <pose>-7.383037681972716 15.932795061696218 0.008968379253992756 0 0 2.983480610730356</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1275508866314268 1.1275508866314268 1.1275508866314268</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.804081418610283 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.22551017732628537</radius>
+              <length>3.608162837220566</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_148">
+      <static>true</static>
+      <pose>-7.343302468665485 -13.640190189029394 1.1682619906584892 0 0 1.9735704425010583</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3548106065326508 1.3548106065326508 1.3548106065326508</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.1676969704522415 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2709621213065302</radius>
+              <length>4.335393940904483</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_149">
+      <static>true</static>
+      <pose>-21.290001374066875 17.669566322876655 0.09880520469758874 0 0 1.309578482517985</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.727077925911875 1.727077925911875 1.727077925911875</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.7633246814590002 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.34541558518237503</radius>
+              <length>5.5266493629180005</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_151">
+      <static>true</static>
+      <pose>-11.380744848688852 -23.404847185497154 0.9872489706387149 0 0 3.581989815266369</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.6466060610825708 1.6466060610825708 1.6466060610825708</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.6345696977321134 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.32932121221651417</radius>
+              <length>5.269139395464227</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_160">
+      <static>true</static>
+      <pose>-9.023421914254314 14.543629849972874 0.23866772326132862 0 0 0.6455605696202059</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.76155614567804 1.76155614567804 1.76155614567804</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.8184898330848642 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.35231122913560803</radius>
+              <length>5.6369796661697285</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_166">
+      <static>true</static>
+      <pose>-6.688955291213464 -24.984804589735102 0.9258627684968768 0 0 4.110673129153881</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.9360189261638309 0.9360189261638309 0.9360189261638309</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.4976302818621294 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.18720378523276618</radius>
+              <length>2.995260563724259</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_167">
+      <static>true</static>
+      <pose>15.996673173253711 10.313177564823377 1.9722138794428763 0 0 4.080049000838009</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7058053684853944 1.7058053684853944 1.7058053684853944</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.7292885895766315 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.34116107369707893</radius>
+              <length>5.458577179153263</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_169">
+      <static>true</static>
+      <pose>-28.890428150434044 9.546520334025303 -0.16239685023295294 0 0 1.6575078633481515</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.831440181913472 1.831440181913472 1.831440181913472</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.9303042910615553 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3662880363826944</radius>
+              <length>5.860608582123111</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_173">
+      <static>true</static>
+      <pose>-12.502700017331392 -14.51735591329966 0.5137186061934924 0 0 5.659660308240993</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.433883082825281 1.433883082825281 1.433883082825281</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.2942129325204497 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2867766165650562</radius>
+              <length>4.588425865040899</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_180">
+      <static>true</static>
+      <pose>-18.803474803390625 -10.76345794323688 -0.11286317550703899 0 0 3.164573356038388</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.0933875929630017 1.0933875929630017 1.0933875929630017</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.7494201487408028 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.21867751859260035</radius>
+              <length>3.4988402974816055</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_186">
+      <static>true</static>
+      <pose>-11.443931928611256 15.082205997048398 -0.008963105897041499 0 0 2.517811864487486</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2527596146383495 1.2527596146383495 1.2527596146383495</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.0044153834213594 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2505519229276699</radius>
+              <length>4.008830766842719</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_187">
+      <static>true</static>
+      <pose>-21.205003084000232 -5.659460622533775 0.1432419591692561 0 0 3.2308542033279815</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7431405728085718 1.7431405728085718 1.7431405728085718</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.789024916493715 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3486281145617144</radius>
+              <length>5.57804983298743</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_188">
+      <static>true</static>
+      <pose>-14.954044696089333 23.382359815205568 0.6086177892012964 0 0 4.675497153707997</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7499453065696076 1.7499453065696076 1.7499453065696076</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.7999124905113724 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.34998906131392155</radius>
+              <length>5.599824981022745</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_190">
+      <static>true</static>
+      <pose>31.8405356845078 -1.7202492389860495 -0.016109725992784388 0 0 1.1564644276489</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.3044044761263467 1.3044044761263467 1.3044044761263467</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.087047161802155 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.26088089522526936</radius>
+              <length>4.17409432360431</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_191">
+      <static>true</static>
+      <pose>-26.60471211196358 14.85861522068194 0.14817895730097064 0 0 2.9267937099276815</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5670582890273161 1.5670582890273161 1.5670582890273161</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.507293262443706 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.31341165780546326</radius>
+              <length>5.014586524887412</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_193">
+      <static>true</static>
+      <pose>-21.944750474128845 -3.2443358374040088 0.08017625818207312 0 0 3.959908846160471</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.635050891167773 1.635050891167773 1.635050891167773</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.616081425868437 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3270101782335546</radius>
+              <length>5.232162851736874</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_195">
+      <static>true</static>
+      <pose>-27.820192577309534 -12.461604070276303 0.3143378219788374 0 0 3.2297304472959834</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2323164086703433 1.2323164086703433 1.2323164086703433</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9717062538725494 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.24646328173406867</radius>
+              <length>3.9434125077450988</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_201">
+      <static>true</static>
+      <pose>-18.919462968653793 18.92948253076589 0.06176844918102018 0 0 3.1053862988889263</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1886053868972941 1.1886053868972941 1.1886053868972941</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9017686190356706 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.23772107737945883</radius>
+              <length>3.8035372380713413</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_207">
+      <static>true</static>
+      <pose>8.32709815310934 22.546641655049065 0.41832688693377185 0 0 2.330838220396966</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.6633031322146081 1.6633031322146081 1.6633031322146081</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.6612850115433733 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.33266062644292166</radius>
+              <length>5.3225700230867465</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_209">
+      <static>true</static>
+      <pose>-23.832787632649236 15.938286187444312 0.09290860907922273 0 0 4.59807876183276</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.6708734816083899 1.6708734816083899 1.6708734816083899</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.673397570573424 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.334174696321678</radius>
+              <length>5.346795141146848</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_212">
+      <static>true</static>
+      <pose>20.91017431863458 -17.100823790786336 0.09512804816273977 0 0 4.113894821890732</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5663543849134323 1.5663543849134323 1.5663543849134323</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.5061670158614917 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.31327087698268646</radius>
+              <length>5.012334031722983</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_214">
+      <static>true</static>
+      <pose>8.819314517258405 13.799476779055496 1.692432598073731 0 0 5.978505828718574</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.6264795098925968 1.6264795098925968 1.6264795098925968</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.602367215828155 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3252959019785194</radius>
+              <length>5.20473443165631</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_218">
+      <static>true</static>
+      <pose>-3.773850808889854 16.59511993901492 0.05825359903503507 0 0 4.163018128181159</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.046191044957323 1.046191044957323 1.046191044957323</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.673905671931717 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2092382089914646</radius>
+              <length>3.347811343863434</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_219">
+      <static>true</static>
+      <pose>-31.35182375927484 7.682800255087464 -0.027776944971528297 0 0 3.2952240078451007</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7078063317035546 1.7078063317035546 1.7078063317035546</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.7324901307256875 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.34156126634071093</radius>
+              <length>5.464980261451375</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_222">
+      <static>true</static>
+      <pose>9.642139503347863 -24.252012349781797 0.8644734847168342 0 0 4.215997067286709</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5535251317288774 1.5535251317288774 1.5535251317288774</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.485640210766204 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3107050263457755</radius>
+              <length>4.971280421532408</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_223">
+      <static>true</static>
+      <pose>-20.82746606356558 8.359626376795788 0.21306184891333665 0 0 3.751745175512626</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2654663257973147 1.2654663257973147 1.2654663257973147</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.0247461212757036 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.25309326515946295</radius>
+              <length>4.049492242551407</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_224">
+      <static>true</static>
+      <pose>28.96057189349102 12.569264350583062 1.0169912373486962 0 0 4.43867450526119</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.4186999720574518 1.4186999720574518 1.4186999720574518</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.269919955291923 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2837399944114904</radius>
+              <length>4.539839910583846</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_225">
+      <static>true</static>
+      <pose>-24.75265672608075 13.95472760592856 0.016434496460247396 0 0 0.65510919115056</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.2242497348314314 1.2242497348314314 1.2242497348314314</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.9587995757302903 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.24484994696628629</radius>
+              <length>3.9175991514605806</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_226">
+      <static>true</static>
+      <pose>32.84101195778523 -5.122997037509293 0.14348619201552976 0 0 0.7286880892265374</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.7510344863135492 1.7510344863135492 1.7510344863135492</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.801655178101679 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.35020689726270987</radius>
+              <length>5.603310356203358</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_227">
+      <static>true</static>
+      <pose>-20.869831322491304 -18.468411582610127 0.45367941695691116 0 0 4.410172546910359</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.1961725272957475 1.1961725272957475 1.1961725272957475</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.913876043673196 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.2392345054591495</radius>
+              <length>3.827752087346392</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_230">
+      <static>true</static>
+      <pose>-27.337269116462902 -15.092706891975292 0.7383270753649412 0 0 2.2034127779739237</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>1.5140564023305885 1.5140564023305885 1.5140564023305885</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 2.4224902437289417 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.3028112804661177</radius>
+              <length>4.8449804874578835</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="tree_237">
+      <static>true</static>
+      <pose>1.974117297097301 25.915147243194895 0.6860214427760253 0 0 5.830199970201627</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/pine_tree.obj</uri>
+              <scale>0.9322856023826933 0.9322856023826933 0.9322856023826933</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="trunk">
+          <pose>0 0 1.4916569638123094 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.18645712047653867</radius>
+              <length>2.9833139276246188</length>
+            </cylinder>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_240">
+      <static>true</static>
+      <pose>-33 0 0.0 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.3 1.3 1.3</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.3 1.3 1.3</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_241">
+      <static>true</static>
+      <pose>-5 -25 0.8758053271297873 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>0.9 0.9 0.9</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>0.9 0.9 0.9</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_242">
+      <static>true</static>
+      <pose>33 8 0.8665955083053554 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.1 1.1 1.1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.1 1.1 1.1</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_243">
+      <static>true</static>
+      <pose>4 25 0.5693123663492103 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6 1.6 1.6</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6 1.6 1.6</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_244">
+      <static>true</static>
+      <pose>-32.967330336151825 15.846644960274652 0.7012575574756377 0 0 3.2472290077625856</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.874075667746611 2.299260534197289 2.0118529674226275</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.874075667746611 2.299260534197289 2.0118529674226275</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_245">
+      <static>true</static>
+      <pose>20.82337360148857 1.1011340560217207 1.1151357375061839 0 0 5.423350358558584</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.560295329224151 2.848236263379321 2.4922067304569056</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.560295329224151 2.848236263379321 2.4922067304569056</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_246">
+      <static>true</static>
+      <pose>5.0382615699370845 -8.336383191842884 0.38458221770481205 0 0 4.0501464822566575</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.126248652856583 3.3009989222852667 2.8883740569996084</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.126248652856583 3.3009989222852667 2.8883740569996084</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_247">
+      <static>true</static>
+      <pose>5.892598357744241 25.92558976648011 0.7341794174236326 0 0 2.9744906363224515</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.162024564132957 3.329619651306366 2.9134171948930696</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.162024564132957 3.329619651306366 2.9134171948930696</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_248">
+      <static>true</static>
+      <pose>28.09973738500519 17.677533564315105 4.0699299687432235 0 0 5.468187203602847</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9714112075810437 2.377128966064835 2.0799878453067304</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9714112075810437 2.377128966064835 2.0799878453067304</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_249">
+      <static>true</static>
+      <pose>-3.677206608850568 -8.380034466745236 0.7556108808200934 0 0 2.1334202708409693</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.017139188031332 3.213711350425066 2.8119974316219323</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.017139188031332 3.213711350425066 2.8119974316219323</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_250">
+      <static>true</static>
+      <pose>-1.0169383914839756 14.681231587471949 0.9761685107667246 0 0 1.1394167677937614</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.2230988281971857 1.7784790625577487 1.55616917973803</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.2230988281971857 1.7784790625577487 1.55616917973803</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_251">
+      <static>true</static>
+      <pose>14.851461749150687 -11.669856220280984 0.6214798911979218 0 0 1.7187741630643705</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.234386957863191 2.587509566290553 2.264070870504234</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.234386957863191 2.587509566290553 2.264070870504234</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_252">
+      <static>true</static>
+      <pose>33.556713428197654 19.503644379877628 3.8608752571133698 0 0 5.137288419135253</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0622661507240116 1.6498129205792094 1.443586305506808</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0622661507240116 1.6498129205792094 1.443586305506808</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_253">
+      <static>true</static>
+      <pose>-16.969201332852883 -0.28601699493194843 0.8017397689836774 0 0 0.6231636631551086</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.235483208502282 3.388386566801826 2.9648382459515976</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.235483208502282 3.388386566801826 2.9648382459515976</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_254">
+      <static>true</static>
+      <pose>-0.043678619943996466 -15.252016734920653 0.7207266230192071 0 0 5.133196917772471</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.683706741788215 1.346965393430572 1.1785947192517505</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.683706741788215 1.346965393430572 1.1785947192517505</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_255">
+      <static>true</static>
+      <pose>32.18756630163651 7.6351695361308884 0.6457633148600759 0 0 2.283358258719551</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4392293083789163 1.951383446703133 1.7074605158652414</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4392293083789163 1.951383446703133 1.7074605158652414</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_256">
+      <static>true</static>
+      <pose>12.31754117045432 7.70689032386003 2.102135417098684 0 0 2.563742673812464</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.3076778838561243 2.6461423070848995 2.315374518699287</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.3076778838561243 2.6461423070848995 2.315374518699287</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_257">
+      <static>true</static>
+      <pose>6.315673240412245 3.498182660248503 1.3685577586320332 0 0 5.006678097655819</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7742697826299993 2.2194158261039996 1.9419888478409995</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7742697826299993 2.2194158261039996 1.9419888478409995</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_258">
+      <static>true</static>
+      <pose>-7.493111185231438 -13.535289954328993 1.1728109464176377 0 0 0.5534550730405597</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.143743699108878 2.514994959287103 2.2006205893762143</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.143743699108878 2.514994959287103 2.2006205893762143</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_259">
+      <static>true</static>
+      <pose>29.90523542750023 13.381571234923399 1.7132724957517473 0 0 1.6943382836028698</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7237715646941996 2.1790172517553597 1.9066400952859395</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7237715646941996 2.1790172517553597 1.9066400952859395</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_260">
+      <static>true</static>
+      <pose>-15.258148747397328 22.45451315156935 0.43305719328889414 0 0 5.976089518150762</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.124143667636066 3.299314934108853 2.8869005673452457</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.124143667636066 3.299314934108853 2.8869005673452457</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_261">
+      <static>true</static>
+      <pose>-14.06948522352253 -24.824393234016096 1.1722932266551207 0 0 4.270241559126413</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2076730852694455 2.5661384682155566 2.2453711596886117</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2076730852694455 2.5661384682155566 2.2453711596886117</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_262">
+      <static>true</static>
+      <pose>-2.819649152008772 -13.682299535434865 0.9772837501904654 0 0 1.0626467404774742</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.978556671035753 3.1828453368286027 2.784989669725027</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.978556671035753 3.1828453368286027 2.784989669725027</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_263">
+      <static>true</static>
+      <pose>-31.573596240306124 22.527544995527094 0.90081379847836 0 0 4.078592334631408</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.4021809952504034 2.7217447962003227 2.3815266966752824</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.4021809952504034 2.7217447962003227 2.3815266966752824</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_264">
+      <static>true</static>
+      <pose>30.52006419919543 24.78826008785707 5.121206614900535 0 0 3.49887517549268</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2831696948364155 2.6265357558691327 2.298218786385491</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2831696948364155 2.6265357558691327 2.298218786385491</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_265">
+      <static>true</static>
+      <pose>27.97466140094071 -25.039679216759367 3.549986678195022 0 0 3.011684027401208</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.71945756152915 2.9755660492233202 2.603620293070405</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.71945756152915 2.9755660492233202 2.603620293070405</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_266">
+      <static>true</static>
+      <pose>-13.732887924290395 4.62541282665585 0.7607829049557489 0 0 2.6098517721629957</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6599374434679173 2.127949954774334 1.861956210427542</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6599374434679173 2.127949954774334 1.861956210427542</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_267">
+      <static>true</static>
+      <pose>29.40201533167408 23.365602917175558 5.597695305221764 0 0 3.025912035280491</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.056314112003104 1.6450512896024834 1.4394198784021728</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.056314112003104 1.6450512896024834 1.4394198784021728</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_268">
+      <static>true</static>
+      <pose>8.292288045704325 3.5419932872306283 1.4981689452323155 0 0 4.528867462037835</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.043499247408141 3.234799397926513 2.8304494731856984</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.043499247408141 3.234799397926513 2.8304494731856984</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_269">
+      <static>true</static>
+      <pose>-34.887002710052116 18.60314823376227 0.8723032603348579 0 0 0.9347742165595453</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4897069868211803 1.9917655894569444 1.742794890774826</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4897069868211803 1.9917655894569444 1.742794890774826</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_270">
+      <static>true</static>
+      <pose>33.768290123819696 -25.674046648848428 2.7644135869085438 0 0 1.969124243756939</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.753347631152389 2.2026781049219113 1.927343341806672</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.753347631152389 2.2026781049219113 1.927343341806672</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_271">
+      <static>true</static>
+      <pose>-1.1788875302927835 13.300550763803457 1.18842778329707 0 0 5.134001918166926</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0278163333531234 1.6222530666824988 1.4194714333471863</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0278163333531234 1.6222530666824988 1.4194714333471863</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_272">
+      <static>true</static>
+      <pose>15.12406886912867 -6.516261968523505 1.2511540721417855 0 0 3.234128499160245</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6725774827937796 2.138061986235024 1.8708042379556455</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6725774827937796 2.138061986235024 1.8708042379556455</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_273">
+      <static>true</static>
+      <pose>-18.704954316983027 -24.27235301439664 1.1755128716433376 0 0 0.9798351036661495</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2533264040970504 2.6026611232776404 2.277328482867935</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2533264040970504 2.6026611232776404 2.277328482867935</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_274">
+      <static>true</static>
+      <pose>-26.114535880137858 -19.074853296758942 1.0703876841867823 0 0 3.2343548998037286</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.367677998611777 2.6941423988894218 2.3573745990282435</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.367677998611777 2.6941423988894218 2.3573745990282435</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_275">
+      <static>true</static>
+      <pose>15.641991289771617 -23.468232268766116 1.3169454164819774 0 0 1.6959412138102261</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6033018972039632 1.2826415177631707 1.1223113280427741</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6033018972039632 1.2826415177631707 1.1223113280427741</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_276">
+      <static>true</static>
+      <pose>32.95818721793795 -23.3600354715814 3.1248901539351186 0 0 3.107965449442049</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.135397531021479 3.308318024817183 2.894778271715035</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.135397531021479 3.308318024817183 2.894778271715035</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_277">
+      <static>true</static>
+      <pose>16.95358999343206 -2.9048177554760137 1.380071284674504 0 0 3.0844046206044418</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.7375724713530776 1.3900579770824621 1.2163007299471542</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.7375724713530776 1.3900579770824621 1.2163007299471542</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_278">
+      <static>true</static>
+      <pose>18.36871297188027 5.689603423119674 1.6396086157890675 0 0 6.277747327125808</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.8683058241031485 1.4946446592825189 1.307814076872204</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.8683058241031485 1.4946446592825189 1.307814076872204</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_279">
+      <static>true</static>
+      <pose>-27.971102459478075 21.497631774206127 0.745921923920694 0 0 1.162072949746425</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.390285584733056 2.712228467786445 2.373199909313139</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.390285584733056 2.712228467786445 2.373199909313139</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_280">
+      <static>true</static>
+      <pose>-15.872121723343067 -0.08543440475379782 0.8007560554037753 0 0 1.2988741865222186</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.7636625780466484 3.010930062437319 2.634563804632654</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.7636625780466484 3.010930062437319 2.634563804632654</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_281">
+      <static>true</static>
+      <pose>28.12188300356101 20.7980829596478 5.426100311784138 0 0 3.7673522230505356</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.099659582937291 3.2797276663498334 2.8697617080561035</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.099659582937291 3.2797276663498334 2.8697617080561035</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_282">
+      <static>true</static>
+      <pose>-9.964931181961635 13.123790567479077 0.5287348244146948 0 0 2.197235155461351</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.185627885318328 1.7485023082546627 1.5299395197228296</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.185627885318328 1.7485023082546627 1.5299395197228296</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_283">
+      <static>true</static>
+      <pose>33.533318240811084 7.631318890402802 0.9181199347854953 0 0 4.421057324753317</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.136792737453566 3.3094341899628525 2.895754916217496</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.136792737453566 3.3094341899628525 2.895754916217496</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_284">
+      <static>true</static>
+      <pose>-15.438794548754288 25.4827316830511 0.6810116967832169 0 0 3.1636963224186525</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.9086977298974057 3.1269581839179246 2.736088410928184</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.9086977298974057 3.1269581839179246 2.736088410928184</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_285">
+      <static>true</static>
+      <pose>-8.023531256544874 -8.257353286800562 0.9390299444351349 0 0 2.5147287583825557</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.959454889509966 1.567563911607973 1.371618422656976</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.959454889509966 1.567563911607973 1.371618422656976</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_286">
+      <static>true</static>
+      <pose>0.8657070259679003 13.649638723083662 1.3337011948918331 0 0 1.478248427468329</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4423061699452178 1.9538449359561743 1.7096143189616524</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4423061699452178 1.9538449359561743 1.7096143189616524</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_287">
+      <static>true</static>
+      <pose>17.172493772490256 0.9390337279085053 1.4900768482579467 0 0 2.8928657193613208</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9754238427165927 2.3803390741732744 2.0827966899016146</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9754238427165927 2.3803390741732744 2.0827966899016146</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_288">
+      <static>true</static>
+      <pose>12.168824380781658 -6.8717798999263096 0.9633221197839112 0 0 5.9604122633923975</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9657662198141859 1.5726129758513487 1.37603635386993</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9657662198141859 1.5726129758513487 1.37603635386993</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_289">
+      <static>true</static>
+      <pose>-30.144292680780012 -21.656584758351045 0.7815868597182289 0 0 3.7959013327836475</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9729216164669108 1.5783372931735287 1.3810451315268375</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9729216164669108 1.5783372931735287 1.3810451315268375</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_290">
+      <static>true</static>
+      <pose>-18.745823698973773 21.238953597050873 0.39187416632735717 0 0 3.342919399912345</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.0622490211394204 2.4497992169115363 2.1435743147975943</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.0622490211394204 2.4497992169115363 2.1435743147975943</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="forest_clusters">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/forest_clusters.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+    <model name="undergrowth">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/undergrowth.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+    <model name="fallen_wood_and_stones">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/roadside_details.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+    <model name="nomad_vehicle" canonical_link="base_link">
+      <static>false</static>
+      <self_collide>false</self_collide>
+      <link name="base_link">
+        <pose relative_to="__model__">0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0.2 0 0 0</pose>
+          <mass>30</mass>
+          <inertia>
+            <ixx>0.661</ixx>
+            <iyy>1.84225</iyy>
+            <izz>2.43125</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="base_link_visual">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.85 0.5 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.15 0.38 0.18 1</ambient>
+            <diffuse>0.15 0.38 0.18 1</diffuse>
+          </material>
+        </visual>
+        <collision name="base_link_collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.85 0.5 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <sensor name="oak_rgb" type="rgbd_camera">
+          <pose relative_to="base_link">0.46 0 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/nomad/raw/oak/rgbd</topic>
+          <gz_frame_id>oak_rgb_optical_frame</gz_frame_id>
+          <camera>
+            <optical_frame_id>oak_rgb_optical_frame</optical_frame_id>
+            <horizontal_fov>1.20427718387609</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>40</far>
+            </clip>
+            <depth_camera>
+              <clip>
+                <near>0.4</near>
+                <far>8</far>
+              </clip>
+            </depth_camera>
+            <lens>
+              <type>gnomonical</type>
+              <intrinsics>
+                <fx>465.602889175182</fx>
+                <fy>471.026521321236</fy>
+                <cx>320</cx>
+                <cy>240</cy>
+                <s>0</s>
+              </intrinsics>
+              <projection>
+                <p_fx>465.602889175182</p_fx>
+                <p_fy>471.026521321236</p_fy>
+                <p_cx>320</p_cx>
+                <p_cy>240</p_cy>
+                <tx>0</tx>
+                <ty>0</ty>
+              </projection>
+            </lens>
+          </camera>
+        </sensor>
+        <sensor name="oak_left" type="camera">
+          <pose relative_to="base_link">0.46 0.0375 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/nomad/raw/oak/left/image_raw</topic>
+          <gz_frame_id>oak_left_optical_frame</gz_frame_id>
+          <camera>
+            <optical_frame_id>oak_left_optical_frame</optical_frame_id>
+            <camera_info_topic>/nomad/raw/oak/left/camera_info</camera_info_topic>
+            <horizontal_fov>1.27409035395586</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>L8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>40</far>
+            </clip>
+            <lens>
+              <type>gnomonical</type>
+              <intrinsics>
+                <fx>432.455180142659</fx>
+                <fy>432.971461265142</fy>
+                <cx>320</cx>
+                <cy>240</cy>
+                <s>0</s>
+              </intrinsics>
+              <projection>
+                <p_fx>432.455180142659</p_fx>
+                <p_fy>432.971461265142</p_fy>
+                <p_cx>320</p_cx>
+                <p_cy>240</p_cy>
+                <tx>0</tx>
+                <ty>0</ty>
+              </projection>
+            </lens>
+          </camera>
+        </sensor>
+        <sensor name="oak_right" type="camera">
+          <pose relative_to="base_link">0.46 -0.0375 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/nomad/raw/oak/right/image_raw</topic>
+          <gz_frame_id>oak_right_optical_frame</gz_frame_id>
+          <camera>
+            <optical_frame_id>oak_right_optical_frame</optical_frame_id>
+            <camera_info_topic>/nomad/raw/oak/right/camera_info</camera_info_topic>
+            <horizontal_fov>1.27409035395586</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>L8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>40</far>
+            </clip>
+            <lens>
+              <type>gnomonical</type>
+              <intrinsics>
+                <fx>432.455180142659</fx>
+                <fy>432.971461265142</fy>
+                <cx>320</cx>
+                <cy>240</cy>
+                <s>0</s>
+              </intrinsics>
+              <projection>
+                <p_fx>432.455180142659</p_fx>
+                <p_fy>432.971461265142</p_fy>
+                <p_cx>320</p_cx>
+                <p_cy>240</p_cy>
+                <tx>-32.4341385106994</tx>
+                <ty>0</ty>
+              </projection>
+            </lens>
+          </camera>
+        </sensor>
+        <sensor name="ydlidar_g2" type="gpu_lidar">
+          <pose relative_to="base_link">0.15 0 0.38 0 0 0</pose>
+          <topic>/nomad/raw/scan</topic>
+          <gz_frame_id>scan</gz_frame_id>
+          <always_on>true</always_on>
+          <update_rate>10</update_rate>
+          <visualize>false</visualize>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>500</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.14159265358979</min_angle>
+                <max_angle>3.12902628297543</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>1</samples>
+                <resolution>1</resolution>
+                <min_angle>0</min_angle>
+                <max_angle>0</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.12</min>
+              <max>12</max>
+              <resolution>0.01</resolution>
+            </range>
+            <noise>
+              <type>gaussian</type>
+              <mean>0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </lidar>
+        </sensor>
+        <sensor name="oak_imu" type="imu">
+          <pose relative_to="base_link">0.46 0 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>200</update_rate>
+          <topic>/nomad/raw/oak/imu</topic>
+          <gz_frame_id>oak_imu_frame</gz_frame_id>
+          <imu />
+        </sensor>
+      </link>
+      <link name="front_left_steering_link">
+        <pose relative_to="__model__">0.36 0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>0.3</mass>
+          <inertia>
+            <ixx>8.6875e-05</ixx>
+            <iyy>8.6875e-05</iyy>
+            <izz>9.375e-05</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_left_steering_link_visual">
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.04</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="front_left_wheel">
+        <pose relative_to="__model__">0.36 0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_left_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="front_left_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <link name="front_right_steering_link">
+        <pose relative_to="__model__">0.36 -0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>0.3</mass>
+          <inertia>
+            <ixx>8.6875e-05</ixx>
+            <iyy>8.6875e-05</iyy>
+            <izz>9.375e-05</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_right_steering_link_visual">
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.04</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="front_right_wheel">
+        <pose relative_to="__model__">0.36 -0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_right_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="front_right_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <link name="rear_left_wheel">
+        <pose relative_to="__model__">-0.36 0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="rear_left_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="rear_left_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <link name="rear_right_wheel">
+        <pose relative_to="__model__">-0.36 -0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="rear_right_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="rear_right_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <joint name="front_left_steering_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>front_left_steering_link</child>
+        <pose relative_to="front_left_steering_link">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-0.55</lower>
+            <upper>0.55</upper>
+            <effort>12</effort>
+            <velocity>2</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="front_left_wheel_joint" type="revolute">
+        <parent>front_left_steering_link</parent>
+        <child>front_left_wheel</child>
+        <pose relative_to="front_left_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="front_right_steering_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>front_right_steering_link</child>
+        <pose relative_to="front_right_steering_link">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-0.55</lower>
+            <upper>0.55</upper>
+            <effort>12</effort>
+            <velocity>2</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="front_right_wheel_joint" type="revolute">
+        <parent>front_right_steering_link</parent>
+        <child>front_right_wheel</child>
+        <pose relative_to="front_right_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="rear_left_wheel_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>rear_left_wheel</child>
+        <pose relative_to="rear_left_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="rear_right_wheel_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>rear_right_wheel</child>
+        <pose relative_to="rear_right_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <frame name="oak_rgb_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="oak_depth_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="oak_left_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0.0375 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="oak_right_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 -0.0375 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="scan" attached_to="base_link">
+        <pose relative_to="base_link">0.15 0 0.38 0 0 0</pose>
+      </frame>
+      <frame name="oak_imu_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0 0.29 0 0 0</pose>
+      </frame>
+      <plugin filename="gz-sim-ackermann-steering-system" name="gz::sim::systems::AckermannSteering">
+        <left_joint>rear_left_wheel_joint</left_joint>
+        <right_joint>rear_right_wheel_joint</right_joint>
+        <left_steering_joint>front_left_steering_joint</left_steering_joint>
+        <right_steering_joint>front_right_steering_joint</right_steering_joint>
+        <wheel_base>0.72</wheel_base>
+        <wheel_separation>0.6</wheel_separation>
+        <kingpin_width>0.6</kingpin_width>
+        <wheel_radius>0.15</wheel_radius>
+        <steering_limit>0.55</steering_limit>
+        <min_velocity>-1</min_velocity>
+        <max_velocity>1</max_velocity>
+        <min_acceleration>-0.6</min_acceleration>
+        <max_acceleration>0.6</max_acceleration>
+        <topic>/nomad/vehicle/cmd_vel</topic>
+        <odom_topic>/nomad/vehicle/wheel_odom</odom_topic>
+        <tf_topic>/nomad/vehicle/wheel_tf</tf_topic>
+        <frame_id>odom</frame_id>
+        <child_frame_id>base_link</child_frame_id>
+        <odom_publish_frequency>50</odom_publish_frequency>
+      </plugin>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <dimensions>3</dimensions>
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <odom_topic>/nomad/vehicle/odom</odom_topic>
+        <tf_topic>/nomad/vehicle/tf</tf_topic>
+        <odom_publish_frequency>50</odom_publish_frequency>
+        <gaussian_noise>0</gaussian_noise>
+      </plugin>
+      <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+        <topic>/nomad/vehicle/joint_states</topic>
+        <update_rate>50</update_rate>
+        <joint_name>front_left_steering_joint</joint_name>
+        <joint_name>front_left_wheel_joint</joint_name>
+        <joint_name>front_right_steering_joint</joint_name>
+        <joint_name>front_right_wheel_joint</joint_name>
+        <joint_name>rear_left_wheel_joint</joint_name>
+        <joint_name>rear_right_wheel_joint</joint_name>
+      </plugin>
+      <pose>-28 0 0.03 0 0 -1.5707963267948966</pose>
+    </model>
+  </world>
+</sdf>

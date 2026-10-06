@@ -1,0 +1,73 @@
+{
+  "lanes": [
+    {
+      "angle_deg": 5,
+      "center_y_m": -25.0,
+      "start_x_m": 0.0,
+      "apex_x_m": 8.0,
+      "end_x_m": 16.0,
+      "height_m": 0.6999093082073921,
+      "ascent_surface_length_m": 8.030558700346779
+    },
+    {
+      "angle_deg": 10,
+      "center_y_m": -15.0,
+      "start_x_m": 0.0,
+      "apex_x_m": 8.0,
+      "end_x_m": 16.0,
+      "height_m": 1.4106158456677198,
+      "ascent_surface_length_m": 8.123412895085961
+    },
+    {
+      "angle_deg": 15,
+      "center_y_m": -5.0,
+      "start_x_m": 0.0,
+      "apex_x_m": 8.0,
+      "end_x_m": 16.0,
+      "height_m": 2.1435935394489816,
+      "ascent_surface_length_m": 8.282209443280664
+    },
+    {
+      "angle_deg": 20,
+      "center_y_m": 5.0,
+      "start_x_m": 0.0,
+      "apex_x_m": 8.0,
+      "end_x_m": 16.0,
+      "height_m": 2.9117618741296187,
+      "ascent_surface_length_m": 8.513422179807296
+    },
+    {
+      "angle_deg": 25,
+      "center_y_m": 15.0,
+      "start_x_m": 0.0,
+      "apex_x_m": 8.0,
+      "end_x_m": 16.0,
+      "height_m": 3.7304612652399887,
+      "ascent_surface_length_m": 8.827023351699934
+    },
+    {
+      "angle_deg": 30,
+      "center_y_m": 25.0,
+      "start_x_m": 0.0,
+      "apex_x_m": 8.0,
+      "end_x_m": 16.0,
+      "height_m": 4.618802153517006,
+      "ascent_surface_length_m": 9.237604307034012
+    }
+  ],
+  "payload_kg": 0.0,
+  "vehicle_total_mass_kg": 34.6,
+  "friction_mu": 1.0,
+  "vehicle_model": "nomad_vehicle_test",
+  "world_name": "nomad_forest",
+  "drive_model": "existing velocity-command Ackermann; not a calibrated torque-limited motor",
+  "payload_assumption": "rectangular payload at original chassis inertial CG",
+  "spawn_pose": [
+    -12.0,
+    -25.0,
+    0.03,
+    0.0,
+    0.0,
+    0.0
+  ]
+}

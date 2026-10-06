@@ -1,0 +1,1890 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.9">
+  <world name="nomad_forest">
+    <gravity>0 0 -9.81</gravity>
+    <physics name="nomad_physics" type="ignored">
+      <max_step_size>0.0016666666666666668</max_step_size>
+      <real_time_factor>1</real_time_factor>
+    </physics>
+    <plugin filename="gz-sim-physics-system" name="gz::sim::systems::Physics" />
+    <plugin filename="gz-sim-user-commands-system" name="gz::sim::systems::UserCommands" />
+    <plugin filename="gz-sim-scene-broadcaster-system" name="gz::sim::systems::SceneBroadcaster" />
+    <plugin filename="gz-sim-sensors-system" name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-imu-system" name="gz::sim::systems::Imu" />
+    <scene>
+      <ambient>0.6 0.6 0.6 1</ambient>
+      <background>0.62 0.75 0.86 1</background>
+      <shadows>false</shadows>
+    </scene>
+    <light name="sun" type="directional">
+      <pose>0 0 20 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.1 0.1 0.1 1</specular>
+      <direction>-0.4 -0.2 -1</direction>
+      <cast_shadows>false</cast_shadows>
+    </light>
+    <gui fullscreen="false">
+      <plugin filename="MinimalScene" name="3D View">
+        <gz-gui>
+          <title>3D View</title>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="string" key="state">docked</property>
+        </gz-gui>
+        <engine>ogre2</engine>
+        <scene>scene</scene>
+        <ambient_light>0.6 0.6 0.6</ambient_light>
+        <background_color>0.62 0.75 0.86</background_color>
+        <camera_pose>-50 -45 58 0 0.75 0.75</camera_pose>
+      </plugin>
+      <plugin filename="GzSceneManager" name="GzSceneManager">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="InteractiveViewControl" name="InteractiveViewControl">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="CameraTracking" name="CameraTracking">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="EntityContextMenuPlugin" name="EntityContextMenuPlugin">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="SelectEntities" name="SelectEntities">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">5</property>
+          <property type="double" key="width">5</property>
+        </gz-gui>
+      </plugin>
+      <plugin filename="WorldControl" name="WorldControl">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">72</property>
+          <property type="double" key="width">180</property>
+          <property type="double" key="z">1</property>
+          <anchors target="3D View">
+            <line own="left" target="left" />
+            <line own="bottom" target="bottom" />
+          </anchors>
+        </gz-gui>
+        <play_pause>true</play_pause>
+        <step>true</step>
+        <start_paused>false</start_paused>
+      </plugin>
+      <plugin filename="WorldStats" name="WorldStats">
+        <gz-gui>
+          <property type="string" key="state">floating</property>
+          <property type="bool" key="showTitleBar">false</property>
+          <property type="bool" key="resizable">false</property>
+          <property type="double" key="height">110</property>
+          <property type="double" key="width">290</property>
+          <property type="double" key="z">1</property>
+          <anchors target="3D View">
+            <line own="right" target="right" />
+            <line own="bottom" target="bottom" />
+          </anchors>
+        </gz-gui>
+        <sim_time>true</sim_time>
+        <real_time>true</real_time>
+        <real_time_factor>true</real_time_factor>
+        <iterations>true</iterations>
+      </plugin>
+      <plugin filename="EntityTree" name="EntityTree">
+        <gz-gui />
+      </plugin>
+      <plugin filename="ComponentInspector" name="ComponentInspector">
+        <gz-gui />
+      </plugin>
+    </gui>
+    <model name="terrain">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/terrain.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/terrain.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_240">
+      <static>true</static>
+      <pose>-33 0 0.0 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.3 1.3 1.3</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.3 1.3 1.3</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_241">
+      <static>true</static>
+      <pose>-5 -25 0.8758053271297873 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>0.9 0.9 0.9</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>0.9 0.9 0.9</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_242">
+      <static>true</static>
+      <pose>33 8 0.8665955083053554 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.1 1.1 1.1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.1 1.1 1.1</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="landmark_243">
+      <static>true</static>
+      <pose>4 25 0.5693123663492103 0 0 0.4</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6 1.6 1.6</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6 1.6 1.6</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_244">
+      <static>true</static>
+      <pose>-32.967330336151825 15.846644960274652 0.7012575574756377 0 0 3.2472290077625856</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.874075667746611 2.299260534197289 2.0118529674226275</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.874075667746611 2.299260534197289 2.0118529674226275</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_245">
+      <static>true</static>
+      <pose>20.82337360148857 1.1011340560217207 1.1151357375061839 0 0 5.423350358558584</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.560295329224151 2.848236263379321 2.4922067304569056</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.560295329224151 2.848236263379321 2.4922067304569056</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_246">
+      <static>true</static>
+      <pose>5.0382615699370845 -8.336383191842884 0.38458221770481205 0 0 4.0501464822566575</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.126248652856583 3.3009989222852667 2.8883740569996084</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.126248652856583 3.3009989222852667 2.8883740569996084</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_247">
+      <static>true</static>
+      <pose>5.892598357744241 25.92558976648011 0.7341794174236326 0 0 2.9744906363224515</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.162024564132957 3.329619651306366 2.9134171948930696</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.162024564132957 3.329619651306366 2.9134171948930696</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_248">
+      <static>true</static>
+      <pose>28.09973738500519 17.677533564315105 4.0699299687432235 0 0 5.468187203602847</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9714112075810437 2.377128966064835 2.0799878453067304</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9714112075810437 2.377128966064835 2.0799878453067304</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_249">
+      <static>true</static>
+      <pose>-3.677206608850568 -8.380034466745236 0.7556108808200934 0 0 2.1334202708409693</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.017139188031332 3.213711350425066 2.8119974316219323</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.017139188031332 3.213711350425066 2.8119974316219323</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_250">
+      <static>true</static>
+      <pose>-1.0169383914839756 14.681231587471949 0.9761685107667246 0 0 1.1394167677937614</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.2230988281971857 1.7784790625577487 1.55616917973803</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.2230988281971857 1.7784790625577487 1.55616917973803</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_251">
+      <static>true</static>
+      <pose>14.851461749150687 -11.669856220280984 0.6214798911979218 0 0 1.7187741630643705</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.234386957863191 2.587509566290553 2.264070870504234</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.234386957863191 2.587509566290553 2.264070870504234</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_252">
+      <static>true</static>
+      <pose>33.556713428197654 19.503644379877628 3.8608752571133698 0 0 5.137288419135253</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0622661507240116 1.6498129205792094 1.443586305506808</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0622661507240116 1.6498129205792094 1.443586305506808</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_253">
+      <static>true</static>
+      <pose>-16.969201332852883 -0.28601699493194843 0.8017397689836774 0 0 0.6231636631551086</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.235483208502282 3.388386566801826 2.9648382459515976</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.235483208502282 3.388386566801826 2.9648382459515976</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_254">
+      <static>true</static>
+      <pose>-0.043678619943996466 -15.252016734920653 0.7207266230192071 0 0 5.133196917772471</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.683706741788215 1.346965393430572 1.1785947192517505</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.683706741788215 1.346965393430572 1.1785947192517505</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_255">
+      <static>true</static>
+      <pose>32.18756630163651 7.6351695361308884 0.6457633148600759 0 0 2.283358258719551</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4392293083789163 1.951383446703133 1.7074605158652414</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4392293083789163 1.951383446703133 1.7074605158652414</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_256">
+      <static>true</static>
+      <pose>12.31754117045432 7.70689032386003 2.102135417098684 0 0 2.563742673812464</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.3076778838561243 2.6461423070848995 2.315374518699287</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.3076778838561243 2.6461423070848995 2.315374518699287</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_257">
+      <static>true</static>
+      <pose>6.315673240412245 3.498182660248503 1.3685577586320332 0 0 5.006678097655819</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7742697826299993 2.2194158261039996 1.9419888478409995</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7742697826299993 2.2194158261039996 1.9419888478409995</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_258">
+      <static>true</static>
+      <pose>-7.493111185231438 -13.535289954328993 1.1728109464176377 0 0 0.5534550730405597</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.143743699108878 2.514994959287103 2.2006205893762143</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.143743699108878 2.514994959287103 2.2006205893762143</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_259">
+      <static>true</static>
+      <pose>29.90523542750023 13.381571234923399 1.7132724957517473 0 0 1.6943382836028698</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7237715646941996 2.1790172517553597 1.9066400952859395</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.7237715646941996 2.1790172517553597 1.9066400952859395</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_260">
+      <static>true</static>
+      <pose>-15.258148747397328 22.45451315156935 0.43305719328889414 0 0 5.976089518150762</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.124143667636066 3.299314934108853 2.8869005673452457</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.124143667636066 3.299314934108853 2.8869005673452457</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_261">
+      <static>true</static>
+      <pose>-14.06948522352253 -24.824393234016096 1.1722932266551207 0 0 4.270241559126413</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2076730852694455 2.5661384682155566 2.2453711596886117</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2076730852694455 2.5661384682155566 2.2453711596886117</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_262">
+      <static>true</static>
+      <pose>-2.819649152008772 -13.682299535434865 0.9772837501904654 0 0 1.0626467404774742</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.978556671035753 3.1828453368286027 2.784989669725027</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.978556671035753 3.1828453368286027 2.784989669725027</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_263">
+      <static>true</static>
+      <pose>-31.573596240306124 22.527544995527094 0.90081379847836 0 0 4.078592334631408</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.4021809952504034 2.7217447962003227 2.3815266966752824</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.4021809952504034 2.7217447962003227 2.3815266966752824</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_264">
+      <static>true</static>
+      <pose>30.52006419919543 24.78826008785707 5.121206614900535 0 0 3.49887517549268</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2831696948364155 2.6265357558691327 2.298218786385491</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2831696948364155 2.6265357558691327 2.298218786385491</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_265">
+      <static>true</static>
+      <pose>27.97466140094071 -25.039679216759367 3.549986678195022 0 0 3.011684027401208</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.71945756152915 2.9755660492233202 2.603620293070405</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.71945756152915 2.9755660492233202 2.603620293070405</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_266">
+      <static>true</static>
+      <pose>-13.732887924290395 4.62541282665585 0.7607829049557489 0 0 2.6098517721629957</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6599374434679173 2.127949954774334 1.861956210427542</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6599374434679173 2.127949954774334 1.861956210427542</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_267">
+      <static>true</static>
+      <pose>29.40201533167408 23.365602917175558 5.597695305221764 0 0 3.025912035280491</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.056314112003104 1.6450512896024834 1.4394198784021728</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.056314112003104 1.6450512896024834 1.4394198784021728</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_268">
+      <static>true</static>
+      <pose>8.292288045704325 3.5419932872306283 1.4981689452323155 0 0 4.528867462037835</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.043499247408141 3.234799397926513 2.8304494731856984</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.043499247408141 3.234799397926513 2.8304494731856984</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_269">
+      <static>true</static>
+      <pose>-34.887002710052116 18.60314823376227 0.8723032603348579 0 0 0.9347742165595453</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4897069868211803 1.9917655894569444 1.742794890774826</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4897069868211803 1.9917655894569444 1.742794890774826</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_270">
+      <static>true</static>
+      <pose>33.768290123819696 -25.674046648848428 2.7644135869085438 0 0 1.969124243756939</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.753347631152389 2.2026781049219113 1.927343341806672</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.753347631152389 2.2026781049219113 1.927343341806672</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_271">
+      <static>true</static>
+      <pose>-1.1788875302927835 13.300550763803457 1.18842778329707 0 0 5.134001918166926</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0278163333531234 1.6222530666824988 1.4194714333471863</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.0278163333531234 1.6222530666824988 1.4194714333471863</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_272">
+      <static>true</static>
+      <pose>15.12406886912867 -6.516261968523505 1.2511540721417855 0 0 3.234128499160245</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6725774827937796 2.138061986235024 1.8708042379556455</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.6725774827937796 2.138061986235024 1.8708042379556455</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_273">
+      <static>true</static>
+      <pose>-18.704954316983027 -24.27235301439664 1.1755128716433376 0 0 0.9798351036661495</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2533264040970504 2.6026611232776404 2.277328482867935</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.2533264040970504 2.6026611232776404 2.277328482867935</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_274">
+      <static>true</static>
+      <pose>-26.114535880137858 -19.074853296758942 1.0703876841867823 0 0 3.2343548998037286</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.367677998611777 2.6941423988894218 2.3573745990282435</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.367677998611777 2.6941423988894218 2.3573745990282435</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_275">
+      <static>true</static>
+      <pose>15.641991289771617 -23.468232268766116 1.3169454164819774 0 0 1.6959412138102261</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6033018972039632 1.2826415177631707 1.1223113280427741</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.6033018972039632 1.2826415177631707 1.1223113280427741</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_276">
+      <static>true</static>
+      <pose>32.95818721793795 -23.3600354715814 3.1248901539351186 0 0 3.107965449442049</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.135397531021479 3.308318024817183 2.894778271715035</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.135397531021479 3.308318024817183 2.894778271715035</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_277">
+      <static>true</static>
+      <pose>16.95358999343206 -2.9048177554760137 1.380071284674504 0 0 3.0844046206044418</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.7375724713530776 1.3900579770824621 1.2163007299471542</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.7375724713530776 1.3900579770824621 1.2163007299471542</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_278">
+      <static>true</static>
+      <pose>18.36871297188027 5.689603423119674 1.6396086157890675 0 0 6.277747327125808</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.8683058241031485 1.4946446592825189 1.307814076872204</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.8683058241031485 1.4946446592825189 1.307814076872204</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_279">
+      <static>true</static>
+      <pose>-27.971102459478075 21.497631774206127 0.745921923920694 0 0 1.162072949746425</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.390285584733056 2.712228467786445 2.373199909313139</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.390285584733056 2.712228467786445 2.373199909313139</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_280">
+      <static>true</static>
+      <pose>-15.872121723343067 -0.08543440475379782 0.8007560554037753 0 0 1.2988741865222186</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.7636625780466484 3.010930062437319 2.634563804632654</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.7636625780466484 3.010930062437319 2.634563804632654</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_281">
+      <static>true</static>
+      <pose>28.12188300356101 20.7980829596478 5.426100311784138 0 0 3.7673522230505356</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.099659582937291 3.2797276663498334 2.8697617080561035</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.099659582937291 3.2797276663498334 2.8697617080561035</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_282">
+      <static>true</static>
+      <pose>-9.964931181961635 13.123790567479077 0.5287348244146948 0 0 2.197235155461351</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.185627885318328 1.7485023082546627 1.5299395197228296</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.185627885318328 1.7485023082546627 1.5299395197228296</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_283">
+      <static>true</static>
+      <pose>33.533318240811084 7.631318890402802 0.9181199347854953 0 0 4.421057324753317</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.136792737453566 3.3094341899628525 2.895754916217496</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>4.136792737453566 3.3094341899628525 2.895754916217496</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_284">
+      <static>true</static>
+      <pose>-15.438794548754288 25.4827316830511 0.6810116967832169 0 0 3.1636963224186525</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.9086977298974057 3.1269581839179246 2.736088410928184</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.9086977298974057 3.1269581839179246 2.736088410928184</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_285">
+      <static>true</static>
+      <pose>-8.023531256544874 -8.257353286800562 0.9390299444351349 0 0 2.5147287583825557</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.959454889509966 1.567563911607973 1.371618422656976</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.959454889509966 1.567563911607973 1.371618422656976</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_286">
+      <static>true</static>
+      <pose>0.8657070259679003 13.649638723083662 1.3337011948918331 0 0 1.478248427468329</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4423061699452178 1.9538449359561743 1.7096143189616524</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.4423061699452178 1.9538449359561743 1.7096143189616524</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_287">
+      <static>true</static>
+      <pose>17.172493772490256 0.9390337279085053 1.4900768482579467 0 0 2.8928657193613208</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9754238427165927 2.3803390741732744 2.0827966899016146</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>2.9754238427165927 2.3803390741732744 2.0827966899016146</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_288">
+      <static>true</static>
+      <pose>12.168824380781658 -6.8717798999263096 0.9633221197839112 0 0 5.9604122633923975</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9657662198141859 1.5726129758513487 1.37603635386993</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9657662198141859 1.5726129758513487 1.37603635386993</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_289">
+      <static>true</static>
+      <pose>-30.144292680780012 -21.656584758351045 0.7815868597182289 0 0 3.7959013327836475</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9729216164669108 1.5783372931735287 1.3810451315268375</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>1.9729216164669108 1.5783372931735287 1.3810451315268375</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="boulder_290">
+      <static>true</static>
+      <pose>-18.745823698973773 21.238953597050873 0.39187416632735717 0 0 3.342919399912345</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.0622490211394204 2.4497992169115363 2.1435743147975943</scale>
+            </mesh>
+          </geometry>
+        </visual>
+        <collision name="rock">
+          <geometry>
+            <mesh>
+              <uri>../assets/models/rock.obj</uri>
+              <scale>3.0622490211394204 2.4497992169115363 2.1435743147975943</scale>
+            </mesh>
+          </geometry>
+        </collision>
+      </link>
+    </model>
+    <model name="fallen_wood_and_stones">
+      <static>true</static>
+      <pose>0 0 0 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <uri>../assets/geometry/roadside_details.obj</uri>
+              <scale>1 1 1</scale>
+            </mesh>
+          </geometry>
+        </visual>
+      </link>
+    </model>
+    <model name="nomad_vehicle" canonical_link="base_link">
+      <static>false</static>
+      <self_collide>false</self_collide>
+      <link name="base_link">
+        <pose relative_to="__model__">0 0 0 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0.2 0 0 0</pose>
+          <mass>30</mass>
+          <inertia>
+            <ixx>0.661</ixx>
+            <iyy>1.84225</iyy>
+            <izz>2.43125</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="base_link_visual">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.85 0.5 0.12</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.15 0.38 0.18 1</ambient>
+            <diffuse>0.15 0.38 0.18 1</diffuse>
+          </material>
+        </visual>
+        <collision name="base_link_collision">
+          <pose>0 0 0.2 0 0 0</pose>
+          <geometry>
+            <box>
+              <size>0.85 0.5 0.12</size>
+            </box>
+          </geometry>
+        </collision>
+        <sensor name="oak_rgb" type="rgbd_camera">
+          <pose relative_to="base_link">0.46 0 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/nomad/raw/oak/rgbd</topic>
+          <gz_frame_id>oak_rgb_optical_frame</gz_frame_id>
+          <camera>
+            <optical_frame_id>oak_rgb_optical_frame</optical_frame_id>
+            <horizontal_fov>1.20427718387609</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>R8G8B8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>40</far>
+            </clip>
+            <depth_camera>
+              <clip>
+                <near>0.4</near>
+                <far>8</far>
+              </clip>
+            </depth_camera>
+            <lens>
+              <type>gnomonical</type>
+              <intrinsics>
+                <fx>465.602889175182</fx>
+                <fy>471.026521321236</fy>
+                <cx>320</cx>
+                <cy>240</cy>
+                <s>0</s>
+              </intrinsics>
+              <projection>
+                <p_fx>465.602889175182</p_fx>
+                <p_fy>471.026521321236</p_fy>
+                <p_cx>320</p_cx>
+                <p_cy>240</p_cy>
+                <tx>0</tx>
+                <ty>0</ty>
+              </projection>
+            </lens>
+          </camera>
+        </sensor>
+        <sensor name="oak_left" type="camera">
+          <pose relative_to="base_link">0.46 0.0375 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/nomad/raw/oak/left/image_raw</topic>
+          <gz_frame_id>oak_left_optical_frame</gz_frame_id>
+          <camera>
+            <optical_frame_id>oak_left_optical_frame</optical_frame_id>
+            <camera_info_topic>/nomad/raw/oak/left/camera_info</camera_info_topic>
+            <horizontal_fov>1.27409035395586</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>L8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>40</far>
+            </clip>
+            <lens>
+              <type>gnomonical</type>
+              <intrinsics>
+                <fx>432.455180142659</fx>
+                <fy>432.971461265142</fy>
+                <cx>320</cx>
+                <cy>240</cy>
+                <s>0</s>
+              </intrinsics>
+              <projection>
+                <p_fx>432.455180142659</p_fx>
+                <p_fy>432.971461265142</p_fy>
+                <p_cx>320</p_cx>
+                <p_cy>240</p_cy>
+                <tx>0</tx>
+                <ty>0</ty>
+              </projection>
+            </lens>
+          </camera>
+        </sensor>
+        <sensor name="oak_right" type="camera">
+          <pose relative_to="base_link">0.46 -0.0375 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>30</update_rate>
+          <visualize>false</visualize>
+          <topic>/nomad/raw/oak/right/image_raw</topic>
+          <gz_frame_id>oak_right_optical_frame</gz_frame_id>
+          <camera>
+            <optical_frame_id>oak_right_optical_frame</optical_frame_id>
+            <camera_info_topic>/nomad/raw/oak/right/camera_info</camera_info_topic>
+            <horizontal_fov>1.27409035395586</horizontal_fov>
+            <image>
+              <width>640</width>
+              <height>480</height>
+              <format>L8</format>
+            </image>
+            <clip>
+              <near>0.05</near>
+              <far>40</far>
+            </clip>
+            <lens>
+              <type>gnomonical</type>
+              <intrinsics>
+                <fx>432.455180142659</fx>
+                <fy>432.971461265142</fy>
+                <cx>320</cx>
+                <cy>240</cy>
+                <s>0</s>
+              </intrinsics>
+              <projection>
+                <p_fx>432.455180142659</p_fx>
+                <p_fy>432.971461265142</p_fy>
+                <p_cx>320</p_cx>
+                <p_cy>240</p_cy>
+                <tx>-32.4341385106994</tx>
+                <ty>0</ty>
+              </projection>
+            </lens>
+          </camera>
+        </sensor>
+        <sensor name="ydlidar_g2" type="gpu_lidar">
+          <pose relative_to="base_link">0.15 0 0.38 0 0 0</pose>
+          <topic>/nomad/raw/scan</topic>
+          <gz_frame_id>scan</gz_frame_id>
+          <always_on>true</always_on>
+          <update_rate>10</update_rate>
+          <visualize>false</visualize>
+          <lidar>
+            <scan>
+              <horizontal>
+                <samples>500</samples>
+                <resolution>1</resolution>
+                <min_angle>-3.14159265358979</min_angle>
+                <max_angle>3.12902628297543</max_angle>
+              </horizontal>
+              <vertical>
+                <samples>1</samples>
+                <resolution>1</resolution>
+                <min_angle>0</min_angle>
+                <max_angle>0</max_angle>
+              </vertical>
+            </scan>
+            <range>
+              <min>0.12</min>
+              <max>12</max>
+              <resolution>0.01</resolution>
+            </range>
+            <noise>
+              <type>gaussian</type>
+              <mean>0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </lidar>
+        </sensor>
+        <sensor name="oak_imu" type="imu">
+          <pose relative_to="base_link">0.46 0 0.29 0 0 0</pose>
+          <always_on>true</always_on>
+          <update_rate>200</update_rate>
+          <topic>/nomad/raw/oak/imu</topic>
+          <gz_frame_id>oak_imu_frame</gz_frame_id>
+          <imu />
+        </sensor>
+      </link>
+      <link name="front_left_steering_link">
+        <pose relative_to="__model__">0.36 0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>0.3</mass>
+          <inertia>
+            <ixx>8.6875e-05</ixx>
+            <iyy>8.6875e-05</iyy>
+            <izz>9.375e-05</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_left_steering_link_visual">
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.04</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="front_left_wheel">
+        <pose relative_to="__model__">0.36 0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_left_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="front_left_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <link name="front_right_steering_link">
+        <pose relative_to="__model__">0.36 -0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>0.3</mass>
+          <inertia>
+            <ixx>8.6875e-05</ixx>
+            <iyy>8.6875e-05</iyy>
+            <izz>9.375e-05</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_right_steering_link_visual">
+          <pose>0 0 0 0 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.025</radius>
+              <length>0.04</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+      </link>
+      <link name="front_right_wheel">
+        <pose relative_to="__model__">0.36 -0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="front_right_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="front_right_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <link name="rear_left_wheel">
+        <pose relative_to="__model__">-0.36 0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="rear_left_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="rear_left_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <link name="rear_right_wheel">
+        <pose relative_to="__model__">-0.36 -0.3 0.15 0 0 0</pose>
+        <inertial>
+          <pose>0 0 0 0 0 0</pose>
+          <mass>1</mass>
+          <inertia>
+            <ixx>0.00615833333333333</ixx>
+            <iyy>0.01125</iyy>
+            <izz>0.00615833333333333</izz>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyz>0</iyz>
+          </inertia>
+        </inertial>
+        <visual name="rear_right_wheel_visual">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>0.12 0.12 0.12 1</ambient>
+            <diffuse>0.12 0.12 0.12 1</diffuse>
+          </material>
+        </visual>
+        <collision name="rear_right_wheel_collision">
+          <pose>0 0 0 1.5707963267949 0 0</pose>
+          <geometry>
+            <cylinder>
+              <radius>0.15</radius>
+              <length>0.08</length>
+            </cylinder>
+          </geometry>
+          <surface>
+            <friction>
+              <ode>
+                <mu>1</mu>
+                <mu2>1</mu2>
+              </ode>
+            </friction>
+          </surface>
+        </collision>
+      </link>
+      <joint name="front_left_steering_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>front_left_steering_link</child>
+        <pose relative_to="front_left_steering_link">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-0.55</lower>
+            <upper>0.55</upper>
+            <effort>12</effort>
+            <velocity>2</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="front_left_wheel_joint" type="revolute">
+        <parent>front_left_steering_link</parent>
+        <child>front_left_wheel</child>
+        <pose relative_to="front_left_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="front_right_steering_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>front_right_steering_link</child>
+        <pose relative_to="front_right_steering_link">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 0 1</xyz>
+          <limit>
+            <lower>-0.55</lower>
+            <upper>0.55</upper>
+            <effort>12</effort>
+            <velocity>2</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="front_right_wheel_joint" type="revolute">
+        <parent>front_right_steering_link</parent>
+        <child>front_right_wheel</child>
+        <pose relative_to="front_right_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="rear_left_wheel_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>rear_left_wheel</child>
+        <pose relative_to="rear_left_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <joint name="rear_right_wheel_joint" type="revolute">
+        <parent>base_link</parent>
+        <child>rear_right_wheel</child>
+        <pose relative_to="rear_right_wheel">0 0 0 0 0 0</pose>
+        <axis>
+          <xyz>0 1 0</xyz>
+          <limit>
+            <lower>-1e+16</lower>
+            <upper>1e+16</upper>
+            <effort>20</effort>
+            <velocity>20</velocity>
+          </limit>
+          <dynamics>
+            <damping>0.02</damping>
+          </dynamics>
+        </axis>
+      </joint>
+      <frame name="oak_rgb_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="oak_depth_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="oak_left_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0.0375 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="oak_right_optical_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 -0.0375 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      </frame>
+      <frame name="scan" attached_to="base_link">
+        <pose relative_to="base_link">0.15 0 0.38 0 0 0</pose>
+      </frame>
+      <frame name="oak_imu_frame" attached_to="base_link">
+        <pose relative_to="base_link">0.46 0 0.29 0 0 0</pose>
+      </frame>
+      <plugin filename="gz-sim-ackermann-steering-system" name="gz::sim::systems::AckermannSteering">
+        <left_joint>rear_left_wheel_joint</left_joint>
+        <right_joint>rear_right_wheel_joint</right_joint>
+        <left_steering_joint>front_left_steering_joint</left_steering_joint>
+        <right_steering_joint>front_right_steering_joint</right_steering_joint>
+        <wheel_base>0.72</wheel_base>
+        <wheel_separation>0.6</wheel_separation>
+        <kingpin_width>0.6</kingpin_width>
+        <wheel_radius>0.15</wheel_radius>
+        <steering_limit>0.55</steering_limit>
+        <min_velocity>-1</min_velocity>
+        <max_velocity>1</max_velocity>
+        <min_acceleration>-0.6</min_acceleration>
+        <max_acceleration>0.6</max_acceleration>
+        <topic>/nomad/vehicle/cmd_vel</topic>
+        <odom_topic>/nomad/vehicle/wheel_odom</odom_topic>
+        <tf_topic>/nomad/vehicle/wheel_tf</tf_topic>
+        <frame_id>odom</frame_id>
+        <child_frame_id>base_link</child_frame_id>
+        <odom_publish_frequency>50</odom_publish_frequency>
+      </plugin>
+      <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::systems::OdometryPublisher">
+        <dimensions>3</dimensions>
+        <odom_frame>odom</odom_frame>
+        <robot_base_frame>base_link</robot_base_frame>
+        <odom_topic>/nomad/vehicle/odom</odom_topic>
+        <tf_topic>/nomad/vehicle/tf</tf_topic>
+        <odom_publish_frequency>50</odom_publish_frequency>
+        <gaussian_noise>0</gaussian_noise>
+      </plugin>
+      <plugin filename="gz-sim-joint-state-publisher-system" name="gz::sim::systems::JointStatePublisher">
+        <topic>/nomad/vehicle/joint_states</topic>
+        <update_rate>50</update_rate>
+        <joint_name>front_left_steering_joint</joint_name>
+        <joint_name>front_left_wheel_joint</joint_name>
+        <joint_name>front_right_steering_joint</joint_name>
+        <joint_name>front_right_wheel_joint</joint_name>
+        <joint_name>rear_left_wheel_joint</joint_name>
+        <joint_name>rear_right_wheel_joint</joint_name>
+      </plugin>
+      <pose>-28 0 0.03 0 0 -1.5707963267948966</pose>
+    </model>
+  </world>
+</sdf>

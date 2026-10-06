@@ -1,0 +1,9 @@
+{
+  "id": "04_vio_flat_loop",
+  "name": "혼합림 · 낙엽 숲 순환로",
+  "kind": "flat",
+  "description": "활엽수·침엽수 혼합림, 풀·낙엽·바위 랜드마크. 평탄한 경로의 기본 위치 오차와 재방문 비교.",
+  "seed": 740,
+  "road_width_m": 4,
+  "art_revision": 2
+}

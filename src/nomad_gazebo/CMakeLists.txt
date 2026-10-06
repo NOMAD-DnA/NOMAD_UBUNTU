@@ -11,5 +11,7 @@ install(PROGRAMS
   scripts/generate_vehicle.py
   scripts/generate_world.py
   scripts/select_map.py
+  scripts/generate_vehicle_test_map.py
+  scripts/generate_vio_test_maps.py
   DESTINATION lib/${PROJECT_NAME})
 ament_package()

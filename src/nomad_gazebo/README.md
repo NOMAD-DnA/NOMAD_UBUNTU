@@ -56,3 +56,36 @@ cd ~/nomad_ws
 시작 방향은 `assets/authoring/spawn_pose.json`의 `yaw_rad`에서 설정한다.
 현재 값은 0.8267518515rad(약 47.37°)로, 요청 당시 차량 방향에서 왼쪽으로 90°
 회전한 값이다. 시작 위치 `(-30, -18, 0.03)`은 유지하며 재실행부터 적용된다.
+
+## 차량 시험맵 (2026-10-03)
+
+`maps/03_vehicle_incline_test`는 평탄한 무채색 바닥과 5°~30° 삼각 경사로 6개를 제공한다. 기존 실행 메뉴에서 선택한다. 입력은 해당 맵의 `assets/authoring/vehicle_test.json`, 생성기는 `scripts/generate_vehicle_test_map.py`다. 생성된 월드·차량·OBJ는 직접 편집하지 않는다. `payload_kg`는 기존 CG에 추가 질량·관성을 반영한다. 속도 제어 구동이므로 실제 모터 토크 한계에 따른 등판 성능은 별도 구동기와 주행 실험으로 검증해야 한다.
+
+## 야지 VIO 시험맵
+
+`./run_forest.sh` → 맵 번호 선택. 자동 실행: `NOMAD_MAP=08_vio_reverse_dead_end ./run_forest.sh`.
+
+| 번호 | 환경 | 폴더 |
+|---|---|---|
+| 1 | 기존 숲·급경사 | `01_original` |
+| 2 | Fork2 완화·Fork1 유지 | `02_fork2_gentle` |
+| 3 | 평지·삼각 경사 시험장 | `03_vehicle_incline_test` |
+| 4 | 혼합림 순환로 | `04_vio_flat_loop` |
+| 5 | 반복 침엽수 숲·분기 | `05_vio_repeated_forest` |
+| 6 | 숲·저텍스처 건조 공터 | `06_vio_sparse_clearing` |
+| 7 | 암석 능선·굴곡 야지 | `07_vio_undulating_terrain` |
+| 8 | 막다른 길·후진·고도 우회 | `08_vio_reverse_dead_end` |
+
+4~7번 순환로는 한 바퀴151.84m. 8번은(-28,0)→(23,0) 전진 후 후진 복귀 또는180° 유턴 후 전진 복귀. 북측 샛길은(-14,0)→(34,0), 약63.04m·높이3.2m·최대 종경사9.06°.
+
+`route.csv`·`bypass.csv`·`map_preview.png`는 계획 경로, 실제 GT는 `/odom`. 세부 설정은 `maps/<id>/README.md`와 `assets/layout.json`을 확인한다.
+
+입력: 3번 `assets/authoring/vehicle_test.json`, 4~8번 `assets/authoring/scenario.json`. 맵을 수정했을 때만 워크스페이스 루트에서 재생성한다.
+
+```bash
+python3 src/nomad_gazebo/scripts/generate_vehicle_test_map.py # 3번
+python3 src/nomad_gazebo/scripts/generate_vio_test_maps.py --map 08_vio_reverse_dead_end # 선택 맵
+./.nomad/build.sh
+```
+
+생성기·입력·메시·텍스처·SDF를 함께 보관한다. 기존 차량·센서 설정을 유지하며 기준 경로는 자율주행 성공을 보장하지 않는다.

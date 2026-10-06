@@ -1,0 +1,20 @@
+newmtl bark
+Ka .15 .15 .15
+Kd 0.28 0.17 0.09
+Ks 0 0 0
+illum 1
+newmtl leaf_0
+Ka .15 .15 .15
+Kd 0.19 0.32 0.09
+Ks 0 0 0
+illum 1
+newmtl leaf_1
+Ka .15 .15 .15
+Kd 0.28 0.42 0.12
+Ks 0 0 0
+illum 1
+newmtl leaf_2
+Ka .15 .15 .15
+Kd 0.35 0.43 0.16
+Ks 0 0 0
+illum 1

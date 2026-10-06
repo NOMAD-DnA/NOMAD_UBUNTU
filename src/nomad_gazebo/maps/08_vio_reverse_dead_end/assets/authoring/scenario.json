@@ -1,0 +1,9 @@
+{
+  "id": "08_vio_reverse_dead_end",
+  "name": "바위 계곡 · 후진 복귀",
+  "kind": "reverse",
+  "description": "바위 막다른 길에서 후진 후 북측 고도 샛길로 우회하여 뒤편 목표점 (34, 0)에 도달하는 시험 환경.",
+  "seed": 740,
+  "road_width_m": 3,
+  "art_revision": 2
+}

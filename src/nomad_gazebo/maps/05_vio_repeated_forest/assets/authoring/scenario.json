@@ -1,0 +1,9 @@
+{
+  "id": "05_vio_repeated_forest",
+  "name": "침엽수 군락 · 반복 숲길",
+  "kind": "repeated",
+  "description": "불규칙하지만 비슷한 형태의 침엽수 군락과 내부 분기에서 장소 혼동 비교.",
+  "seed": 740,
+  "road_width_m": 4,
+  "art_revision": 2
+}

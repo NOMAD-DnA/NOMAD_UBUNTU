@@ -1,0 +1,9 @@
+{
+  "id": "06_vio_sparse_clearing",
+  "name": "건조 공터 · 숲 경계",
+  "kind": "sparse",
+  "description": "식생·바위가 있는 숲에서 저텍스처 건조 공터로 진입 후 숲으로 복귀.",
+  "seed": 740,
+  "road_width_m": 4,
+  "art_revision": 2
+}

@@ -1,0 +1,30 @@
+newmtl stone_0
+Ka 0.1 0.1 0.1
+Kd 0.29 0.27 0.23
+Ks 0 0 0
+d 1
+illum 1
+newmtl stone_1
+Ka 0.1 0.1 0.1
+Kd 0.43 0.42 0.37
+Ks 0 0 0
+d 1
+illum 1
+newmtl stone_2
+Ka 0.1 0.1 0.1
+Kd 0.25 0.29 0.22
+Ks 0 0 0
+d 1
+illum 1
+newmtl stone_3
+Ka 0.1 0.1 0.1
+Kd 0.52 0.48 0.39
+Ks 0 0 0
+d 1
+illum 1
+newmtl fallen_bark
+Ka 0.1 0.1 0.1
+Kd 0.24 0.16 0.095
+Ks 0 0 0
+d 1
+illum 1

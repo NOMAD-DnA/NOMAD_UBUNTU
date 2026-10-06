@@ -1,0 +1,6 @@
+newmtl dirt
+Ka 0.6 0.6 0.6
+Kd 1 1 1
+Ks 0 0 0
+illum 1
+map_Kd terrain_texture.png

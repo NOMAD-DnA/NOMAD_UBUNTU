@@ -208,3 +208,42 @@ GPP의 이전 목표 재시도 대기는 새 목표에 적용하지 않는다. �
 ## 맵 선택
 
 기존 `./run_forest.sh` 실행 시 패키지 `maps/`의 목록에서 번호로 고른다. `maps/맵이름/map.json`과 `worlds/forest.sdf`, 상대 경로의 `assets/`, `models/`로 맵을 추가하면 목록에 자동 표시된다. 초기 등록: `01_original`(기존 급경사), `02_fork2_gentle`(Fork2 완화). 비대화형 실행은 Fork2 완화 맵을 기본 선택한다. `NOMAD_MAP`에 맵 폴더명을 지정하거나 기존 `world_file:=...`로 직접 지정할 수도 있다. `vegetation:=False`는 선택한 맵의 `worlds/forest_bare.sdf`를 사용한다.
+
+## 차량 시험맵 (2026-10-03)
+
+`maps/03_vehicle_incline_test`는 평탄한 무채색 바닥과 5°~30° 삼각 경사로 6개를 제공한다. 기존 실행 메뉴에서 선택한다. 입력은 해당 맵의 `assets/authoring/vehicle_test.json`, 생성기는 `scripts/generate_vehicle_test_map.py`다. 생성된 월드·차량·OBJ는 직접 편집하지 않는다. `payload_kg`는 기존 CG에 추가 질량·관성을 반영한다. 속도 제어 구동이므로 실제 모터 토크 한계에 따른 등판 성능은 별도 구동기와 주행 실험으로 검증해야 한다.
+
+
+## 현재 맵 목록과 생성 원칙 (2026-10-06)
+
+현재 `src/nomad_gazebo/maps/`에는 아래 8개 맵이 있다. 기존 기본 숲 설명은 1·2번 계열에 해당하며 3~8번에 그대로 적용하지 않는다.
+
+| 번호 | 폴더 | 환경·시나리오 |
+|---|---|---|
+| 1 | `01_original` | 원본 숲·급경사 |
+| 2 | `02_fork2_gentle` | Fork2 연결길만 완화, Fork1 급경사 유지 |
+| 3 | `03_vehicle_incline_test` | 무채색 평지·5/10/15/20/25/30° 삼각 경사로 |
+| 4 | `04_vio_flat_loop` | 평탄한 혼합림 순환로 |
+| 5 | `05_vio_repeated_forest` | 반복 침엽수 군락·비슷한 내부 분기 |
+| 6 | `06_vio_sparse_clearing` | 숲→저텍스처 건조 공터→숲 |
+| 7 | `07_vio_undulating_terrain` | 암석 능선·횡경사·굴곡 경로 |
+| 8 | `08_vio_reverse_dead_end` | 막다른 길·후진 복귀·북측 고도 우회 |
+
+- 실행은 기존 `./run_forest.sh` 번호 선택. 자동 선택은 `NOMAD_MAP=08_vio_reverse_dead_end ./run_forest.sh`. 비대화형 기본값은 2번이다.
+- 3번 입력은 `assets/authoring/vehicle_test.json`: `payload_kg`, `friction_mu`, `incline_degrees`. 기본34.6kg에 추가 질량·관성을 기존 CG에서 반영한다. 기본 구동은 속도 명령형 Ackermann이며 실제 모터 토크 한계나 출력곡선을 나타내지 않는다.
+- 4~8번 입력은 각 맵 `assets/authoring/scenario.json`. seed·경로 폭을 보존하고 생성기에서 수정한다. 배치·고도는 `assets/layout.json`, 지형은 `assets/geometry/terrain.obj`; 시각·충돌 지형은 동일하다. 4~7번 순환로는 한 바퀴151.84m, 7번은 경로 자체에 고도 변화가 있다.
+- 8번 직선은 시작(-28,0)→막힌 지점(23,0), 편도51m. 방향 유지 후진 복귀와 다점180° 유턴 후 전진 복귀를 비교할 수 있다. 북측 샛길은 분기(-14,0)→뒤편 목표(34,0), 약63.04m·최대 높이3.2m·최대 중심선 종경사9.06°이며 `bypass.csv`에 저장한다. 우회로 존재와 자율 복구·우회 성공은 별개다.
+- `route.csv`, `bypass.csv`, `map_preview.png`는 계획/기준 경로다. 실제 주행 GT는 Gazebo `/odom`. VIO 비교는 고정 extrinsic으로 GT·추정의 참조점과 시간을 맞춘다. 탑뷰·경로 합성은 좌표 방향을 통일한다.
+- 나무·바위 충돌은 해당 맵 SDF를 확인한다. 원본 숲의 시각용 작은 돌/풀 정책을 새 맵의 모든 물체에 적용하지 않는다. 시각적 feature가 VIO 추적 성공을 보장하지 않는다.
+- 맵 편집 요청일 때만 재생성한다. 빌드·실행·푸시만 요청받으면 완성된 지형을 재생성하지 않는다. 생성기는 현재 차량 SDF를 복사하므로 차량·센서 설정을 의도치 않게 바꾸지 않는다. 생성기·입력·메시·텍스처·SDF·map.json을 함께 커밋하고 머신별 절대 경로를 넣지 않는다.
+
+```bash
+# 워크스페이스 루트에서, 맵 입력을 의도적으로 수정한 뒤에만 실행
+python3 src/nomad_gazebo/scripts/generate_vehicle_test_map.py
+python3 src/nomad_gazebo/scripts/generate_vio_test_maps.py --map 08_vio_reverse_dead_end
+./.nomad/build.sh
+```
+
+실행 안내는 [Gazebo README](src/nomad_gazebo/README.md), 개별 환경은 `maps/<id>/README.md`를 따른다. 로컬 rosbag·외부 VIO 워크스페이스·개인 실험 기록은 이 저장소의 맵 소스와 혼합하지 않는다.
+
+검증 이력(2026-10-06): 8개 맵의 일반/무식생 목록·상대 파일 참조와 Gazebo 패키지 빌드 통과. 기존 `tests/test_world.py` 1항목과 `test_bare_world.py` 4항목은 이전 시작 방향/바위·식생 가정으로 실패하며, 변경 전 HEAD에서도 같은 실패를 재현했다. 테스트를 통과시키려고 사용자 맵을 이전 배치로 되돌리지 않는다. 새 실패는 이 기존 실패와 구분해서 확인한다.
