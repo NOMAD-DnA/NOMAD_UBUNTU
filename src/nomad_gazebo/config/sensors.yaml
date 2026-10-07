@@ -54,3 +54,23 @@ imu:
   # OAK-D Lite's BMI270 is 6-axis on non-Kickstarter units. Location and
   # orientation are provisional until the team's actual device is checked.
   hz: 200.0
+
+gps:
+  # Purchase pending: fill in the actual receiver/model after selection.
+  model_reference: "TBD (not purchased)"
+  visualization: true  # RViz-only GPS point/trail; does not publish fused odometry.
+  # Gazebo profile only; real receiver driver/serial/NTRIP settings are separate.
+  # No RTK/satellite/obstruction model.
+  enabled: true
+  hz: 5.0  # Set to the configured receiver output rate, not its advertised maximum.
+  # Gaussian position noise: STANDARD DEVIATION in meters, not variance/CEP/RMS.
+  # 0 = ideal reception test. Set from measured data; do not assume RTK accuracy.
+  position_noise_horizontal_sigma_m: 0.0
+  position_noise_vertical_sigma_m: 0.0
+  # Arbitrary simulation world origin, not a surveyed real site. ENU axes.
+  latitude_deg: 37.0
+  longitude_deg: 127.0
+  elevation_m: 0.0
+  mount_x_m: 0.0
+  mount_y_m: 0.0
+  mount_z_m: 0.45  # Antenna phase center from base_link; +X forward/+Y left/+Z up.

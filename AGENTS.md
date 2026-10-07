@@ -247,3 +247,23 @@ python3 src/nomad_gazebo/scripts/generate_vio_test_maps.py --map 08_vio_reverse_
 실행 안내는 [Gazebo README](src/nomad_gazebo/README.md), 개별 환경은 `maps/<id>/README.md`를 따른다. 로컬 rosbag·외부 VIO 워크스페이스·개인 실험 기록은 이 저장소의 맵 소스와 혼합하지 않는다.
 
 검증 이력(2026-10-06): 8개 맵의 일반/무식생 목록·상대 파일 참조와 Gazebo 패키지 빌드 통과. 기존 `tests/test_world.py` 1항목과 `test_bare_world.py` 4항목은 이전 시작 방향/바위·식생 가정으로 실패하며, 변경 전 HEAD에서도 같은 실패를 재현했다. 테스트를 통과시키려고 사용자 맵을 이전 배치로 되돌리지 않는다. 새 실패는 이 기존 실패와 구분해서 확인한다.
+
+## GPS 센서 (2026-10-07)
+
+
+기존 `./run_forest.sh`로 실행하면 모든 선택 맵에서 `/gps/fix` (`sensor_msgs/msg/NavSatFix`)가 나온다.
+
+```bash
+source ~/nomad_ws/.nomad/env.sh
+ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix --once   # 위도·경도·고도 수신
+```
+
+설정: `src/nomad_gazebo/config/sensors.yaml`의 `gps`. 기본 5Hz(시뮬레이션 시간), 노이즈 없는 NavSat이며 RTK·위성 수·차폐는 재현하지 않는다. 월드 원점은 임의의 위도37°, 경도127°, 고도0m이고 +X 동쪽/+Y 북쪽/+Z 위다. 기존 월드에 spherical_coordinates가 있으면 그 값을 유지한다. `gps_link`는 base_link 위0.45m의 안테나 위치이며 GT base_link와 기준점이 다르다.
+
+Launch가 선택 월드·차량의 임시 복사본에 센서/세계 좌표/플러그인을 추가하므로 맵 원본과 차량 물리 생성물을 재생성하지 않는다. `gps.enabled: false`면 원본 월드를 사용한다. NavSatFix의 공분산은 브리지에서 UNKNOWN으로 나오므로 융합 전에 별도 설정이 필요하다. GPS→VIO 융합은 아직 추가하지 않았다. 로컬 미터 좌표 변환은 gps_visualizer의 RViz 표시용으로 제공한다.
+
+GPS 구매 후 적용 안내: [GPS 설정·실물 교체](src/nomad_gazebo/GPS.md). 주기·안테나 위치·수평/수직 위치 오차 표준편차는 sensors.yaml의 gps에서 변경한다. 기본 sigma0 유지. 실제 드라이버 설정은 별개이며 GNSS 모델명만 적는다고 실물에 적용되지 않는다. 단순 위치 노이즈와 RTK/위성 품질 모델을 구분하고, 브리지 공분산 UNKNOWN을 0오차로 해석하지 않는다. GPS 추가 사실과 현재 수신 검증은 GPT 작업 폴더 log/GPS_융합에 기록되어 있다(팀 저장소에 개인 로그를 복사하지 않는다).
+
+## GPS 표시와 최종 위치 출력 계약
+
+공개 센서입력 `/gps/fix`(NavSatFix), 최종 위치출력 `/nomad/localization/odometry`(Odometry)을 유지한다. `gps_visualizer.py`는 WGS84→ECEF→ENU 좌표만 계산해 `/nomad/visualization/gps` MarkerArray에 현재 안테나점/최근1000점 표시를 발행한다. GPS에 자세를 임의로 붙인 Odometry/TF를 발행하지 않는다. GPS위치와 VIO/융합출력의 의미를 구분한다. forest.launch가 실제 선택월드datum(ENU/heading0)을 전달하므로 첫fix 원점·프레임이름만 바꾼 정렬을 하지 않는다. GPS가활성이고 visualization=true이면 자동실행. RViz는 `ros2 launch nomad_gazebo gps_rviz.launch.py`로 별도 실행하며 표시노드를 중복실행하지 않는다. `/gps/odometry`·`/gps/path`는 추가하지 않았다. 모든변경/검증은 GPT작업폴더 log/GPS_융합에 누적기록.

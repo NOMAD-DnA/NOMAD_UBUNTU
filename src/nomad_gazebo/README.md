@@ -89,3 +89,20 @@ python3 src/nomad_gazebo/scripts/generate_vio_test_maps.py --map 08_vio_reverse_
 ```
 
 생성기·입력·메시·텍스처·SDF를 함께 보관한다. 기존 차량·센서 설정을 유지하며 기준 경로는 자율주행 성공을 보장하지 않는다.
+
+## GPS 위치 수신
+
+기존 `./run_forest.sh`로 실행하면 모든 선택 맵에서 `/gps/fix` (`sensor_msgs/msg/NavSatFix`)가 나온다.
+
+```bash
+source ~/nomad_ws/.nomad/env.sh
+ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix --once   # 위도·경도·고도 수신
+```
+
+설정: `src/nomad_gazebo/config/sensors.yaml`의 `gps`. 기본 5Hz(시뮬레이션 시간), 노이즈 없는 NavSat이며 RTK·위성 수·차폐는 재현하지 않는다. 월드 원점은 임의의 위도37°, 경도127°, 고도0m이고 +X 동쪽/+Y 북쪽/+Z 위다. 기존 월드에 spherical_coordinates가 있으면 그 값을 유지한다. `gps_link`는 base_link 위0.45m의 안테나 위치이며 GT base_link와 기준점이 다르다.
+
+Launch가 선택 월드·차량의 임시 복사본에 센서/세계 좌표/플러그인을 추가하므로 맵 원본과 차량 물리 생성물을 재생성하지 않는다. `gps.enabled: false`면 원본 월드를 사용한다. NavSatFix의 공분산은 브리지에서 UNKNOWN으로 나오므로 융합 전에 별도 설정이 필요하다. GPS→VIO 융합은 아직 추가하지 않았다. 로컬 미터 좌표 변환은 gps_visualizer의 RViz 표시용으로 제공한다.
+
+GPS 구매 후 적용 안내: [GPS 설정·실물 교체](GPS.md). 주기·안테나 위치·수평/수직 위치 오차 표준편차는 sensors.yaml의 gps에서 변경한다. 기본 sigma0 유지. 실제 드라이버 설정은 별개이며 GNSS 모델명만 적는다고 실물에 적용되지 않는다. 단순 위치 노이즈와 RTK/위성 품질 모델을 구분하고, 브리지 공분산 UNKNOWN을 0오차로 해석하지 않는다. GPS 추가 사실과 현재 수신 검증은 GPT 작업 폴더 log/GPS_융합에 기록되어 있다(팀 저장소에 개인 로그를 복사하지 않는다).
+
+GPS RViz: 시뮬레이션 실행 후 `ros2 launch nomad_gazebo gps_rviz.launch.py`. [좌표·시각화 계약](GPS.md#gps-시각화).
