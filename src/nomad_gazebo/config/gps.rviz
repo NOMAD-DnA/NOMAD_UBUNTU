@@ -1,0 +1,55 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: odom
+    Background Color: 35; 35; 35
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Grid (meters)
+      Enabled: true
+      Cell Size: 1
+      Plane Cell Count: 100
+    - Class: rviz_default_plugins/RobotModel
+      Name: Vehicle
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Visual Enabled: true
+      Collision Enabled: false
+    - Class: rviz_default_plugins/MarkerArray
+      Name: GPS antenna position and trail
+      Enabled: true
+      Topic:
+        Value: /nomad/visualization/gps
+        Reliability Policy: Reliable
+        Durability Policy: Volatile
+    - Class: rviz_default_plugins/Odometry
+      Name: Final localization (when available)
+      Enabled: false
+      Topic:
+        Value: /nomad/localization/odometry
+      Keep: 100
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/Orbit
+      Distance: 22
+      Focal Point:
+        X: 0
+        Y: 0
+        Z: 0
+      Pitch: 0.8
+      Yaw: 0.7
+      Target Frame: base_link
+Window Geometry:
+  Width: 1100
+  Height: 800
