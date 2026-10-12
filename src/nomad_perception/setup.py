@@ -17,4 +17,8 @@ setup(name=name, version='0.2.0', packages=find_packages(exclude=['test']),
           'geometry_mapper = nomad_geometry_mapping.mapper:main',
           'geometry_saved_map_viewer = nomad_geometry_mapping.viewer:main',
           'geometry_slope_labels = nomad_geometry_mapping.labels:main',
-          'geometry_session = nomad_geometry_mapping.session:main']})
+          'geometry_session = nomad_geometry_mapping.session:main',
+          'semantic_mapper = nomad_semantic_mapping.mapper:main',
+          'semantic_saved_map_viewer = nomad_semantic_mapping.viewer:main',
+          'semantic_labels = nomad_semantic_mapping.labels:main',
+          'semantic_session = nomad_semantic_mapping.session:main']})

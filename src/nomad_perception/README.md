@@ -86,3 +86,7 @@ ros2 launch nomad_bringup perception.launch.py
 ## 경사 비용 생성 모듈
 
 `nomad_geometry_mapping` 코드를 이 패키지에 포함한다. `ros2 run nomad_perception geometry_session`으로 수동 주행 중 경사 비용을 만들고 저장한다. 설정, 출력과 저장본 보기는 [경사 매핑 안내](docs/GEOMETRY_MAPPING.md)를 따른다.
+
+## 의미 비용 생성 모듈
+
+`nomad_semantic_mapping` 코드를 이 패키지에 포함한다. `ros2 run nomad_perception semantic_session`으로 의미 비용과 원본 대표 클래스를 만들고 저장한다. 클래스 비용, 출력과 저장본 보기는 [의미 매핑 안내](docs/SEMANTIC_MAPPING.md)를 따른다.
