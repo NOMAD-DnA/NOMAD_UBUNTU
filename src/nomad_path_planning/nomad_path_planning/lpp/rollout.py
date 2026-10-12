@@ -360,6 +360,9 @@ class AckermannRollout:
         if not global_path:
             return None
 
+        # The shared node preserves vehicle yaw for RPP. Keep this strategy's
+        # existing XY/tangent scoring, including legacy XY-only recovery callers.
+        global_path = [(p[0], p[1]) for p in global_path]
         candidates = []
 
         # A nearby final goal does not require clearance beyond that goal.

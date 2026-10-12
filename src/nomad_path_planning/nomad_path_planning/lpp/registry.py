@@ -8,6 +8,8 @@ NAMES=('rollout','rpp')
 
 class LocalPlanner(Protocol):
     speed: float
+    # Shared node supplies base_link (x, y, yaw). RPP requires vehicle yaw;
+    # rollout uses XY and also accepts legacy XY-only recovery paths.
     def plan(self,start,global_path,costmap): ...
 
 

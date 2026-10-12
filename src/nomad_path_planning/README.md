@@ -44,7 +44,7 @@ nomad_path_planning/
 
 ROS 노드는 입출력·복구를 담당하고 알고리즘 객체를 Strategy로 선택한다. 새 알고리즘은 공통 계약을 구현하고 해당 registry에 등록한다. 기존 루트의 `dstar_lite.py`, `rollout.py`는 이전 import를 유지하는 호환 진입점이다. 실행 파일·노드 이름도 호환성을 위해 유지하므로 `dstar_lite_gpp`라는 노드가 Hybrid A*를 실행할 수 있다. 시작 로그의 `Selected GPP=..., LPP=...`로 실제 선택을 확인한다.
 
-GPP 출력은 odom 좌표계의 base_link 경로 `nav_msgs/Path`다. LPP는 이 경로·현재 자세·지역 지도를 받아 예측 궤적과 그 궤적의 속도·조향각을 `PlannedMotion`으로 함께 발행한다. Control과 연결되는 기존 계약은 바뀌지 않는다.
+GPP 출력은 odom 좌표계의 base_link 경로 `nav_msgs/Path`다. LPP 내부에서도 각 점의 `(x, y, yaw)`를 보존한다. RPP는 경로점의 차량 yaw로 base_link 중심을 후륜축 중심으로 변환하며, XY 접선으로 차량 yaw를 대체하지 않는다. yaw가 없거나 유효하지 않은 RPP 입력은 실패 처리한다. Ackermann rollout은 기존 XY·경로 접선 평가를 유지하며 복구 모듈의 XY 입력도 계속 지원한다. LPP는 이 경로·현재 자세·지역 지도를 받아 예측 궤적과 그 궤적의 속도·조향각을 `PlannedMotion`으로 함께 발행한다. Control과 연결되는 기존 계약은 바뀌지 않는다.
 
 ### 구현 범위와 설정
 

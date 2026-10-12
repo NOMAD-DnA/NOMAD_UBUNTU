@@ -18,14 +18,14 @@ class RegulatedPurePursuit(AckermannRollout):
 
     def plan(self,start,global_path,costmap):
         failed={'success':False,'best':None,'candidates':[]}
-        if not global_path or route_is_behind(start,global_path): return failed
-        # Convert reference centerline to the same rear-axle reference used by
-        # the bicycle model. Final point uses the last segment tangent.
-        rear=[]
-        for i,p in enumerate(global_path):
-            a,b=(p,global_path[i+1]) if i+1<len(global_path) else (global_path[max(0,i-1)],p)
-            yaw=math.atan2(b[1]-a[1],b[0]-a[0])
-            rear.append((p[0]-self.reference_offset*math.cos(yaw),p[1]-self.reference_offset*math.sin(yaw)))
+        # Path poses are base_link (x, y, vehicle yaw), not tangent headings.
+        # Missing/invalid yaw cannot safely be reconstructed from center positions.
+        if (not global_path or any(len(p) != 3 or not all(math.isfinite(v) for v in p)
+                                   for p in global_path)
+                or route_is_behind(start,global_path)):
+            return failed
+        rear=[(x-self.reference_offset*math.cos(yaw),
+               y-self.reference_offset*math.sin(yaw)) for x,y,yaw in global_path]
         yaw=start[2]
         rx,ry=start[0]-self.reference_offset*math.cos(yaw),start[1]-self.reference_offset*math.sin(yaw)
         nearest=self.nearest_path_index(rx,ry,rear)
@@ -44,7 +44,7 @@ class RegulatedPurePursuit(AckermannRollout):
         if abs(steer)>self.max_steer+1e-6: return failed
         distance=math.hypot(global_path[-1][0]-start[0],global_path[-1][1]-start[1])
         speed=min(self.speed,math.sqrt(self.lateral_accel/max(abs(curvature),1e-9)),max(.05,distance*.5))
-        grid=Grid(Request(costmap,start,global_path[-1]))
+        grid=Grid(Request(costmap,start,global_path[-1][:2]))
         value=grid.value(*start[:2])
         if not math.isfinite(value): return failed
         speed=min(speed,self.speed/max(1.,value))

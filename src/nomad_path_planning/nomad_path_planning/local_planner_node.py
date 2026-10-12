@@ -1,5 +1,5 @@
 from nomad_path_planning.experiment_timing import measured
-from nomad_path_planning.contracts import valid_grid
+from nomad_path_planning.contracts import valid_grid, valid_pose
 from nomad_interfaces.msg import PlannedMotion
 import math
 from nomad_path_planning.route_guard import route_is_behind
@@ -186,10 +186,13 @@ class LocalPlannerNode(Node):
         result = []
 
         for pose in self.global_path_msg.poses:
+            if not valid_pose(pose.pose):
+                return []
             result.append(
                 (
                     pose.pose.position.x,
                     pose.pose.position.y,
+                    self.quaternion_to_yaw(pose.pose.orientation),
                 )
             )
 

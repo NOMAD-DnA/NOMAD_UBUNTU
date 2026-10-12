@@ -1,0 +1,247 @@
+--- /dev/null
++++ b/src/nomad_bringup/experiments/batch_missions.py
+@@ -0,0 +1,60 @@
++"""Map-specific mission inputs; planners still own every executable path."""
++import csv
++import json
++import math
++from route_mission import loop_waypoints
++
++ALL_MAPS = ('01_original', '02_fork2_gentle', '03_vehicle_incline_test',
++            '04_vio_flat_loop', '05_vio_repeated_forest', '06_vio_sparse_clearing',
++            '07_vio_undulating_terrain', '08_vio_reverse_dead_end')
++
++
++def sample_open(points, spacing=4.):
++    goals = []
++    distance = 0.
++    for a, b in zip(points, points[1:]):
++        distance += math.dist(a, b)
++        if distance >= spacing:
++            goals.append(list(b))
++            distance = 0.
++    if goals and math.dist(goals[-1], points[-1]) < spacing / 2:
++        goals.pop()
++    goals.append(list(points[-1]))
++    return goals
++
++
++def csv_points(path):
++    with path.open() as stream:
++        return [(float(r['x_m']), float(r['y_m'])) for r in csv.DictReader(stream)]
++
++
++def mission(map_root, mid):
++    folder = map_root / mid
++    base = dict(pilot=False, timeout_sim_s=1200., mission='single_goal')
++    if mid[:2] in ('01', '02'):
++        layout = json.loads((folder/'assets/authoring/layout.json').read_text())
++        return dict(base, goal=layout['waypoints']['goal'], timeout_sim_s=600.,
++                    route_source='Existing layout.json goal; no intermediate waypoints')
++    if mid.startswith('03'):
++        config = json.loads((folder/'assets/authoring/vehicle_test.json').read_text())
++        end_x = config['ramp_start_x_m'] + 2*config['ascent_horizontal_m'] + 4.
++        return dict(base, goal=[end_x, config['spawn_pose'][1]], timeout_sim_s=600.,
++                    route_source='Default spawn lane (5 degrees); goal 4m beyond ramp; newly defined experiment goal')
++    if mid[:2] in ('04', '05', '06', '07'):
++        goals, count = loop_waypoints(folder/'route.csv')
++        return dict(base, goal=goals[0], waypoints=goals, waypoints_per_lap=count,
++                    waypoint_radius_m=1., mission='ordered_route', laps=2,
++                    route_source='route.csv, two ordered laps; design guidance, not shortest-path truth')
++    route = csv_points(folder/'route.csv')
++    bypass = csv_points(folder/'bypass.csv')
++    branch = min(range(len(route)), key=lambda i: math.dist(route[i], bypass[0]))
++    ingress = sample_open(route)
++    recovery = sample_open(list(reversed(route[branch:])))
++    detour = sample_open(bypass)
++    goals = ingress + recovery + detour
++    return dict(base, goal=goals[0], waypoints=goals, waypoint_radius_m=1.,
++                mission='ordered_route', route_source='route.csv ingress, return to bypass start, bypass.csv to goal',
++                stages=[dict(name='ingress', begin=0, end=len(ingress)),
++                        dict(name='return_to_branch', begin=len(ingress), end=len(ingress)+len(recovery)),
++                        dict(name='bypass', begin=len(ingress)+len(recovery), end=len(goals))],
++                reverse_policy='Existing planner/recovery decides motion direction; reverse travel is measured, not forced by this mission')
+--- a/src/nomad_bringup/experiments/common.py
++++ b/src/nomad_bringup/experiments/common.py
+@@ -46,7 +46,7 @@
+         for path in sorted(package.rglob('*')):
+             if path.is_file() and not {'__pycache__', '.pytest_cache'}.intersection(path.parts):
+                 if package.name == 'nomad_gazebo' and 'maps' in path.parts:
+-                    if not any(mid in path.parts for mid in MAPS):
++                    if not any(mid in path.parts for mid in __import__('batch_missions').ALL_MAPS):
+                         continue
+                 files.append(path)
+     return files
+--- a/src/nomad_bringup/experiments/experiment.py
++++ b/src/nomad_bringup/experiments/experiment.py
+@@ -38,7 +38,7 @@
+     return ROOT/name
+ 
+ 
+-def initialize(directory, route_pair=None):
++def initialize(directory, route_pair=None, all_maps=False, exclude_map3=False):
+     if (directory/'manifest.json').exists():return read(directory/'manifest.json')
+     if directory.exists():raise ValueError('불완전한 실험 폴더입니다. 새 실험명을 사용하세요.')
+     directory.mkdir(parents=True)
+@@ -72,6 +72,19 @@
+             waypoints=waypoints, waypoint_radius_m=1., waypoints_per_lap=per_lap,
+             mission='ordered_route', laps=2,
+             route_source='route.csv: design guidance, not shortest-path ground truth')]
++    if all_maps:
++        from batch_missions import ALL_MAPS, mission
++        selected_maps = [m for m in ALL_MAPS if not (exclude_map3 and m.startswith('03'))]
++        trials = []
++        map_root = directory/'snapshot/src/nomad_gazebo/maps'
++        for repeat in range(1, 4):
++            block = []
++            for mid in selected_maps:
++                for pair in conditions:
++                    block.append(dict(mission(map_root, mid), id=f"{mid}_pair{pair['number']}_r{repeat}",
++                                      map=mid, pair=pair, repeat=repeat))
++            random.Random(740+repeat).shuffle(block)
++            trials.extend(block)
+     manifest=dict(schema=1,name=directory.name,created=time.time(),commit=commit,files=files,
+                   weights=dict(sr=.5,spl=.25,sct=.25),trials=trials,pilots=pilots,
+                   limits=dict(startup_wall_s=120.,trial_wall_s=7200.,min_free_gb=8.),
+@@ -81,8 +94,10 @@
+                          'Default perception, control and recovery fixed; map and planner pair vary.',
+                          'Field D* is a custom variant plus a Hybrid A* reference adapter.',
+                          'Safe success is used in SPL/SCT; distinguish from arrival-only literature metrics.'])
+-    if route_pair is not None:
++    if route_pair is not None or all_maps:
+         manifest['limits']['trial_wall_s'] = 14400.
++    manifest['scope'] = 'all_maps_reference_routes' if all_maps else ('map4_route' if route_pair is not None else 'legacy_54')
++    manifest['references'] = {mid: dict(validated=False, reason='Mission design route is not shortest-distance/minimum-time ground truth.') for mid in sorted({t['map'] for t in trials})}
+     manifest['recording'] = dict(scope='all discovered non-image ROS topics including hidden topics', excluded_types=['sensor_msgs/msg/Image','sensor_msgs/msg/CompressedImage'], compression='MCAP Zstd fastest lossless', split_bytes=536870912, timing='per algorithm call wall and thread CPU ns; excludes recorder write overhead')
+     save(directory/'manifest.json',manifest)
+     import platform
+@@ -242,6 +257,9 @@
+         try:
+             recover_interrupted(directory)
+             for trial in manifest['pilots']+( [] if pilot_only else manifest['trials']):
++                if (directory/'STOP_REQUESTED').exists():
++                    save(directory/'status.json',dict(state='interrupted',retry='resume'))
++                    return 130
+                 previous=finished(directory,trial)
+                 if previous:continue
+                 outcome=execute(directory,manifest,trial)
+@@ -262,26 +280,38 @@
+ 
+ def main():
+     parser=argparse.ArgumentParser(description='NOMAD experiment: record/evaluate/show/status/resume')
+-    parser.add_argument('command',choices=['record','evaluate','show','status','resume','prepare','export','route'])
++    parser.add_argument('command',choices=['record','evaluate','show','status','resume','prepare','export','route','batch','stop'])
+     parser.add_argument('name',nargs='?')
+     parser.add_argument('--pilot-only',action='store_true')
+     parser.add_argument('--topic',help='ROS topic for lossless JSONL export, e.g. /odom')
+     parser.add_argument('--pair', type=int, choices=range(1,7), default=3, help='route mission planner pair (default 3)')
++    parser.add_argument('--exclude-map3', action='store_true', help='Exclude map3 from the batch')
+     args=parser.parse_args()
+     name=args.name
+-    if args.command in ('record','prepare','route') and not name:name=input('새 실험명: ').strip()
++    if args.command in ('record','prepare','route','batch') and not name:name=input('새 실험명: ').strip()
+     directory=locate(name)
+-    if args.command in ('record','prepare','route'):manifest=initialize(directory, args.pair if args.command=='route' else None)
++    if args.command in ('record','prepare','route','batch'):manifest=initialize(directory, args.pair if args.command=='route' else None, args.command=='batch', args.exclude_map3)
+     else:manifest=read(directory/'manifest.json')
+     if args.command=='route' and any(t.get('mission')!='ordered_route' or t['pair']['number']!=args.pair for t in manifest['trials']):
+         raise ValueError('기존 실험 조건과 다릅니다. 새 실험명을 사용하세요.')
++    if args.command=='batch' and manifest.get('scope')!='all_maps_reference_routes':
++        raise ValueError('다른 범위의 기존 실험입니다. 새 실험명을 사용하세요.')
+     if args.command=='prepare':print(directory);return 0
++    if args.command=='stop':
++        (directory/'STOP_REQUESTED').touch()
++        print('중단 요청을 저장했습니다. 기록 파일 정리를 기다리세요.')
++        return 0
+     if args.command=='export':
+         if not args.topic:raise ValueError('export requires --topic /topic_name')
+         from archive import export
+         export(directory,args.topic)
+         return 0
+-    if args.command in ('record','resume','route'):return run(directory,manifest,args.pilot_only)
++    if args.command in ('record','resume','route','batch'):
++        if (directory/'CANCELLED.json').exists():
++            raise ValueError('사용자가 취소한 실험입니다. 새 실험명을 사용하세요.')
++        if args.command=='resume':
++            (directory/'STOP_REQUESTED').unlink(missing_ok=True)
++        return run(directory,manifest,args.pilot_only)
+     if args.command in ('evaluate','show'):
+         from report import evaluate
+         evaluate(directory)
+--- a/src/nomad_bringup/experiments/observe.py
++++ b/src/nomad_bringup/experiments/observe.py
+@@ -202,6 +202,7 @@
+     try:
+         node.event('observer_started')
+         while time.monotonic()-initial_wall<manifest['limits']['startup_wall_s']:
++            if (directory.parents[2]/'STOP_REQUESTED').exists():result='interrupted';break
+             rclpy.spin_once(node,timeout_sec=.05)
+             if any(p.poll() is not None for p in processes):
+                 result='process_exit';break
+@@ -224,6 +225,7 @@
+         if start_wall is not None:
+             last_print=time.monotonic()
+             while True:
++                if (directory.parents[2]/'STOP_REQUESTED').exists():result='interrupted';break
+                 rclpy.spin_once(node,timeout_sec=.05)
+                 elapsed=node.sim-node.begin_sim
+                 wall=time.monotonic()-start_wall
+@@ -244,7 +246,7 @@
+                     waypoint_index += 1
+                     node.send_goal(goals[waypoint_index], waypoint_index)
+                     save(directory/'mission_progress.json', dict(waypoints_reached=waypoint_index,
+-                        total_waypoints=len(goals), completed_laps=waypoint_index//trial['waypoints_per_lap'],
++                        total_waypoints=len(goals), completed_laps=(waypoint_index//trial['waypoints_per_lap']) if trial.get('waypoints_per_lap') else None,
+                         target=goals[waypoint_index], elapsed_sim_s=elapsed))
+                     stable=None
+                     continue
+--- a/src/nomad_bringup/experiments/report.py
++++ b/src/nomad_bringup/experiments/report.py
+@@ -111,10 +111,10 @@
+ <style>body{{font-family:sans-serif;max-width:1100px;margin:40px auto;line-height:1.6}}img{{width:100%}}td,th{{border:1px solid #ccc;padding:6px}}table{{border-collapse:collapse}}.note{{background:#fff4d0;padding:18px}}</style>
+ <h1>{esc(manifest['name'])}</h1><p>기준 코드: {esc(manifest['commit'])}</p>
+ <p class="note">시뮬레이션 결과이며 실차 성능을 증명하지 않습니다. 안전 도착률은 금지 접촉·전복 없이 목표 반경 0.35m에서 정지한 비율입니다. 기록 누락·실행 오류는 평가 불가로 분리합니다. 기준 최단거리·최소시간이 검증되기 전 SPL·SCT·종합 순위는 보류합니다. 파일럿은 본실험 집계에서 제외합니다.</p>
+-<p>본실험 유효 기록: {sum(r.get('valid',False) for r in main)}/54. 가중치: 안전 도착률 50%, 경로 효율 25%, 시간 효율 25%.</p>
++<p>본실험 유효 기록: {sum(r.get('valid',False) for r in main)}/{len(manifest['trials'])}. 가중치: 안전 도착률 50%, 경로 효율 25%, 시간 효율 25%.</p>
+ <img src="figures/comparison.png"><img src="figures/weighted_score.png"><img src="figures/trajectories.png">
+ <table><tr><th>실행</th><th>결과</th><th>유효</th><th>XY 거리(m)</th><th>시뮬레이션 시간(s)</th><th>종합 점수</th></tr>{table}</table>
+ <p>실패와 성공을 포함한 거리·시간입니다. 짧은 실패 경로를 효율적인 경로로 해석하지 마세요. 안전 성공 조건을 적용한 SPL/SCT는 도착만 요구하는 문헌 지표와 구분합니다.</p></html>'''
+     (result_dir/'report.html').write_text(report)
+-    (result_dir/'notion_summary.md').write_text(f"# {manifest['name']}\n\n상태: 본실험 유효 기록 {sum(r.get('valid',False) for r in main)}/54\n\n기준 코드: `{manifest['commit']}`\n\n시뮬레이션 결과이며 실차 성능의 증명이 아님.\n\n가중치: 안전 도착률 50% / 경로 효율 25% / 시간 효율 25%.\n\nSPL·SCT 및 종합 순위: 독립 기준값 검증 및 전체 유효 기록 확보 전 보류.\n\n"+'\n'.join(f"- 조합 {s['pair']}: 유효 {s['valid_runs']}/9, 안전 도착 {s['successes']}회" for s in summary)+'\n')
++    (result_dir/'notion_summary.md').write_text(f"# {manifest['name']}\n\n상태: 본실험 유효 기록 {sum(r.get('valid',False) for r in main)}/{len(manifest['trials'])}\n\n기준 코드: `{manifest['commit']}`\n\n시뮬레이션 결과이며 실차 성능의 증명이 아님.\n\n가중치: 안전 도착률 50% / 경로 효율 25% / 시간 효율 25%.\n\nSPL·SCT 및 종합 순위: 독립 기준값 검증 및 전체 유효 기록 확보 전 보류.\n\n"+'\n'.join(f"- 조합 {s['pair']}: 유효 {s['valid_runs']}/{sum(t['pair']['number']==s['pair'] for t in manifest['trials'])}, 안전 도착 {s['successes']}회" for s in summary)+'\n')
+     return rows
+--- /dev/null
++++ b/src/nomad_bringup/experiments/test_batch_missions.py
+@@ -0,0 +1,32 @@
++import math
++from common import WORKSPACE
++from batch_missions import ALL_MAPS, mission
++
++
++def test_existing_single_goals_and_default_lane():
++    root=WORKSPACE/'src/nomad_gazebo/maps'
++    for mid in ALL_MAPS[:2]:
++        m=mission(root, mid)
++        assert m['goal']==[23.,16.]
++        assert 'waypoints' not in m
++    assert mission(root,ALL_MAPS[2])['goal']==[20.,-25.]
++
++
++def test_all_loop_missions_close_twice():
++    root=WORKSPACE/'src/nomad_gazebo/maps'
++    for mid in ALL_MAPS[3:7]:
++        m=mission(root,mid);n=m['waypoints_per_lap']
++        assert m['waypoints'][:n]==m['waypoints'][n:]
++        assert len(m['waypoints'])==2*n
++        assert math.dist(m['waypoints'][-1],[-28,0])<1e-6
++        assert m['waypoints'][0][1]<0
++
++
++def test_dead_end_has_distinct_return_and_bypass_stages():
++    m=mission(WORKSPACE/'src/nomad_gazebo/maps',ALL_MAPS[-1]);w=m['waypoints']
++    ingress, recovery, bypass=m['stages']
++    assert w[ingress['end']-1]==[23.,0.]
++    assert w[recovery['end']-1]==[-14.,0.]
++    assert w[-1]==[34.,0.]
++    assert all(b[0]<a[0] for a,b in zip(w[recovery['begin']-1:recovery['end']-1], w[recovery['begin']:recovery['end']]))
++    assert any(y>5 for x,y in w[bypass['begin']:])

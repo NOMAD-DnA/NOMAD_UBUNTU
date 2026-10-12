@@ -40,7 +40,7 @@ def locate(name):
     return ROOT/name
 
 
-def initialize(directory, route_pair=None, all_maps=False, exclude_map3=False):
+def initialize(directory, route_pair=None, all_maps=False, exclude_map3=False, comparison=None):
     if (directory/'manifest.json').exists():return read(directory/'manifest.json')
     if directory.exists():raise ValueError('불완전한 실험 폴더입니다. 새 실험명을 사용하세요.')
     directory.mkdir(parents=True)
@@ -103,6 +103,9 @@ def initialize(directory, route_pair=None, all_maps=False, exclude_map3=False):
     manifest['scope'] = 'all_maps_reference_routes' if all_maps else ('map4_route' if route_pair is not None else 'legacy_54')
     manifest['references'] = {mid: dict(validated=False, reason='Mission design route is not shortest-distance/minimum-time ground truth.') for mid in sorted({t['map'] for t in trials})}
     manifest['recording'] = dict(scope='all discovered non-image ROS topics including hidden topics', excluded_types=['sensor_msgs/msg/Image','sensor_msgs/msg/CompressedImage'], compression='MCAP Zstd fastest lossless', split_bytes=536870912, timing='per algorithm call wall and thread CPU ns; excludes recorder write overhead')
+    if comparison is not None:
+        from comparison import configure
+        configure(directory, manifest, comparison, conditions)
     save(directory/'manifest.json',manifest)
     import platform
     environment=dict(platform=platform.platform(),python=sys.version,cpu_count=os.cpu_count(),
@@ -114,6 +117,10 @@ def initialize(directory, route_pair=None, all_maps=False, exclude_map3=False):
 
 
 def assert_version(manifest):
+    for relative, expected in manifest.get('route_files', {}).items():
+        from common import sha
+        if sha(ROOT/manifest['name']/relative) != expected:
+            raise RuntimeError('저장된 경유점 입력 변경 감지: '+relative)
     current=fingerprint()
     if current!=manifest['files']:
         changed=sorted(k for k in set(current)|set(manifest['files']) if current.get(k)!=manifest['files'].get(k))
@@ -200,15 +207,24 @@ def execute(directory,manifest,trial):
     latched=[topic_map[k] for k in ('planning.goal','planning.global_path','perception.global_costmap','perception.local_costmap','planning.recovery_gates')]+['/tf_static']
     (attempt/'qos.yaml').write_text(yaml.safe_dump({t:dict(durability='transient_local',reliability='reliable',history='keep_last',depth=1) for t in latched}))
     cfg=snapshot/'src/nomad_bringup/config'
+    # Freeze ROS parameters too: installed YAML must not silently override the snapshot.
+    parameters = {}
+    for package in ('nomad_perception','nomad_vio','nomad_control','nomad_path_planning'):
+        filename = 'planning.yaml' if package == 'nomad_path_planning' else 'parameters.yaml'
+        parameters.update(yaml.safe_load((snapshot/'src'/package/'config'/filename).read_text()))
+    (attempt/'runtime_params.yaml').write_text(yaml.safe_dump(parameters))
     commands=[
         ['ros2','run','ros_gz_bridge','parameter_bridge','--ros-args','-r','__node:=experiment_contacts','-p',f'config_file:={attempt/"contacts.yaml"}'],
         ['ros2','bag','record','--node-name','experiment_bag','--disable-keyboard-controls','--use-sim-time','-s','mcap','-o',str(attempt/'bag'),
          '--qos-profile-overrides-path',str(attempt/'qos.yaml'), '--storage-preset-profile','zstd_fast',
          '--max-bag-size','536870912','--all-topics','--include-hidden-topics',
          '--exclude-topic-types','sensor_msgs/msg/Image','sensor_msgs/msg/CompressedImage'],
-        ['ros2','launch','nomad_bringup','forest.launch.py','headless:=true','rviz:=false',f'world_file:={attempt/"world.sdf"}',
+        ['ros2','launch','nomad_bringup','forest.launch.py',
+         'headless:=false' if manifest.get('display_gui') else 'headless:=true',
+         'rviz:=true' if manifest.get('display_gui') else 'rviz:=false',f'world_file:={attempt/"world.sdf"}',
          f'gpp:={trial["pair"]["gpp"]}',f'lpp:={trial["pair"]["lpp"]}',f'topics_file:={cfg/"topics.yaml"}',
-         f'modules_file:={cfg/"modules.yaml"}',f'vehicle_file:={cfg/"vehicle.yaml"}']]
+         f'modules_file:={cfg/"modules.yaml"}',f'vehicle_file:={cfg/"vehicle.yaml"}',
+         f'params_file:={attempt/"runtime_params.yaml"}', 'sim_grass:=true']]
     metadata=dict(snapshot_dir=manifest.get('snapshot_dir','snapshot'),protocol_revision=manifest.get('protocol_revision',1),trial=trial,domain=domain,partition=partition,commands=commands,topics=record_topics,commit=manifest['commit'],started=time.time())
     save(attempt/'metadata.json',metadata)
     processes=[];streams=[];outcome=dict(result='interrupted',valid=False)
@@ -225,6 +241,8 @@ def execute(directory,manifest,trial):
     except Exception as error:
         outcome=dict(result='infrastructure_error',valid=False,error=str(error))
     finally:
+        save(directory/'status.json',dict(state='finalizing',trial=trial['id'],
+             attempt=str(attempt.relative_to(directory)),pid=os.getpid(),result=outcome['result']))
         stop_owned(processes)
         for stream in streams:stream.close()
         try:
@@ -256,7 +274,9 @@ def execute(directory,manifest,trial):
 
 
 def run(directory,manifest,pilot_only=False):
-    with (directory/'run.lock').open('w') as lock:
+    inherited = os.environ.pop('NOMAD_EXPERIMENT_LOCK_FD', None)
+    handle = os.fdopen(int(inherited), 'a') if inherited is not None else (directory/'run.lock').open('a')
+    with handle as lock:
         try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         except BlockingIOError:raise RuntimeError('이미 실행 중인 실험입니다.')
         try:
@@ -266,10 +286,13 @@ def run(directory,manifest,pilot_only=False):
                     save(directory/'status.json',dict(state='interrupted',retry='resume'))
                     return 130
                 previous=finished(directory,trial)
-                if previous:continue
+                if previous and not (manifest.get('pilot_requires_success') and trial.get('pilot')
+                                     and previous['result'] != 'success'):continue
                 outcome=execute(directory,manifest,trial)
                 save(directory/'progress.json',dict(completed=sum(finished(directory,t) is not None for t in manifest['trials']),total=len(manifest['trials']),last_trial=trial['id'],last_result=outcome['result']))
-                if not outcome.get('valid'):
+                if (not outcome.get('valid') or
+                        (manifest.get('pilot_requires_success') and trial.get('pilot')
+                         and outcome['result'] != 'success')):
                     save(directory/'status.json',dict(state='blocked',trial=trial['id'],reason=outcome['result'],retry='resume'))
                     print('Small-test/data-quality gate stopped the batch. Inspect show/status, then resume.',flush=True)
                     return 2
@@ -284,53 +307,82 @@ def run(directory,manifest,pilot_only=False):
 
 
 def main():
-    parser=argparse.ArgumentParser(description='NOMAD experiment: record/evaluate/show/status/resume')
-    parser.add_argument('command',choices=['record','evaluate','show','status','resume','prepare','export','route','batch','stop'])
+    parser=argparse.ArgumentParser(description='NOMAD experiment: compare/record/evaluate/show/status/resume')
+    parser.add_argument('command',choices=['compare','record','evaluate','show','status','resume','prepare','export','route','batch','stop'])
     parser.add_argument('name',nargs='?')
+    parser.add_argument('--gui',action='store_true',help='compare: show Gazebo and RViz for a new experiment')
     parser.add_argument('--pilot-only',action='store_true')
+    parser.add_argument('--prepare-only',action='store_true',help='compare: create snapshot without running')
+    parser.add_argument('--foreground',action='store_true',help='Run in this terminal (comparison defaults to background)')
+    parser.add_argument('--background',action='store_true',help='Run existing experiments in background too')
+    parser.add_argument('--watch',action='store_true',help='status: refresh every 3 seconds; Ctrl+C exits view only')
+    parser.add_argument('--route-source',default='manual_map4_waypoints_20261008')
+    parser.add_argument('--repeats',type=int,default=3)
+    parser.add_argument('--pairs',default=None,help='compare: comma-separated menu numbers; default all')
     parser.add_argument('--topic',help='ROS topic for lossless JSONL export, e.g. /odom')
-    parser.add_argument('--pair', type=int, choices=range(1,7), default=3, help='route mission planner pair (default 3)')
-    parser.add_argument('--exclude-map3', action='store_true', help='Exclude map3 from the batch')
+    parser.add_argument('--pair',type=int,choices=range(1,7),default=3)
+    parser.add_argument('--exclude-map3',action='store_true')
     args=parser.parse_args()
+    if args.foreground and args.background:parser.error('Choose --foreground or --background')
     name=args.name
-    if args.command in ('record','prepare','route','batch') and not name:name=input('새 실험명: ').strip()
+    if args.command in ('compare','record','prepare','route','batch') and not name:name=input('새 실험명: ').strip()
     directory=locate(name)
-    if args.command in ('record','prepare','route','batch'):manifest=initialize(directory, args.pair if args.command=='route' else None, args.command=='batch', args.exclude_map3)
+    if args.gui and (args.command!='compare' or (directory/'manifest.json').exists()):
+        raise ValueError('--gui requires a new compare experiment name')
+    if args.command=='compare':
+        from comparison import load_route
+        selected=[int(n) for n in args.pairs.split(',')] if args.pairs else None
+        plan=load_route(args.route_source,args.repeats,selected,len(pairs()))
+        manifest=initialize(directory,comparison=plan)
+        if args.gui:
+            manifest['display_gui']=True
+            save(directory/'manifest.json',manifest)
+        if manifest.get('comparison')!=plan:raise ValueError('기존 비교 조건과 다릅니다. 새 실험명을 사용하세요.')
+    elif args.command in ('record','prepare','route','batch'):
+        manifest=initialize(directory,args.pair if args.command=='route' else None,args.command=='batch',args.exclude_map3)
     else:manifest=read(directory/'manifest.json')
     if args.command=='route' and any(t.get('mission')!='ordered_route' or t['pair']['number']!=args.pair for t in manifest['trials']):
         raise ValueError('기존 실험 조건과 다릅니다. 새 실험명을 사용하세요.')
     if args.command=='batch' and manifest.get('scope')!='all_maps_reference_routes':
         raise ValueError('다른 범위의 기존 실험입니다. 새 실험명을 사용하세요.')
-    if args.command=='prepare':print(directory);return 0
+    if args.command=='prepare' or (args.command=='compare' and args.prepare_only):
+        print(directory);return 0
     if args.command=='stop':
         (directory/'STOP_REQUESTED').touch()
-        print('중단 요청을 저장했습니다. 기록 파일 정리를 기다리세요.')
-        return 0
+        print('중단 요청을 저장했습니다. 기록 파일 정리를 기다리세요.');return 0
     if args.command=='export':
         if not args.topic:raise ValueError('export requires --topic /topic_name')
         from archive import export
-        export(directory,args.topic)
-        return 0
-    if args.command in ('record','resume','route','batch'):
-        if (directory/'CANCELLED.json').exists():
-            raise ValueError('사용자가 취소한 실험입니다. 새 실험명을 사용하세요.')
-        if args.command=='resume':
+        export(directory,args.topic);return 0
+    if args.command in ('compare','record','resume','route','batch'):
+        if (directory/'CANCELLED.json').exists():raise ValueError('사용자가 취소한 실험입니다. 새 실험명을 사용하세요.')
+        if not args.foreground and (args.background or manifest.get('background_default')):
+            from comparison import background
+            return background(directory,manifest,args.pilot_only)
+        if args.command=='resume' and 'NOMAD_EXPERIMENT_LOCK_FD' not in os.environ:
             (directory/'STOP_REQUESTED').unlink(missing_ok=True)
-        return run(directory,manifest,args.pilot_only)
+        code=run(directory,manifest,args.pilot_only)
+        if manifest.get('auto_evaluate'):
+            from report import evaluate
+            try:evaluate(directory)
+            except Exception as error:
+                save(directory/'evaluation_error.json',dict(error=str(error)))
+                print('원본 기록은 보존됐지만 평가 생성 실패: '+str(error),file=sys.stderr)
+        return code
     if args.command in ('evaluate','show'):
         from report import evaluate
-        evaluate(directory)
-        print(directory/'results/report.html')
+        evaluate(directory);print(directory/'results/report.html')
     if args.command=='status':
-        with (directory/'run.lock').open('a') as lock:
-            try:
-                fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
-                if read(directory/'status.json').get('state')=='running':
-                    recover_interrupted(directory)
-                    save(directory/'status.json',dict(state='interrupted',retry='resume'))
-            except BlockingIOError:pass
-        print(json.dumps(read(directory/'status.json'),ensure_ascii=False,indent=2))
-        print(f"본 실험 완료: {sum(finished(directory,t) is not None for t in manifest['trials'])}/{len(manifest['trials'])}")
+        from comparison import status
+        try:
+            while True:
+                result=status(directory,manifest,finished,recover_interrupted)
+                if args.watch and sys.stdout.isatty():print('\033[2J\033[H',end='')
+                print(json.dumps(result,ensure_ascii=False,indent=2),flush=True)
+                print(f"본 실험 완료: {result['completed']}/{result['total']}",flush=True)
+                if not args.watch or not result['worker_active']:break
+                time.sleep(3.)
+        except KeyboardInterrupt:pass
     return 0
 
 

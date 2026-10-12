@@ -97,7 +97,7 @@ def test_directional_recovery_gate_cannot_be_crossed(name):
 def test_first_five_combinations_have_valid_local_motion(gpp,lpp):
     r=request(); path=create(gpp,seconds=4.).plan(r)
     if gpp=='field_dstar': path=ReferenceAdapter(seconds=4.).adapt(r,path)
-    output=local(lpp,speed=.4).plan(r.start,[p[:2] for p in path.path],r.grid)
+    output=local(lpp,speed=.4).plan(r.start,path.path,r.grid)
     assert output and output['success']
     best=output['best']
     assert math.isfinite(Grid(r).path_cost(best['trajectory']))
@@ -106,7 +106,7 @@ def test_first_five_combinations_have_valid_local_motion(gpp,lpp):
 
 
 def test_rpp_stops_on_obstacle_and_unknown_and_regulates_speed():
-    r=request(); path=[(i*.1,0.) for i in range(51)]
+    r=request(); path=[(i*.1,0.,0.) for i in range(51)]
     p=local('rpp',speed=.4)
     clear=p.plan(r.start,path,r.grid)
     assert clear['success']
@@ -121,7 +121,7 @@ def test_rpp_stops_on_obstacle_and_unknown_and_regulates_speed():
 
 def test_rpp_rejects_impossible_turn_instead_of_clipping_steering():
     r=request()
-    assert not local('rpp',speed=.4).plan(r.start,[(0.,0.),(.15,1.),(.2,2.)],r.grid)['success']
+    assert not local('rpp',speed=.4).plan(r.start,[(0.,0.,0.),(.15,1.,math.pi/2),(.2,2.,math.pi/2)],r.grid)['success']
 
 
 def test_invalid_names_and_weights_are_errors():

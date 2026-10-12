@@ -85,6 +85,22 @@ class Observer(Node):
         self.goal_pub.publish(request)
         self.event('goal_sent', goal=goal, waypoint_index=index, start=self.pose)
 
+    def progress(self, trial, waypoint_index, total, force=False):
+        wall = time.monotonic()
+        if not force and wall-getattr(self, 'last_progress_wall', -math.inf) < 2.:
+            return
+        self.last_progress_wall = wall
+        distance = (math.hypot(self.pose[0]-self.goal_xy[0],self.pose[1]-self.goal_xy[1])
+                    if self.pose and self.goal_xy else None)
+        save(self.directory/'live.json', dict(updated_wall_s=time.time(), phase=self.phase,
+             trial=trial['id'], waypoint_index=waypoint_index+1 if self.goal_xy else None,
+             waypoints_reached=waypoint_index, total_waypoints=total, target=self.goal_xy,
+             target_distance_m=distance, pose=self.pose,
+             speed_mps=self.vehicle.speed if self.vehicle and self.vehicle.speed_valid else None,
+             elapsed_sim_s=(self.sim-self.begin_sim) if self.begin_sim is not None else None,
+             elapsed_wall_s=(wall-self.begin_wall) if self.begin_wall is not None else None,
+             distance_xy_m=self.distance, sensor_ready=self.ready, last_status=self.last_status))
+
     def inventory(self):
         records=[]
         for name, types in self.get_topic_names_and_types():
@@ -204,6 +220,7 @@ def run_trial(directory, manifest, trial, contact_topics, processes):
         while time.monotonic()-initial_wall<manifest['limits']['startup_wall_s']:
             if (directory.parents[2]/'STOP_REQUESTED').exists():result='interrupted';break
             rclpy.spin_once(node,timeout_sec=.05)
+            node.progress(trial,waypoint_index,len(goals))
             if any(p.poll() is not None for p in processes):
                 result='process_exit';break
             contact_ready=(node.wheel_contact_sim is not None and node.sim is not None and
@@ -230,6 +247,7 @@ def run_trial(directory, manifest, trial, contact_topics, processes):
             while True:
                 if (directory.parents[2]/'STOP_REQUESTED').exists():result='interrupted';break
                 rclpy.spin_once(node,timeout_sec=.05)
+                node.progress(trial,waypoint_index,len(goals))
                 elapsed=node.sim-node.begin_sim
                 wall=time.monotonic()-start_wall
                 if any(p.poll() is not None for p in processes):result='process_exit';break
@@ -269,6 +287,8 @@ def run_trial(directory, manifest, trial, contact_topics, processes):
                     print(f"{trial['id']}: {elapsed:.1f}s simulated, remaining {distance:.1f}m",flush=True)
                     last_print=time.monotonic()
         save(directory/'mission_progress.json', dict(waypoints_reached=waypoint_index+(result=='success'), total_waypoints=len(goals), result=result))
+        node.phase='finished'
+        node.progress(trial,waypoint_index+(result=='success'),len(goals),force=True)
         node.event('trial_finished',result=result,valid=valid)
         return dict(result=result,valid=valid,waypoints_reached=waypoint_index+(result=='success'),total_waypoints=len(goals),goal=node.goal_xy,distance_xy_m=node.distance,
                     distance_3d_m=node.distance_3d,reverse_distance_m=node.reverse,
