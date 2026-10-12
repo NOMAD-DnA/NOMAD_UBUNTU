@@ -267,3 +267,8 @@ GPS 구매 후 적용 안내: [GPS 설정·실물 교체](src/nomad_gazebo/GPS.m
 ## GPS 표시와 최종 위치 출력 계약
 
 공개 센서입력 `/gps/fix`(NavSatFix), 최종 위치출력 `/nomad/localization/odometry`(Odometry)을 유지한다. `gps_visualizer.py`는 WGS84→ECEF→ENU 좌표만 계산해 `/nomad/visualization/gps` MarkerArray에 현재 안테나점/최근1000점 표시를 발행한다. GPS에 자세를 임의로 붙인 Odometry/TF를 발행하지 않는다. GPS위치와 VIO/융합출력의 의미를 구분한다. forest.launch가 실제 선택월드datum(ENU/heading0)을 전달하므로 첫fix 원점·프레임이름만 바꾼 정렬을 하지 않는다. GPS가활성이고 visualization=true이면 자동실행. RViz는 `ros2 launch nomad_gazebo gps_rviz.launch.py`로 별도 실행하며 표시노드를 중복실행하지 않는다. `/gps/odometry`·`/gps/path`는 추가하지 않았다. 모든변경/검증은 GPT작업폴더 log/GPS_융합에 누적기록.
+
+
+## 수동 GNSS 오류 모델 (2026-10-10)
+
+nomad_gazebo/scripts/gnss_fault_injector.py는 기존 /gps/fix→/experiment/gps/fix·quality 후처리 시험노드. config/gnss_sim.yaml 기본무오류,gnss_demo.yaml 가정이벤트. nomad_interfaces/GnssQuality.msg는 F9P대응 normalized품질(모드/사용위성/PDOP/receiver correction age/valid_fields). Gazebo 위성/반사/RTK계산모델이 아니며 error truth를품질메시지에넣지않는다. 자동launch에추가하지않고사용자가시험요청할때만명령으로실행한다. 기존GT어댑터/bridge/TF/자율주행출력유지. sensors.yaml GPS sigma0유지,미터오류는후처리에서주입. GPS.md 실행명령/단위/시각/품질정의를따른다. 외부fusion구현은현재없음.

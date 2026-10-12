@@ -1,0 +1,8 @@
+# Measurement-level test settings, NOT calibrated F9P forest performance.
+# Actual error and receiver-reported uncertainty/quality are independent.
+seed: 42
+actual_sigma_enu_m: [0.0, 0.0, 0.0]
+reported_sigma_enu_m: null  # Preserve raw covariance (UNKNOWN for Gazebo).
+quality:
+  solution_type: SINGLE
+events: []
