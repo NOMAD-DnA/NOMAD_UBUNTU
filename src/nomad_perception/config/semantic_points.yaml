@@ -1,0 +1,18 @@
+nomad_semantic_points:
+  ros__parameters:
+    use_sim_time: true
+    depth_topic: /oak/depth/image_raw
+    depth_info_topic: /oak/depth/camera_info
+    labels_topic: /nomad/semantic_gt/oak_rgb/labels
+    labels_info_topic: /nomad/semantic_gt/oak_rgb/camera_info
+    output_topic: /nomad/semantic_points
+    depth_frame: oak_depth_optical_frame
+    labels_frame: oak_rgb_optical_frame
+    # Existing RGBD cameras are coincident. XYZ is emitted in the depth frame.
+    # Real segmentation may later replace this adapter without changing costs.
+    stride: 2
+    min_depth_m: 0.4
+    max_depth_m: 8.0
+    output_hz: 10.0
+    max_pending: 3
+    max_pair_age_wall_sec: 0.5

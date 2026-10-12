@@ -1,0 +1,13 @@
+# Selected raw_r0.3_tls experiment core and camera projection reference.
+core:
+  resolution_m: 0.2
+  height_min_ground_points: 10
+  raw_reference_points: 30
+  cell_reference_count: 6
+  raw_window_s: 10.0
+  per_cell_max_points: 512
+  global_max_points: 1000000
+  space_reference_fraction: 0.1
+  slope_limit_deg: 20.0
+  sampling_seed: 20261008
+projection_pixel_center_offset_px: 0.5

@@ -1,0 +1,67 @@
+# The selected experiment candidate is raw_r0.3_tls. 0.3 m is the XY
+# neighbourhood radius; map cells remain 0.2 m. Ground classes select slope
+# inputs, without adding semantic costs or LiDAR free-ray evidence.
+nomad_manual_mapper:
+  ros__parameters:
+    use_sim_time: true
+    geometry_only: true
+    resolution_m: 0.2
+    radius_m: 0.3
+    slope_input: raw_points
+    height_method: median
+    plane_method: tls
+    fusion_method: weighted
+    semantic_weight: 0.3
+    geometry_weight: 0.7
+    semantic_confidence_alpha: 1.0
+    geometry_confidence_alpha: 1.0
+    semantic_min_points: 20
+    height_min_ground_points: 10
+    semantic_reference_points: 20
+    raw_reference_points: 30
+    cell_reference_count: 6
+    raw_window_s: 10.0
+    per_cell_max_points: 512
+    global_max_points: 1000000
+    near_tie_share_difference: 0.10
+    space_reference_fraction: 0.10
+    xy_rank_ratio: 0.000001
+    tls_gap_ratio: 0.00000001
+    slope_limit_deg: 20.0
+    # Only this manual workspace's output score is recalibrated. The core's
+    # TLS slope, support confidence, and original module costs stay unchanged.
+    cost_model: angle_power_v1
+    cost_power: 2.0
+    cost_confidence_gain: 0.25
+    # Use only the eight immediate neighbors' original confidence, in one pass.
+    neighbor_confidence_enabled: true
+    confidence_low_threshold: 0.3
+    confidence_neighbor_min: 0.7
+    # Reject weak raw geometry and re-fit observed, connected ground heights.
+    plane_quality_enabled: true
+    plane_bin_size_m: 0.05
+    plane_min_raw_points: 12
+    plane_min_xy_bins: 6
+    plane_min_minor_std_m: 0.01
+    plane_min_xy_variance_ratio: 0.02
+    plane_refit_radii_m: [0.3, 0.45, 0.6]
+    plane_min_height_cells: 6
+    plane_max_refit_rms_m: 0.01
+    plane_max_target_error_m: 0.02
+    plane_max_connected_height_jump_m: 0.12
+    plane_min_conflict_points: 3
+    plane_diagnostic_max_cases: 256
+    plane_diagnostic_max_points: 128
+    sampling_seed: 20261008
+    input_topic: /nomad/semantic_points
+    odometry_topic: /odom
+    frame_id: odom
+    max_input_age_s: 0.6
+    tf_wait_s: 0.5
+    update_period_s: 0.1
+    checkpoint_period_s: 5.0
+    initial_size_m: 80.0
+    max_size_m: 160.0
+    optical_min_z: 0.4
+    optical_max_z: 8.0
+    max_pending: 2

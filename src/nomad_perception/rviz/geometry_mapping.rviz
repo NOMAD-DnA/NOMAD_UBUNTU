@@ -1,0 +1,86 @@
+Panels:
+  - Class: rviz_common/Displays
+    Name: Displays
+Visualization Manager:
+  Class: ""
+  Global Options:
+    Fixed Frame: odom
+    Background Color: 32; 34; 39
+    Frame Rate: 20
+  Displays:
+    - Class: rviz_default_plugins/Grid
+      Name: Meter grid
+      Enabled: true
+      Cell Size: 1
+    - Class: rviz_default_plugins/Marker
+      Name: Accumulated slope cost
+      Enabled: true
+      Topic:
+        Value: /manual_mapping/cost_cells
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+    - Class: rviz_default_plugins/Map
+      Name: OccupancyGrid cost (optional)
+      Enabled: false
+      Topic:
+        Value: /manual_mapping/costmap
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Color Scheme: costmap
+      Alpha: 0.85
+      Draw Behind: true
+    - Class: rviz_default_plugins/MarkerArray
+      Name: Cell slopes
+      Enabled: true
+      Topic:
+        Value: /manual_mapping/slope_labels
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+    - Class: rviz_default_plugins/RobotModel
+      Name: Vehicle
+      Enabled: true
+      Description Source: Topic
+      Description Topic:
+        Value: /robot_description
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Visual Enabled: true
+      Collision Enabled: false
+      Alpha: 1
+    - Class: rviz_default_plugins/Axes
+      Name: Vehicle position and heading
+      Enabled: true
+      Reference Frame: base_link
+      Length: 1
+      Radius: 0.055
+    - Class: rviz_default_plugins/Path
+      Name: Driven trajectory
+      Enabled: true
+      Topic:
+        Value: /manual_mapping/trajectory
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+      Color: 0; 210; 240
+      Line Style: Lines
+      Line Width: 0.06
+      Alpha: 1
+    - Class: rviz_default_plugins/Marker
+      Name: Slope angle colors (optional)
+      Enabled: false
+      Topic:
+        Value: /manual_mapping/slope_colors
+        Reliability Policy: Reliable
+        Durability Policy: Transient Local
+  Tools:
+    - Class: rviz_default_plugins/Interact
+    - Class: rviz_default_plugins/MoveCamera
+  Views:
+    Current:
+      Class: rviz_default_plugins/TopDownOrtho
+      Target Frame: base_link
+      Scale: 180
+      X: 0
+      Y: 0
+Window Geometry:
+  Width: 1280
+  Height: 900
