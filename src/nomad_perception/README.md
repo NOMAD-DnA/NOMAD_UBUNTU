@@ -82,3 +82,7 @@ ros2 launch nomad_bringup perception.launch.py
 외부 인지로 바꾸려면 `modules.yaml`의 `perception: external`로 설정하고, 인지 팀 노드가 두 costmap과 ModuleStatus를 발행하도록 연결한다. `topics.yaml`에서 세 출력과 입력 센서/VIO 이름을 맞춘 뒤 관련 노드를 재시작한다. 이미 동작 중인 노드에 즉시 적용되는 hot reload는 아니다.
 
 구현 매개변수: [config/parameters.yaml](config/parameters.yaml). 좌표·차량 공통값: [vehicle.yaml](../nomad_bringup/config/vehicle.yaml). 공통 메시지 상세: [nomad_interfaces](../nomad_interfaces/README.md).
+
+## 경사 비용 생성 모듈
+
+`nomad_geometry_mapping` 코드를 이 패키지에 포함한다. `ros2 run nomad_perception geometry_session`으로 수동 주행 중 경사 비용을 만들고 저장한다. 설정, 출력과 저장본 보기는 [경사 매핑 안내](docs/GEOMETRY_MAPPING.md)를 따른다.
