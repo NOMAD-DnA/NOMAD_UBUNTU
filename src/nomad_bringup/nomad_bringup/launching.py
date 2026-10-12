@@ -53,6 +53,10 @@ def start(context,module):
         params = [str(share/'config'/config),value('vehicle_file')]
         if override:
             params.append(override)
+        if package == 'nomad_perception' and value('simulator_grass_world').strip():
+            if providers['vio'] != 'builtin' or providers['tf_owner'] != 'gazebo':
+                raise ValueError('Simulator grass oracle requires builtin VIO and gazebo TF ownership')
+            params.append({'terrain.simulator_grass_world': value('simulator_grass_world')})
         if role in ('gpp','lpp') and algorithm_overrides:
             params.append(algorithm_overrides)
         nodes.append(Node(package=package,executable=executable,output='screen',
@@ -73,6 +77,7 @@ def description(module='all'):
         DeclareLaunchArgument('modules_file',default_value=str(share/'config/modules.yaml')),
         DeclareLaunchArgument('vehicle_file',default_value=str(share/'config/vehicle.yaml')),
         DeclareLaunchArgument('params_file',default_value='',description='Optional ROS parameter overrides'),
+        DeclareLaunchArgument('simulator_grass_world',default_value='',description='Simulation-only authored grass oracle SDF'),
         DeclareLaunchArgument('gpp',default_value='',description='GPP strategy; empty uses planning.yaml/params_file'),
         DeclareLaunchArgument('lpp',default_value='',description='LPP strategy; empty uses planning.yaml/params_file'),
         DeclareLaunchArgument('rviz',default_value='false'),

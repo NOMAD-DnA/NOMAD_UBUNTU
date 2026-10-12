@@ -52,7 +52,13 @@ class HitEvidence:
 
 
 class ObservedGrid:
-    def __init__(self, resolution=0.2, size=40.0, inflation=0.4, max_size=120.0):
+    def __init__(self, resolution=0.2, size=40.0, inflation=0.4, max_size=120.0,
+                 soft_inflation_radius=0.0):
+        if (not math.isfinite(soft_inflation_radius) or soft_inflation_radius < 0
+                or (soft_inflation_radius > 0 and soft_inflation_radius <= inflation)):
+            raise ValueError('soft_inflation_radius must be 0 (disabled) or greater than inflation')
+        self.inflation = inflation
+        self.soft_inflation_radius = soft_inflation_radius
         self.resolution = resolution
         self.origin_x = self.origin_y = -size/2
         n = math.ceil(size/resolution)
@@ -60,6 +66,7 @@ class ObservedGrid:
         self.seen = np.full((n, n), -np.inf, dtype=np.float64)
         self.terrain = np.full((n, n), -1, dtype=np.int8)
         self.terrain_seen = np.full((n, n), -np.inf, dtype=np.float64)
+        self.terrain_passable = np.zeros((n, n), dtype=bool)
         self.max_cells = math.ceil(max_size/resolution)
         # None means missing height evidence: only free rays may clear it.
         self.hit_points = {}
@@ -98,6 +105,7 @@ class ObservedGrid:
             self.seen = np.pad(self.seen, padding, constant_values=-np.inf)
             self.terrain = np.pad(self.terrain, padding, constant_values=-1)
             self.terrain_seen = np.pad(self.terrain_seen, padding, constant_values=-np.inf)
+            self.terrain_passable = np.pad(self.terrain_passable, padding)
             self.origin_x -= left*self.resolution
             self.origin_y -= bottom*self.resolution
             self.hit_points = {(cy+bottom, cx+left): points
@@ -228,10 +236,11 @@ class ObservedGrid:
         keep = (total >= min_samples) & (stamp >= self.terrain_seen.ravel()[unique])
         self.terrain.ravel()[unique[keep]] = costs[keep]
         self.terrain_seen.ravel()[unique[keep]] = stamp
+        self.terrain_passable.ravel()[unique[keep]] = False
         return int(np.count_nonzero(keep))
 
-    def integrate_surface_costs(self, centres, costs, stamp):
-        """Store depth geometry without clearing LiDAR or marking space free."""
+    def integrate_surface_costs(self, centres, costs, stamp, *, passable=False):
+        """Store geometry and optional confirmed traversability separately from cost."""
         if len(centres) == 0:
             return 0
         cells = np.floor((centres-[self.origin_x, self.origin_y])/self.resolution).astype(int)
@@ -242,37 +251,91 @@ class ObservedGrid:
         fresh = stamp >= self.terrain_seen[y, x]
         self.terrain[y[fresh], x[fresh]] = costs[fresh]
         self.terrain_seen[y[fresh], x[fresh]] = stamp
+        self.terrain_passable[y[fresh], x[fresh]] = passable & (costs[fresh] >= 0) & (costs[fresh] < 80)
         return int(np.count_nonzero(fresh))
 
     def terrain_map(self, now, max_age):
         return np.where((now-self.terrain_seen >= 0) & (now-self.terrain_seen <= max_age),
                         self.terrain, -1).astype(np.int8)
 
-    def navigation_maps_without_lidar_obstacles(self, now, memory_seconds, local_max_age):
+    def add_proximity_costs(self, obstacles, *layers):
+        """Add a soft preference without changing blocked or unknown masks.
+
+        Sources are UNINFLATED obstacle cells, never the already blocked ring.
+        Nearest-obstacle distance implements max, not sum, for overlapping rings.
+        Keep the existing hard dilation/observed-space erosion authoritative.
+        """
+        if self.soft_inflation_radius == 0 or not np.any(obstacles):
+            return layers
+        distance = cv2.distanceTransform((~np.asarray(obstacles, dtype=bool)).astype(np.uint8),
+                                         cv2.DIST_L2, cv2.DIST_MASK_PRECISE)
+        # Account for the source cell extent once; hard masks are untouched.
+        clearance = distance*self.resolution - self.resolution*math.sqrt(2)/2
+        fraction = np.clip((self.soft_inflation_radius-clearance)
+                           / (self.soft_inflation_radius-self.inflation), 0., 1.)
+        costs = np.rint(79*fraction**2).astype(np.int8)
+        return tuple(np.where((layer >= 0) & (layer < 80),
+                              np.maximum(layer, costs), layer).astype(np.int8)
+                     for layer in layers)
+
+    def local_observation_valid(self, now, stamps, max_age, robot_xy=None,
+                                local_memory_seconds=0.0, local_memory_radius=3.0):
+        """Reuse actual observations near the vehicle without refreshing their age.
+
+        A moving spatial window selects existing world-fixed evidence. It never
+        paints the robot footprint free or extends rays into unseen space.
+        """
+        age = now-stamps
+        valid = (age >= 0) & (age <= max_age)
+        if (robot_xy is None or local_memory_seconds <= max_age
+                or not all(math.isfinite(v) for v in robot_xy)):
+            return valid
+        yy, xx = np.ogrid[:self.height, :self.width]
+        dx = self.origin_x+(xx+.5)*self.resolution-robot_xy[0]
+        dy = self.origin_y+(yy+.5)*self.resolution-robot_xy[1]
+        near = dx*dx+dy*dy <= local_memory_radius**2
+        return valid | (near & (age >= 0) & (age <= local_memory_seconds))
+
+    def navigation_maps_without_lidar_obstacles(self, now, memory_seconds, local_max_age,
+                                               **local_memory):
         """Keep observed free space, but use depth alone for obstacle blocking.
 
         LiDAR free rays retain mapping evidence up to (not including) a hit.
         An unclassified hit stays unknown, rather than becoming a free cell or
         an inflated obstacle. Depth-confirmed ground may open that hit cell.
-        Neutral grass alone cannot establish free space.
+        Neutral colour alone cannot establish free space. Explicit simulator
+        grass evidence can establish traversability with a nonzero cost.
         """
         terrain = self.terrain_map(now, memory_seconds)
         blocked = cv2.dilate((terrain >= 80).astype(np.uint8), self.kernel) != 0
         scan_free = (self.log_odds < 0) & (now-self.seen >= 0)
-        ground_free = terrain == 0
+        ground_free = (terrain == 0) | (self.terrain_passable & (terrain >= 0) & (terrain < 80))
         global_map = np.full(terrain.shape, -1, dtype=np.int8)
         global_map[scan_free | ground_free] = 0
         global_map[blocked] = 100
-        fresh = ((scan_free & (now-self.seen <= local_max_age))
-                 | (ground_free & (now-self.terrain_seen <= local_max_age))).astype(np.uint8)
+        scan_valid = self.local_observation_valid(now, self.seen, local_max_age, **local_memory)
+        terrain_valid = self.local_observation_valid(now, self.terrain_seen, local_max_age,
+                                                     **local_memory)
+        fresh = ((scan_free & scan_valid) | (ground_free & terrain_valid)).astype(np.uint8)
         safe = cv2.erode(fresh, self.kernel, borderType=cv2.BORDER_CONSTANT,
                          borderValue=0) != 0
+        # The simulator explicitly labels an observed grass endpoint as
+        # traversable. Do not revoke that label just because surrounding
+        # cells lack observations. Only these age-valid semantic cells
+        # bypass unknown-space erosion; real obstacle inflation still wins.
+        fresh_grass = (self.terrain_passable & (terrain >= 0) & (terrain < 80)
+                       & terrain_valid)
+        safe |= fresh_grass
         local_map = np.full(terrain.shape, -1, dtype=np.int8)
         local_map[safe] = 0
         local_map[blocked] = 100
-        return global_map, local_map
+        # Retain surface preference independently of passability and erosion.
+        for layer in (global_map, local_map):
+            known = (layer >= 0) & (layer < 80) & (terrain >= 0) & (terrain < 80)
+            layer[known] = np.maximum(layer[known], terrain[known])
+        return self.add_proximity_costs(terrain >= 80, global_map, local_map)
 
-    def maps(self, now, local_max_age=2.0):
+    def maps(self, now, local_max_age=2.0, **local_memory):
         raw = np.full(self.log_odds.shape, -1, dtype=np.int8)
         observed = np.isfinite(self.seen)
         raw[observed & (self.log_odds < 0)] = 0
@@ -281,8 +344,9 @@ class ObservedGrid:
         blocked = cv2.dilate((raw == 100).astype(np.uint8), self.kernel) != 0
         global_map = raw.copy()
         global_map[blocked] = 100
-        fresh_free = ((raw == 0) & (now-self.seen <= local_max_age)).astype(np.uint8)
-        # The entire clearance disc must have recent free-space evidence.
+        valid = self.local_observation_valid(now, self.seen, local_max_age, **local_memory)
+        fresh_free = ((raw == 0) & valid).astype(np.uint8)
+        # The entire clearance disc must have age-valid free-space evidence.
         safe_free = cv2.erode(fresh_free, self.kernel, borderType=cv2.BORDER_CONSTANT,
                              borderValue=0) != 0
         local_map = np.full(raw.shape, -1, dtype=np.int8)

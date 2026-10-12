@@ -164,3 +164,17 @@ wall 주기와 시뮬레이션 센서 Hz는 서로 다르다. 실제 지도 처�
 ## GPP / LPP 선택
 
 전체 실행에 `gpp:=hybrid_astar lpp:=rpp`처럼 전달한다. 같은 인자는 `planning.launch.py`, `autonomy.launch.py`, `forest.launch.py`에도 적용된다. 생략하면 기존 YAML 설정(D* Lite + rollout)을 따른다. 기존 맵 선택과 함께 사용할 수 있다. 지원 목록·상위 5개 조합의 실행 예·Field D* 변형 및 참조 경로 어댑터의 범위는 [Planning 알고리즘 선택 문서](../nomad_path_planning/README.md#알고리즘-선택-실행-2026-10-06)를 참조한다.
+
+## 반복 실험 기록·평가
+
+`./run_experiment.sh record 실험명`은 기존 launch와 ROS bag을 이용해 별도 도메인에서 파일럿 후 조합×맵×반복 실험을 수행한다. `status`, `resume`, `evaluate`, `show`도 같은 실험명으로 사용한다. 충돌 관측, 코드 버전 고정, 지표의 정답 조건 및 제한은 [실험 실행 문서](experiments/README.md)를 참조한다. 기존 실행 명령과 GPP/LPP 구현은 변경하지 않는다.
+
+### 플래닝 시험용 잔디 정답
+
+전체 `forest.launch.py`/`./run_autonomy.sh`는 기본 `sim_grass:=true`로 선택 월드의
+잔디 메시를 기본 인지에 전달한다. 높이와 RGB 판정 없이 관측한 잔디를 장애물에서
+제외하되 비용35를 부여해 빈 땅(0)을 우선한다. `terrain.grass_cost`로 조정한다.
+Gazebo GT VIO 전용이며 외부 VIO 시험은 `sim_grass:=false`로 실행한다. 외부 인지를
+선택하면 적용하지 않는다. `vegetation`/명시적 `world_file` 선택은 Gazebo와 동일하게
+해석한다. 독립 모듈 실행에는 자동 적용하지 않는다. 상세 조건과 한계는
+[인지 모듈의 시뮬레이터 잔디 정답 모드](../nomad_perception/README.md)를 따른다.

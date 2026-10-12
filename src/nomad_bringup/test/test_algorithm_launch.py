@@ -16,6 +16,7 @@ def context(gpp='',lpp=''):
         'vehicle_file':str(ROOT/'config/vehicle.yaml'),
         'params_file':'/tmp/custom-planning.yaml','rviz':'false',
         'cmd_vel_topic':'','gpp':gpp,'lpp':lpp,
+        'sim_grass':'true','simulator_grass_world':'',
         'headless':'true','vegetation':'false','world_file':'/tmp/selected.sdf'})
     return ctx
 
@@ -53,6 +54,26 @@ def test_forest_preserves_map_and_forwards_algorithms():
     assert dict(gazebo.launch_arguments)['world_file']=='/tmp/selected.sdf'
     args=dict(autonomy.launch_arguments)
     assert args['gpp']=='state_lattice' and args['lpp']=='rpp'
+    assert args['simulator_grass_world']=='/tmp/selected.sdf'
+
+
+def test_simulator_grass_can_be_disabled():
+    ctx=context()
+    ctx.launch_configurations['sim_grass']='false'
+    _,autonomy=forest_module().start(ctx)
+    assert 'simulator_grass_world' not in dict(autonomy.launch_arguments)
+
+
+def test_simulator_grass_rejects_external_vio_but_skips_external_perception(tmp_path):
+    ctx=context()
+    modules=tmp_path/'modules.yaml'
+    modules.write_text('perception: builtin\nvio: external\ncontrol: builtin\ntf_owner: vio\n')
+    ctx.launch_configurations['modules_file']=str(modules)
+    with pytest.raises(ValueError,match='ground-truth VIO'):
+        forest_module().start(ctx)
+    modules.write_text('perception: external\nvio: external\ncontrol: builtin\ntf_owner: vio\n')
+    _,autonomy=forest_module().start(ctx)
+    assert 'simulator_grass_world' not in dict(autonomy.launch_arguments)
 
 
 @pytest.mark.parametrize('gpp,lpp',[('typo','rpp'),('astar','typo')])

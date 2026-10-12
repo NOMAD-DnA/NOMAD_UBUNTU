@@ -15,6 +15,7 @@ from nomad_perception.terrain import image_array, classify, project_ground
 from nomad_perception.geometric_terrain import depth_points, surface_costs
 from nomad_perception.grass_perception import GrassEvidence, low_grass
 from nomad_perception.ground_perception import GroundEvidence
+from nomad_perception.simulator_grass import SimulatorGrass
 
 
 def stamp(msg):
@@ -29,7 +30,19 @@ class CameraTerrain:
         self.mode = p('mode', 'geometry')
         self.grass_enabled = p('grass_enabled', True)
         self.grass_height = p('grass_max_height', 0.60)
+        self.grass_cost = p('grass_cost', 35)
+        if isinstance(self.grass_cost, bool) or not isinstance(self.grass_cost, int) or not 1 <= self.grass_cost < 80:
+            raise ValueError('grass_cost must be an integer in [1, 79]')
         self.grass = GrassEvidence()
+        grass_world = p('simulator_grass_world', '')
+        self.simulator_grass = None
+        if grass_world:
+            if (not node.get_parameter('use_sim_time').value or node.frame != 'odom'
+                    or self.mode != 'geometry' or not self.grass_enabled):
+                raise ValueError('Simulator grass requires sim time, odom, geometry and grass_enabled')
+            self.simulator_grass = SimulatorGrass.from_world(grass_world)
+            node.get_logger().warning('SIMULATOR GRASS ORACLE: authored world geometry; '
+                                      'requires builtin ground-truth VIO, not learned perception')
         if not math.isfinite(self.grass_height) or not 0 < self.grass_height <= 0.60:
             raise ValueError('grass_max_height must be in (0, 0.60] metres')
         self.patch_radius = p('patch_radius', 0.35)
@@ -89,7 +102,7 @@ class CameraTerrain:
         if self.enabled:
             latest_sensor = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
             for side, queue in [('rgb', self.rgb), ('depth', self.depth)]:
-                if self.mode == 'geometry' and side == 'rgb' and not self.grass_enabled:
+                if self.mode == 'geometry' and side == 'rgb' and (not self.grass_enabled or self.simulator_grass is not None):
                     continue
                 callback = self.receive_depth if side == 'depth' else lambda msg, q=queue: q.append(msg)
                 node.create_subscription(Image, f'/oak/{side}/image_raw', callback,
@@ -222,7 +235,12 @@ class CameraTerrain:
                                   self.stride, self.max_range)
             grass_points = np.empty((0, 3))
             grass_status = 'disabled'
-            if getattr(self, 'grass_enabled', False):
+            oracle = getattr(self, 'simulator_grass', None)
+            if oracle is not None:
+                confirmed = oracle.matches(points)
+                grass_points, points = points[confirmed], points[~confirmed]
+                grass_status = 'SIMULATOR mesh oracle; no height/RGB rule'
+            elif getattr(self, 'grass_enabled', False):
                 flags = np.zeros(len(points), dtype=bool)
                 try:
                     colours = self.aligned_colours(depth, info, metres)
@@ -257,10 +275,14 @@ class CameraTerrain:
             # in the same cell still wins; supporting ground is evaluated above.
             if len(grass_points):
                 grass_cells = np.unique(np.floor(grass_points[:, :2]/n.grid.resolution).astype(int), axis=0)
-                observed_cells = {tuple(c) for c in np.floor(centres/n.grid.resolution).astype(int)}
+                # An oracle endpoint supplies passable semantics, including when
+                # grass occludes the ground. Actual remaining solid points win.
+                protected = centres[costs != 0] if oracle is not None else centres
+                observed_cells = {tuple(c) for c in np.floor(protected/n.grid.resolution).astype(int)}
                 grass_cells = np.array([c for c in grass_cells if tuple(c) not in observed_cells]).reshape(-1, 2)
                 n.grid.integrate_surface_costs((grass_cells+.5)*n.grid.resolution,
-                    np.full(len(grass_cells), self.neutral, dtype=np.int8), stamp(depth))
+                    np.full(len(grass_cells), self.grass_cost if oracle is not None else self.neutral, dtype=np.int8),
+                    stamp(depth), passable=oracle is not None)
             self.last_stamp, self.last_wall = stamp(depth), time.monotonic()
             maxima = np.max(metrics, axis=0) if len(metrics) else np.zeros(3)
             self.ground_valid = (getattr(self, 'ground_enabled', False)
@@ -289,7 +311,8 @@ class CameraTerrain:
         if not self.enabled or self.mode != 'geometry':
             return result
         if self.grass_enabled:
-            result |= self.grass.matches(points, at)
+            oracle = getattr(self, 'simulator_grass', None)
+            result |= oracle.matches(points) if oracle is not None else self.grass.matches(points, at)
         if self.ground_enabled and time.monotonic()-self.ground_wall <= self.node.wall_timeout:
             result |= self.ground.matches(points, at)
         return result

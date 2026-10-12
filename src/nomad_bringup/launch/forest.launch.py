@@ -17,6 +17,14 @@ def start(context):
         return IncludeLaunchDescription(PythonLaunchDescriptionSource(str(share/'launch'/file)),
                                         launch_arguments=args.items())
     args={key:value(key) for key in ('topics_file','modules_file','vehicle_file','params_file','rviz','cmd_vel_topic','gpp','lpp')}
+    if value('sim_grass').lower() == 'true' and providers['perception'] == 'builtin':
+        if providers['vio'] != 'builtin' or providers['tf_owner'] != 'gazebo':
+            raise ValueError('sim_grass requires builtin ground-truth VIO; use sim_grass:=false for external VIO')
+        vegetation = value('vegetation').lower() in ('true', '1', 'yes')
+        gazebo = Path(get_package_share_directory('nomad_gazebo'))
+        world = (Path(value('world_file')).resolve() if value('world_file').strip() else
+                 gazebo/'worlds'/('forest.sdf' if vegetation else 'forest_bare.sdf'))
+        args['simulator_grass_world'] = str(world)
     from nomad_path_planning.gpp.registry import NAMES as GPP_NAMES
     from nomad_path_planning.lpp.registry import NAMES as LPP_NAMES
     for argument, choices in (('gpp',GPP_NAMES),('lpp',LPP_NAMES)):
@@ -42,6 +50,7 @@ def generate_launch_description():
         DeclareLaunchArgument('lpp',default_value=''),
         DeclareLaunchArgument('rviz',default_value='true'),
         DeclareLaunchArgument('headless',default_value='false'),
+        DeclareLaunchArgument('sim_grass',default_value='true',description='Planning test: classify observed authored grass surfaces regardless of height'),
         DeclareLaunchArgument('vegetation',default_value='true'),
         DeclareLaunchArgument('world_file',default_value=''),
         OpaqueFunction(function=start)])

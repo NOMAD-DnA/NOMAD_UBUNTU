@@ -40,17 +40,23 @@ class SensorInput(Node):
         self.timeout = p('sensor_timeout', 0.6)
         self.wall_timeout = p('wall_timeout', 3.0)
         self.max_age = p('local_max_age', 2.0)
+        self.local_memory_seconds = p('local_memory_seconds', 30.0)
+        self.local_memory_radius = p('local_memory_radius', 3.0)
+        if (not math.isfinite(self.local_memory_seconds) or self.local_memory_seconds < 0
+                or not math.isfinite(self.local_memory_radius) or self.local_memory_radius <= 0):
+            raise ValueError('Local memory duration must be nonnegative and radius positive, both finite')
         self.max_tilt = p('max_tilt', 0.35)
         self.tilt_guard_enabled = p('tilt_guard_enabled', False)
         self.mapping_range = p('mapping_range', 8.0)
         self.navigation_lidar_enabled = p('navigation.lidar_enabled', False)
         resolution, size = p('resolution', 0.20), p('initial_size', 80.0)
-        inflation, maximum = p('inflation', 0.70), p('max_size', 160.0)
+        inflation, maximum = p('inflation', 0.60), p('max_size', 160.0)
+        soft_radius = p('soft_inflation_radius', 1.20)
         if (not all(math.isfinite(v) and v > 0 for v in
                     [self.timeout, self.wall_timeout, self.max_age, self.max_tilt, self.mapping_range,
                      resolution, size, inflation, maximum]) or maximum < size):
             raise ValueError('Mapping parameters must be positive, finite, and max_size >= initial_size')
-        self.grid = ObservedGrid(resolution, size, inflation, maximum)
+        self.grid = ObservedGrid(resolution, size, inflation, maximum, soft_radius)
         self.buffer = Buffer(cache_time=Duration(seconds=5.0))
         self.listener = TransformListener(self.buffer, self)
         self.pose = None
@@ -222,14 +228,29 @@ class SensorInput(Node):
 
     def publish_maps(self):
         stamp = self.get_clock().now().to_msg()
-        maps = list(self.grid.maps(self.now(), self.max_age))
+        now = self.now()
+        pose = self.pose
+        # No spatial retention with stale/invalid localization. Health still
+        # independently stops driving when sensors, TF or odometry are stale.
+        robot_xy = ((pose.pose.position.x, pose.pose.position.y)
+                    if pose is not None and self.fresh(self.pose_stamp) and not self.fault
+                    else None)
+        local_memory = dict(robot_xy=robot_xy,
+                            local_memory_seconds=self.local_memory_seconds,
+                            local_memory_radius=self.local_memory_radius)
+        maps = list(self.grid.maps(now, self.max_age, **local_memory))
         retain = self.camera.mode == 'geometry' or self.camera.active()
-        terrain = self.grid.terrain_map(self.now(), self.camera.ttl if retain else -1.0)
+        terrain = self.grid.terrain_map(now, self.camera.ttl if retain else -1.0)
         if self.camera.enabled:
             maps[1:] = fuse_costs(maps[1], maps[2], terrain, self.grid.kernel, self.camera.neutral)
+        # Apply after terrain fusion so soft values cannot suppress terrain costs.
+        obstacles = maps[0] >= 80
+        if self.camera.enabled:
+            obstacles |= terrain >= 80
+        maps[1:] = self.grid.add_proximity_costs(obstacles, *maps[1:])
         navigation = (maps[1:] if self.navigation_lidar_enabled else
                       self.grid.navigation_maps_without_lidar_obstacles(
-                          self.now(), self.camera.ttl, self.max_age))
+                          now, self.camera.ttl, self.max_age, **local_memory))
         for pub, array in zip(self.map_pubs + [self.terrain_pub] + self.navigation_pubs,
                               maps + [terrain] + list(navigation)):
             msg = OccupancyGrid()

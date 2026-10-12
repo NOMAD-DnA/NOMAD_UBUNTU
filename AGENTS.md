@@ -267,3 +267,16 @@ GPS 구매 후 적용 안내: [GPS 설정·실물 교체](src/nomad_gazebo/GPS.m
 ## GPS 표시와 최종 위치 출력 계약
 
 공개 센서입력 `/gps/fix`(NavSatFix), 최종 위치출력 `/nomad/localization/odometry`(Odometry)을 유지한다. `gps_visualizer.py`는 WGS84→ECEF→ENU 좌표만 계산해 `/nomad/visualization/gps` MarkerArray에 현재 안테나점/최근1000점 표시를 발행한다. GPS에 자세를 임의로 붙인 Odometry/TF를 발행하지 않는다. GPS위치와 VIO/융합출력의 의미를 구분한다. forest.launch가 실제 선택월드datum(ENU/heading0)을 전달하므로 첫fix 원점·프레임이름만 바꾼 정렬을 하지 않는다. GPS가활성이고 visualization=true이면 자동실행. RViz는 `ros2 launch nomad_gazebo gps_rviz.launch.py`로 별도 실행하며 표시노드를 중복실행하지 않는다. `/gps/odometry`·`/gps/path`는 추가하지 않았다. 모든변경/검증은 GPT작업폴더 log/GPS_융합에 누적기록.
+
+## 플래닝 시험용 시뮬레이터 잔디 정답 (2026-10-08)
+
+사용자 요청으로 전체 자율주행 시뮬레이션 bringup의 `sim_grass` 기본값은 true다.
+선택 월드의 정적 잔디 OBJ 표면과 관측 깊이 점을 대조해 높이·RGB·주변 지면 조건 없이
+잔디를 분류한다. `terrain.simulator_grass_world`가 비어 있으면 기존 RGB-D 휴리스틱이다.
+기본 Gazebo GT VIO/odom 좌표 전용이며 외부 VIO에는 `sim_grass:=false`가 필요하다.
+외부 인지는 이 모드를 사용하지 않는다. 전체 맵을 자유 공간으로 공개하지 않고 관측한
+잔디 셀만 통행 가능 증거로 쓰되 `terrain.grass_cost` 기본35를 전역/지역 주행 지도에
+유지한다(빈 땅0, 장애물80~100). 같은 셀의 비잔디 장애물/미확인 판정과 기존 신선도·
+팽창은 유지한다. 최근 정답 잔디 셀은 지역 지도의 미확인 주변 공간 erosion에서만
+예외로 두어 비용35를 유지하며, 주변 미확인 셀까지 열지 않는다. 인지 학습 성공으로 해석하지 않는다. 상세 한계는 인지 README 참조.
+기존 시뮬레이션은 자동 종료/재시작하지 않는다.

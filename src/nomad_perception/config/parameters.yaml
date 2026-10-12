@@ -3,10 +3,13 @@ nomad_perception:
     resolution: 0.2
     initial_size: 80.0
     max_size: 160.0
-    inflation: 0.7
+    inflation: 0.6
+    soft_inflation_radius: 1.2  # 0 disables only the soft cost ring
     mapping_range: 8.0
     navigation.lidar_enabled: false
     local_max_age: 2.0
+    local_memory_seconds: 30.0  # Actual observation age; 0 disables near-vehicle reuse
+    local_memory_radius: 3.0   # Metres around the current localized vehicle
     sensor_timeout: 0.6
     wall_timeout: 3.0
     max_tilt: 0.35
@@ -16,6 +19,8 @@ nomad_perception:
     terrain.ground_filter_enabled: true
     terrain.ground_memory_seconds: 10.0
     terrain.grass_enabled: true
+    terrain.grass_cost: 35  # Simulator grass: traversable, but less preferred than bare ground (0)
+    terrain.simulator_grass_world: ''  # Set by simulator bringup; empty uses RGB-D heuristic
     terrain.grass_max_height: 0.6
     terrain.patch_radius: 0.35
     terrain.geometry_min_samples: 6
