@@ -1,0 +1,16 @@
+live_terrain:
+  ros__parameters:
+    use_sim_time: true
+    resolution: 0.2
+    size: 80.0
+    max_size: 160.0
+    rate: 10.0
+    stride: 4
+    min_confidence: 0.5
+    ground_ids: [8]
+    slope_limit_deg: 20.0  # Initial configurable limit, not a measured vehicle guarantee.
+    local_max_age: 30.0   # Static-world return/reverse observation memory.
+    bootstrap_radius: 3.0 # Fixed initial forward area; not a moving free bubble.
+    bootstrap_override: true # Start-area clear assumption wins until the vehicle leaves it.
+    obstacle_cost_radius: 1.2 # Quadratic falloff: 100*(1-(distance/radius)^2), zero at 120cm.
+    passable_semantic_ids: [3] # Dry Grass: >=60% recent semantic votes veto foliage/solid block confirmation.

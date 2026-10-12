@@ -93,10 +93,11 @@ def contains_target(xy, target):
 
 
 class QualityMappingCore(TraversabilityCore):
-    def __init__(self, config, quality=None):
+    def __init__(self, config, quality=None, *, allow_height_refit=True):
         if not (config.geometry_only and config.slope_input == 'raw_points' and config.plane_method == 'tls'):
             raise ValueError('QualityMappingCore requires geometry-only raw-point TLS')
         self.quality = quality or PlaneQualityConfig()
+        self.allow_height_refit = allow_height_refit
         self.quality_records = {}
         self.rejected_support = OrderedDict()
         self._dependents = {}
@@ -233,8 +234,8 @@ class QualityMappingCore(TraversabilityCore):
         if fitted is not None and self._latest_conflicts(key, fitted):
             fitted, reason = None, 'new_capture_height_conflict'
         source, chosen_xyz, chosen_stamps, radius = 'raw', support_xyz, support_stamps, self.config.radius_m
-        self._watch_heights(key, fitted is None)
-        if fitted is None:
+        self._watch_heights(key, self.allow_height_refit and fitted is None)
+        if fitted is None and self.allow_height_refit:
             self._save_rejected(key, support_xyz, support_stamps, raw)
             # All summaries have been refreshed by TraversabilityCore.snapshot.
             reach = math.ceil(self.quality.refit_radii_m[-1]/self.config.resolution_m)
@@ -299,7 +300,7 @@ class QualityMappingCore(TraversabilityCore):
                 'diagnostic_raw_capture_stamps_s': np.concatenate([self.rejected_support[k][1] for k in keys]) if keys else np.empty(0)}
 
     def quality_metadata(self):
-        return {'enabled': True, **asdict(self.quality),
+        return {'enabled': True, 'allow_height_refit': self.allow_height_refit, **asdict(self.quality),
                 'current_cell_sources': dict(Counter(r['source'] for r in self.quality_records.values())),
                 'source_codes': {'1': 'raw', '2': 'height_refit', '3': 'retained', '4': 'uncertain'},
                 'uncertain_cost': 100, 'uncertain_is_confirmed_blocked': False,

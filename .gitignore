@@ -12,3 +12,7 @@
 
 # Downloaded pinned VIO sources; recreate via .nomad/install_vio.sh
 /src/third_party/vio/
+
+# Generated measured 2.5D mapping sessions
+/sessions/live_terrain/
+/sessions/terrain_navigation/

@@ -1,0 +1,6 @@
+dstar_lite_gpp:
+  ros__parameters:
+    max_steer: 0.35 # Reserve 0.05 rad for local tracking; vehicle/RPP limit remains 0.4.
+ackermann_rollout_lpp:
+  ros__parameters:
+    rpp.lookahead: 1.2 # Separate simulation integration tuning; steering limit remains 0.4 rad.
