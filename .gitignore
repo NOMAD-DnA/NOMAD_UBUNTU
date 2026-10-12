@@ -7,3 +7,6 @@
 **/__pycache__/
 *.py[cod]
 .DS_Store
+
+# Downloaded pinned VIO sources; recreate via .nomad/install_vio.sh
+/src/third_party/vio/

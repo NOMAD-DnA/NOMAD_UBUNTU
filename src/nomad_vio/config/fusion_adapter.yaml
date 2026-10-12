@@ -1,0 +1,8 @@
+nomad_fusion_adapter:
+  ros__parameters:
+    planning_frame: odom
+    base_frame: base_link
+    imu_frame: oak_imu_frame
+    # Parallel IMU/base axes in current Gazebo URDF; meters.
+    imu_in_base: [0.46, 0.0, 0.29]
+    publish_tf: true

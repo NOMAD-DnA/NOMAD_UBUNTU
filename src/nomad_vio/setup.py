@@ -1,13 +1,15 @@
 from glob import glob
+from pathlib import Path
 from setuptools import find_packages, setup
 name = 'nomad_vio'
 setup(name=name, version='0.2.0', packages=find_packages(exclude=['test']),
       data_files=[('share/ament_index/resource_index/packages', ['resource/'+name]),
                   ('share/'+name, ['package.xml', 'README.md']),
-                  ('share/'+name+'/config', glob('config/*')),
+                  ('share/'+name+'/config', [p for p in glob('config/*') if Path(p).is_file()]),
+                  *[("share/"+name+"/"+d, glob(d+"/*.*")) for d in ['config/vio/basalt','config/vio/openvins/nomad_gazebo']],
                   ('share/'+name+'/launch', glob('launch/*.launch.py')),
                   ('share/'+name+'/docs', glob('docs/*.md'))],
       install_requires=['setuptools'], zip_safe=True,
       maintainer='NOMAD planning team', maintainer_email='user@example.com',
       description='Replaceable NOMAD autonomy module', license='Apache-2.0',
-      entry_points={'console_scripts': ['sim_vio = nomad_vio.sim_vio:main']})
+      entry_points={'console_scripts': ['sim_vio = nomad_vio.sim_vio:main', 'fusion_adapter = nomad_vio.fusion_adapter:main']})

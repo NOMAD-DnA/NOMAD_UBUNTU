@@ -1,0 +1,32 @@
+[
+  {
+    "path": "basalt_wrapper",
+    "url": "https://github.com/berndpfrommer/basalt_wrapper.git",
+    "commit": "5b261f65904de18e10c2bb2a858a82d88ae87cf9",
+    "cache_path": "basalt_ws/src/basalt_wrapper"
+  },
+  {
+    "path": "basalt_wrapper/basalt",
+    "url": "https://github.com/berndpfrommer/basalt.git",
+    "commit": "f46865566c2f5fd2f4ccc1f885495caa69e1b446",
+    "cache_path": "basalt_ws/src/basalt_wrapper/basalt"
+  },
+  {
+    "path": "basalt_vio_msgs",
+    "url": "https://github.com/berndpfrommer/basalt_vio_msgs.git",
+    "commit": "8ed58cfb9da18df3fcea8609208375340d0ee1d9",
+    "cache_path": "basalt_ws/src/basalt_vio_msgs"
+  },
+  {
+    "path": "basalt_ros",
+    "url": "https://github.com/berndpfrommer/basalt_ros.git",
+    "commit": "1264f86cfa32ff9dc3be94a295d6bab11d74dd75",
+    "cache_path": "basalt_ws/src/basalt_ros"
+  },
+  {
+    "path": "open_vins",
+    "url": "https://github.com/rpng/open_vins.git",
+    "commit": "69488123ed9362dd44b6f28e7f4680abbff1442b",
+    "cache_path": "openvins_ws/src/open_vins"
+  }
+]

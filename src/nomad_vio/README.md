@@ -82,3 +82,70 @@ ros2 launch nomad_bringup vio.launch.py
 5. 공통 설정으로 관련 노드를 재시작하고 frame/stamp/QoS/TF 중복을 점검한다.
 
 공통 [메시지 명세](../nomad_interfaces/README.md), [통합 방법](../nomad_bringup/README.md)을 함께 따른다.
+
+## GNSS·VIO 융합 — 선택 실행
+
+`nomad_vio`의 실행/차량 기준점 어댑터와 `nomad_localization`의 C++ Ceres 백엔드를 사용한다. 기존 `sim_vio` GT 어댑터와 기본 실행은 유지한다.
+
+```bash
+cd ~/nomad_ws
+source .nomad/env.sh
+colcon build --base-paths src --packages-up-to nomad_vio --symlink-install
+source install/local_setup.bash
+# 별도 터미널: 동적 TF는 융합 어댑터만 발행
+./run_forest.sh publish_ground_truth_tf:=false
+# VIO를 직접 실행했다면: Basalt /basalt/odom 또는 OpenVINS /ov_msckf/poseimu 수신
+ros2 launch nomad_vio fusion.launch.py method:=basalt
+# VIO까지 실행: 아래 팀용 설치를 마쳤다면 NOMAD 환경만 source
+ros2 launch nomad_vio fusion.launch.py method:=basalt manage_vio:=true
+# OpenVINS는 method:=openvins
+```
+
+두 융합 명령 중 하나만 실행한다. Basalt/OpenVINS 소스는 아래 고정 버전 설치 스크립트로 같은 워크스페이스에 가져온다. 관리 실행은 `vio_config_directory`로 설정 폴더를 바꿀 수 있다. 실물은 `use_sim_time:=false`를 지정한다. GPS 오류노드는 별도로 수동 실행한다.
+
+```bash
+# 오류 GPS를 시험할 때만 GPS.md 명령으로 오류노드를 먼저 실행
+ros2 launch nomad_vio fusion.launch.py method:=basalt   gps_topic:=/experiment/gps/fix quality_topic:=/experiment/gps/quality
+# 공통 차량 위치/상태 확인
+ros2 topic echo /nomad/localization/odometry --once
+ros2 topic echo /nomad/localization/status --once
+# 팀 자율주행 연결: GT 공급자 대신 외부 공급자를 선택
+ros2 launch nomad_bringup autonomy.launch.py   modules_file:=$HOME/nomad_ws/src/nomad_bringup/config/modules_gnss_vio.yaml
+```
+
+설정 위치:
+- `nomad_localization/config/fusion.yaml`: ENU datum, GNSS 안테나 lever arm, 가중치·윈도·실패 판단. datum은 선택 월드와 반드시 동일해야 한다.
+- `nomad_vio/config/fusion_adapter.yaml`: IMU→차량 중심 변환, 공통 frame·TF. 현재 Gazebo IMU `(0.46,0,0.29)m`·차량 축과 평행 기준. 회전 장착은 별도 외부파라미터 변환이 필요하다.
+- `nomad_bringup/config/modules_gnss_vio.yaml`: `vio: external`, `tf_owner: vio`. 기본 modules.yaml은 GT 그대로다.
+
+입력은 GNSS 위치/공분산/품질과 VIO pose다. 원시 IMU를 외부에서 재융합하지 않는다. 10초·5Hz 포즈 윈도, 2Hz solve, 최대10회 반복. `/fusion/odometry`는 IMU 기준, 어댑터의 `/nomad/localization/odometry`는 base_link 기준이다. `/fusion/status`의 자세 유효성을 같은 측정 시각에 확인한 뒤 공통 출력/TF를 발행한다. GNSS-only의 보류된 자세는 자율주행에 전달하지 않고 WAITING으로 알린다. 속도는 포즈 차분값이고 공분산은 미보정 placeholder이며 보정 점프가 생길 수 있다. 연속 local odom 분리나 Planning 재시작 정책은 추가 검증 대상이다.
+
+자동 VIO 재시작은 기본 꺼져 있다. `manage_vio:=true auto_restart:=true`일 때만 관리 프로세스 재시작을 요청한다. `stop_before_restart:=true`는 `/fusion/recovery_stop`을 내보내고 `/fusion/restart_ready` 정지 확인을 기다린다. **팀 Control의 정지·확인 연결은 아직 없으므로 자동 재시작을 기본 자율주행에 활성화하지 않는다.** 이 토픽을 rosbag/GT로 대신 확인하지 않는다. 내부 VIO 초기화 성공이나 임의 실패 복구를 보장하지 않는다.
+
+GNSS 품질이 없으면 unknown으로 사용하며 비FIX 가중치를 적용한다. 초기 정렬은 이동 구간에서 GPS와 VIO의 yaw/translation을 추정한다. GNSS가 yaw를 측정하는 것이 아니다. 실제 센서의 시간·원점·높이·장착 오프셋·불확실성은 실물에서 조정해야 한다.
+
+## 팀용 Basalt·OpenVINS 설치 / 단독 실행
+
+Ubuntu 24.04 + ROS2 Jazzy가 설치된 PC 기준. Git에는 고정 소스 버전·Jazzy 호환 패치·NOMAD 센서 설정을 보관하고, 큰 원본 소스/빌드 결과는 설치 시 가져온다. 다른 PC는 인터넷이 필요하다.
+
+```bash
+cd ~/nomad_ws
+./.nomad/install_vio.sh                 # 소스 다운로드·의존성 설치·두 VIO/융합기 빌드
+source .nomad/env.sh
+ros2 launch nomad_vio estimator.launch.py method:=basalt    # Basalt만
+ros2 launch nomad_vio estimator.launch.py method:=openvins  # OpenVINS만
+# 둘 중 하나만 실행. 시뮬레이션/rosbag은 별도 실행.
+# VIO + GNSS 융합까지 실행할 때는 estimator 대신 아래 한 명령
+ros2 launch nomad_vio fusion.launch.py method:=basalt manage_vio:=true
+# OpenVINS + 융합은 method:=openvins
+```
+
+- 재빌드만: `./.nomad/install_vio.sh --skip-deps`. 소스만 준비: `--sources-only`.
+- 소스: `src/third_party/vio/`(Git 제외). `.nomad/vio/sources.json` 고정 commit, `patches/` 호환 수정. 기존 다른 SHA 소스는 덮어쓰지 않고 중단한다.
+- 설정: `src/nomad_vio/config/vio/basalt/`, `config/vio/openvins/nomad_gazebo/`. 설치 후 패키지 share의 복사본을 읽으므로 설정 변경 후 재빌드한다. `vio_config_directory`로 외부 설정을 지정할 수도 있다.
+- 저장된 값은 Gazebo 스테레오·IMU 보정값이다. 실제 OAK/IMU에 그대로 사용하지 않는다. Pi5 실시간 성능과 새 PC 설치는 별도 검증 필요하다.
+- Basalt ROS 포트는 upstream 유지보수가 중단된 고정 버전이며 NOMAD Jazzy/정상 종료 패치를 포함한다. upstream 라이선스는 원 소스에 유지한다(OpenVINS GPLv3).
+
+초기 실행 순서: Gazebo → VIO/융합 실행 → 잠시 정지해 IMU 초기화 → `./run_teleop.sh`로 2m 이상 수동 정렬 주행 → 정지·teleop 종료 → localization/status READY 확인 → 자율주행 실행. GPS는 정지 yaw를 제공하지 않으므로 초기 이동 없이 융합 READY를 기다리면 출발할 수 없다. OpenVINS는 시작 ZUPT 동안 feature update 전까지 pose 출력이 없을 수 있으므로 첫 포즈를 기다린 뒤에만 이동시키는 시험 조건을 쓰지 않는다.
+
+rosbag 재생은 `use_sim_time=true`에 맞춰 `ros2 bag play <bag> --clock`으로 실행한다. GPS가 없는 기존 bag은 `estimator.launch.py`로 VIO만 실행하며, GNSS 융합에는 같은 시각의 GPS 입력이 필요하다.

@@ -32,7 +32,7 @@ ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix    # 위도·경도·고도
 4. 실제 GPS와 Gazebo GPS가 같은 `/gps/fix`를 동시에 발행하지 않게 한다. 필요하면 시뮬레이션 `gps.enabled: false`. 실물은 ROS 시간, 시뮬레이션은 sim time으로 동기화하고, 고도 기준(타원체고/해발고)을 확인.
 5. NavSatFix status·공분산 의미 확인 후 융합 모듈 연결. 위성수·RTK 상태는 NavSatFix에 모두 들어가지 않으므로 수신기 전용 상태 토픽을 별도로 확인.
 
-현재 ros_gz_bridge는 공분산을 UNKNOWN으로 내보낸다. 위 sigma 설정을 변경해도 메시지 공분산이 자동으로 채워지지 않는다. VIO 융합 전 별도 공분산 처리가 필요하다. GPS↔VIO 융합은 아직 구현하지 않았다. 미터 좌표 변환은 아래 RViz 시각화에서 제공한다.
+현재 ros_gz_bridge는 공분산을 UNKNOWN으로 내보낸다. 위 sigma 설정을 변경해도 메시지 공분산이 자동으로 채워지지 않는다. VIO 융합 전 별도 공분산 처리가 필요하다. GNSS·VIO 융합은 [VIO 선택 실행](../nomad_vio/README.md)의 별도 노드로 제공한다. 미터 좌표 변환은 아래 RViz 시각화에서 제공한다.
 
 ## GPS 시각화
 

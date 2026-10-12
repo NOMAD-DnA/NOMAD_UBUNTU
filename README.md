@@ -176,3 +176,15 @@ LiDAR 지면 반사를 장애물에서 제외한다(`terrain.ground_filter_enabl
 ## 맵 선택
 
 기존 `./run_forest.sh` 실행 시 패키지 `maps/`의 목록에서 번호로 고른다. `maps/맵이름/map.json`과 `worlds/forest.sdf`, 상대 경로의 `assets/`, `models/`로 맵을 추가하면 목록에 자동 표시된다. 초기 등록: `01_original`(기존 급경사), `02_fork2_gentle`(Fork2 완화). 비대화형 실행은 Fork2 완화 맵을 기본 선택한다. `NOMAD_MAP`에 맵 폴더명을 지정하거나 기존 `world_file:=...`로 직접 지정할 수도 있다. `vegetation:=False`는 선택한 맵의 `worlds/forest_bare.sdf`를 사용한다.
+
+
+### 선택 VIO / GNSS 융합
+
+```bash
+./.nomad/install_vio.sh  # Basalt·OpenVINS 소스/의존성/빌드 (Ubuntu24.04 ROS2 Jazzy)
+source .nomad/env.sh
+ros2 launch nomad_vio estimator.launch.py method:=basalt  # 또는 openvins
+ros2 launch nomad_vio fusion.launch.py method:=basalt manage_vio:=true  # 융합 포함, 위와 둘 중 하나
+```
+
+[설정·입출력·팀 연결](src/nomad_vio/README.md). 기본 GT 모드는 유지. 실제 센서 보정과 TF 소유권을 확인한다.

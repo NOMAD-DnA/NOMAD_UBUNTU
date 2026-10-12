@@ -1,0 +1,5 @@
+# Optional external provider: start nomad_vio fusion.launch.py separately.
+perception: builtin
+vio: external
+control: builtin
+tf_owner: vio

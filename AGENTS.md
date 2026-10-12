@@ -260,7 +260,7 @@ ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix --once   # 위도·경도·�
 
 설정: `src/nomad_gazebo/config/sensors.yaml`의 `gps`. 기본 5Hz(시뮬레이션 시간), 노이즈 없는 NavSat이며 RTK·위성 수·차폐는 재현하지 않는다. 월드 원점은 임의의 위도37°, 경도127°, 고도0m이고 +X 동쪽/+Y 북쪽/+Z 위다. 기존 월드에 spherical_coordinates가 있으면 그 값을 유지한다. `gps_link`는 base_link 위0.45m의 안테나 위치이며 GT base_link와 기준점이 다르다.
 
-Launch가 선택 월드·차량의 임시 복사본에 센서/세계 좌표/플러그인을 추가하므로 맵 원본과 차량 물리 생성물을 재생성하지 않는다. `gps.enabled: false`면 원본 월드를 사용한다. NavSatFix의 공분산은 브리지에서 UNKNOWN으로 나오므로 융합 전에 별도 설정이 필요하다. GPS→VIO 융합은 아직 추가하지 않았다. 로컬 미터 좌표 변환은 gps_visualizer의 RViz 표시용으로 제공한다.
+Launch가 선택 월드·차량의 임시 복사본에 센서/세계 좌표/플러그인을 추가하므로 맵 원본과 차량 물리 생성물을 재생성하지 않는다. `gps.enabled: false`면 원본 월드를 사용한다. NavSatFix의 공분산은 브리지에서 UNKNOWN으로 나오므로 융합 전에 별도 설정이 필요하다. GNSS·VIO 융합은 선택 실행이며 아래 항목을 따른다. 로컬 미터 좌표 변환은 gps_visualizer의 RViz 표시용으로 제공한다.
 
 GPS 구매 후 적용 안내: [GPS 설정·실물 교체](src/nomad_gazebo/GPS.md). 주기·안테나 위치·수평/수직 위치 오차 표준편차는 sensors.yaml의 gps에서 변경한다. 기본 sigma0 유지. 실제 드라이버 설정은 별개이며 GNSS 모델명만 적는다고 실물에 적용되지 않는다. 단순 위치 노이즈와 RTK/위성 품질 모델을 구분하고, 브리지 공분산 UNKNOWN을 0오차로 해석하지 않는다. GPS 추가 사실과 현재 수신 검증은 GPT 작업 폴더 log/GPS_융합에 기록되어 있다(팀 저장소에 개인 로그를 복사하지 않는다).
 
@@ -271,4 +271,40 @@ GPS 구매 후 적용 안내: [GPS 설정·실물 교체](src/nomad_gazebo/GPS.m
 
 ## 수동 GNSS 오류 모델 (2026-10-10)
 
-nomad_gazebo/scripts/gnss_fault_injector.py는 기존 /gps/fix→/experiment/gps/fix·quality 후처리 시험노드. config/gnss_sim.yaml 기본무오류,gnss_demo.yaml 가정이벤트. nomad_interfaces/GnssQuality.msg는 F9P대응 normalized품질(모드/사용위성/PDOP/receiver correction age/valid_fields). Gazebo 위성/반사/RTK계산모델이 아니며 error truth를품질메시지에넣지않는다. 자동launch에추가하지않고사용자가시험요청할때만명령으로실행한다. 기존GT어댑터/bridge/TF/자율주행출력유지. sensors.yaml GPS sigma0유지,미터오류는후처리에서주입. GPS.md 실행명령/단위/시각/품질정의를따른다. 외부fusion구현은현재없음.
+nomad_gazebo/scripts/gnss_fault_injector.py는 기존 /gps/fix→/experiment/gps/fix·quality 후처리 시험노드. config/gnss_sim.yaml 기본무오류,gnss_demo.yaml 가정이벤트. nomad_interfaces/GnssQuality.msg는 F9P대응 normalized품질(모드/사용위성/PDOP/receiver correction age/valid_fields). Gazebo 위성/반사/RTK계산모델이 아니며 error truth를품질메시지에넣지않는다. 자동launch에추가하지않고사용자가시험요청할때만명령으로실행한다. 기존GT어댑터/bridge/TF/자율주행출력유지. sensors.yaml GPS sigma0유지,미터오류는후처리에서주입. GPS.md 실행명령/단위/시각/품질정의를따른다. 팀 융합기는 아래 GNSS·VIO 융합 항목을 따른다.
+
+
+## 선택 실행 GNSS·VIO 융합 (2026-10-12)
+
+C++ Ceres backend는 `src/nomad_localization`, 실행/차량기준점 adapter는 `src/nomad_vio`. 기존 GT 어댑터와 기본 modules.yaml은 유지한다. GPS는 위치만, 자세는 VIO이며 이동 GPS/VIO로 초기 yaw/translation을 정렬한다. `/fusion/odometry` IMU 기준→`/nomad/localization/odometry` base_link 기준 변환 후 ModuleStatus·동적TF 제공. 동일 측정의 orientation_valid=false(초기화/실패/GNSS-only)에서는 공통 pose/TF를 차단한다.
+
+```bash
+source .nomad/env.sh
+colcon build --base-paths src --packages-up-to nomad_vio --symlink-install
+source install/local_setup.bash
+./run_forest.sh publish_ground_truth_tf:=false  # 별도 터미널
+ros2 launch nomad_vio fusion.launch.py method:=basalt  # 이미 실행한 VIO 수신
+# VIO까지 관리: .nomad/install_vio.sh 설치 후 manage_vio:=true 추가
+# GPS 오류노드는 별도 수동 실행 (GPS.md); gps_topic/quality_topic으로 선택
+ros2 launch nomad_bringup autonomy.launch.py modules_file:=$HOME/nomad_ws/src/nomad_bringup/config/modules_gnss_vio.yaml
+```
+
+설정 `nomad_localization/config/fusion.yaml`(GPS datum/leverarm/sigma/window), `nomad_vio/config/fusion_adapter.yaml`(IMU offset/공통 frame/TF), 선택 modules_gnss_vio.yaml. 현재 IMU/base 축 평행인 Gazebo 기준. datum을 실제 선택월드와 맞추며 frame 이름만 바꿔 정합하지 않는다. Basalt/OpenVINS는 아래 고정 버전 설치로 가져오며 calibration은 nomad_vio/config/vio에 제공, `vio_config_directory` 변경 가능. 실물 use_sim_time=false. 최적화 공분산은 calibrated posterior가 아니며 속도는 pose 차분이다. 보정 점프/Planning 연속성 별도 검증 필요.
+
+auto_restart 기본false. 활성화에는 manage_vio=true 및 `/fusion/recovery_stop`→차량 정지→`/fusion/restart_ready` 확인 연결이 필요하다. 팀 Control 확인 연결은 아직 구현하지 않았으므로 자동 재시작을 완성된 차량 복구로 설명하지 않는다. GnssQuality UNKNOWN 지원, FIX/작은 공분산이 정상 위치 보장은 아니다. 기존 ground-truth TF와 어댑터 TF를 동시에 발행하지 않는다. 상세 실행은 nomad_vio/README.md.
+
+
+## 팀용 VIO 소스·빌드 (2026-10-12)
+
+```bash
+./.nomad/install_vio.sh                # 고정 소스·의존성·Basalt/OpenVINS/융합 빌드
+source .nomad/env.sh
+ros2 launch nomad_vio estimator.launch.py method:=basalt   # 또는 openvins, 단독 VIO
+ros2 launch nomad_vio fusion.launch.py method:=basalt manage_vio:=true  # 또는 openvins, 융합 포함
+```
+
+각 실행 모드 중 하나만 사용하며 Gazebo/rosbag은 별도. 기본 GT 공급자와 동적TF 중복 금지. src/third_party/vio는 다운로드된 원본 소스라 Git 제외; `.nomad/vio/sources.json`의 고정 SHA와 `patches/`로 재현. 소스를 임의 최신버전으로 업데이트하지 않는다. `--skip-deps`는 의존성 준비된 재빌드, `--sources-only`는 다운로드만. 원본 소스/라이선스는 유지하고 실제 카메라 보정은 별도로 필요하다. Basalt ROS 포트 upstream archived, Pi5 부하·다른 PC apt 설치는 아직 검증 전. 세부 실행은 nomad_vio README.
+
+VIO 원본을 수정할 때는 다운로드 폴더만 바꾸고 끝내지 않는다. 해당 수정의 git diff를 .nomad/vio/patches에 보관하고 고정 SHA·적용/재빌드·실행 검증을 함께 갱신한다. 기존 소스에 패치를 중복 적용하거나 다른 SHA를 강제로 reset하지 않는다.
+
+초기 실행 순서: Gazebo → VIO/융합 실행 → 잠시 정지해 IMU 초기화 → `./run_teleop.sh`로 2m 이상 수동 정렬 주행 → 정지·teleop 종료 → localization/status READY 확인 → 자율주행 실행. GPS는 정지 yaw를 제공하지 않으므로 초기 이동 없이 융합 READY를 기다리면 출발할 수 없다. OpenVINS는 시작 ZUPT 동안 feature update 전까지 pose 출력이 없을 수 있으므로 첫 포즈를 기다린 뒤에만 이동시키는 시험 조건을 쓰지 않는다.

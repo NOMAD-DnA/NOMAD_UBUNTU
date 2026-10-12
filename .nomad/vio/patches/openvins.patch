@@ -1,0 +1,220 @@
+diff --git a/ov_msckf/src/core/VioManager.h b/ov_msckf/src/core/VioManager.h
+index 3fd7089..360db0a 100644
+--- a/ov_msckf/src/core/VioManager.h
++++ b/ov_msckf/src/core/VioManager.h
+@@ -25,6 +25,7 @@
+ #include <Eigen/StdVector>
+ #include <algorithm>
+ #include <atomic>
++#include <thread>
+ #include <boost/filesystem.hpp>
+ #include <fstream>
+ #include <memory>
+@@ -67,6 +68,7 @@ public:
+    * @param params_ Parameters loaded from either ROS or CMDLINE
+    */
+   VioManager(VioManagerOptions &params_);
++  ~VioManager() { if (init_worker_.joinable()) init_worker_.join(); }
+ 
+   /**
+    * @brief Feed function for inertial data
+@@ -224,6 +226,7 @@ protected:
+ 
+   // Threads and their atomics
+   std::atomic<bool> thread_init_running, thread_init_success;
++  std::thread init_worker_;
+ 
+   // If we did a zero velocity update
+   bool did_zupt_update = false;
+diff --git a/ov_msckf/src/core/VioManagerHelper.cpp b/ov_msckf/src/core/VioManagerHelper.cpp
+index 48198bc..5ec9298 100644
+--- a/ov_msckf/src/core/VioManagerHelper.cpp
++++ b/ov_msckf/src/core/VioManagerHelper.cpp
+@@ -93,7 +93,8 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
+ 
+   // Run the initialization in a second thread so it can go as slow as it desires
+   thread_init_running = true;
+-  std::thread thread([&] {
++  if (init_worker_.joinable()) init_worker_.join();
++  init_worker_ = std::thread([this] {
+     // Returns from our initializer
+     double timestamp;
+     Eigen::MatrixXd covariance;
+@@ -180,9 +181,7 @@ bool VioManager::try_to_initialize(const ov_core::CameraData &message) {
+   // If we are single threaded, then run single threaded
+   // Otherwise detach this thread so it runs in the background!
+   if (!params.use_multi_threading_subs) {
+-    thread.join();
+-  } else {
+-    thread.detach();
++    init_worker_.join();
+   }
+   return false;
+ }
+diff --git a/ov_msckf/src/ros/ROS2Visualizer.cpp b/ov_msckf/src/ros/ROS2Visualizer.cpp
+index e91cd74..a743ce1 100644
+--- a/ov_msckf/src/ros/ROS2Visualizer.cpp
++++ b/ov_msckf/src/ros/ROS2Visualizer.cpp
+@@ -149,17 +149,25 @@ ROS2Visualizer::ROS2Visualizer(std::shared_ptr<rclcpp::Node> node, std::shared_p
+ 
+   // Start thread for the image publishing
+   if (_app->get_params().use_multi_threading_pubs) {
+-    std::thread thread([&] {
++    image_worker_ = std::thread([this] {
+       rclcpp::Rate loop_rate(20);
+-      while (rclcpp::ok()) {
++      while (rclcpp::ok() && !stopping_) {
+         publish_images();
+         loop_rate.sleep();
+       }
+     });
+-    thread.detach();
++
+   }
+ }
+ 
++ROS2Visualizer::~ROS2Visualizer() { stop_threads(); }
++
++void ROS2Visualizer::stop_threads() {
++  stopping_ = true;
++  if (update_worker_.joinable()) update_worker_.join();
++  if (image_worker_.joinable()) image_worker_.join();
++}
++
+ void ROS2Visualizer::setup_subscribers(std::shared_ptr<ov_core::YamlParser> parser) {
+ 
+   // We need a valid parser
+@@ -436,6 +444,7 @@ void ROS2Visualizer::visualize_final() {
+ }
+ 
+ void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr msg) {
++  if (stopping_) return;
+ 
+   // convert into correct format
+   ov_core::ImuData message;
+@@ -450,10 +459,10 @@ void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr ms
+   // If the processing queue is currently active / running just return so we can keep getting measurements
+   // Otherwise create a second thread to do our update in an async manor
+   // The visualization of the state, images, and features will be synchronous with the update!
+-  if (thread_update_running)
++  if (thread_update_running.exchange(true))
+     return;
+-  thread_update_running = true;
+-  std::thread thread([&] {
++  if (update_worker_.joinable()) update_worker_.join();
++  update_worker_ = std::thread([this, message] {
+     // Lock on the queue (prevents new images from appending)
+     std::lock_guard<std::mutex> lck(camera_queue_mtx);
+ 
+@@ -472,7 +481,7 @@ void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr ms
+       // Loop through our queue and see if we are able to process any of our camera measurements
+       // We are able to process if we have at least one IMU measurement greater than the camera time
+       double timestamp_imu_inC = message.timestamp - _app->get_state()->_calib_dt_CAMtoIMU->value()(0);
+-      while (!camera_queue.empty() && camera_queue.at(0).timestamp < timestamp_imu_inC) {
++      while (!stopping_ && !camera_queue.empty() && camera_queue.at(0).timestamp < timestamp_imu_inC) {
+         auto rT0_1 = boost::posix_time::microsec_clock::local_time();
+         double update_dt = 100.0 * (timestamp_imu_inC - camera_queue.at(0).timestamp);
+         _app->feed_measurement_camera(camera_queue.at(0));
+@@ -489,9 +498,7 @@ void ROS2Visualizer::callback_inertial(const sensor_msgs::msg::Imu::SharedPtr ms
+   // If we are single threaded, then run single threaded
+   // Otherwise detach this thread so it runs in the background!
+   if (!_app->get_params().use_multi_threading_subs) {
+-    thread.join();
+-  } else {
+-    thread.detach();
++    update_worker_.join();
+   }
+ }
+ 
+diff --git a/ov_msckf/src/ros/ROS2Visualizer.h b/ov_msckf/src/ros/ROS2Visualizer.h
+index a737f80..79b804c 100644
+--- a/ov_msckf/src/ros/ROS2Visualizer.h
++++ b/ov_msckf/src/ros/ROS2Visualizer.h
+@@ -25,7 +25,7 @@
+ #include <geometry_msgs/msg/pose_stamped.hpp>
+ #include <geometry_msgs/msg/pose_with_covariance_stamped.hpp>
+ #include <geometry_msgs/msg/transform_stamped.hpp>
+-#include <image_transport/image_transport.h>
++#include <image_transport/image_transport.hpp>
+ #include <message_filters/subscriber.h>
+ #include <message_filters/sync_policies/approximate_time.h>
+ #include <message_filters/time_synchronizer.h>
+@@ -42,10 +42,11 @@
+ #include <std_msgs/msg/float64.hpp>
+ #include <tf2/LinearMath/Quaternion.h>
+ #include <tf2/transform_datatypes.h>
+-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
++#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+ #include <tf2_ros/transform_broadcaster.h>
+ 
+ #include <atomic>
++#include <thread>
+ #include <fstream>
+ #include <memory>
+ #include <mutex>
+@@ -53,7 +54,7 @@
+ #include <Eigen/Eigen>
+ #include <boost/date_time/posix_time/posix_time.hpp>
+ #include <boost/filesystem.hpp>
+-#include <cv_bridge/cv_bridge.h>
++#include <cv_bridge/cv_bridge.hpp>
+ 
+ namespace ov_core {
+ class YamlParser;
+@@ -90,6 +91,9 @@ public:
+    * @brief Will setup ROS subscribers and callbacks
+    * @param parser Configuration file parser
+    */
++  ~ROS2Visualizer();
++  void stop_threads();
++
+   void setup_subscribers(std::shared_ptr<ov_core::YamlParser> parser);
+ 
+   /**
+@@ -180,6 +184,8 @@ protected:
+ 
+   // Thread atomics
+   std::atomic<bool> thread_update_running;
++  std::atomic<bool> stopping_{false};
++  std::thread image_worker_, update_worker_;
+ 
+   /// Queue up camera measurements sorted by time and trigger once we have
+   /// exactly one IMU measurement with timestamp newer than the camera measurement
+diff --git a/ov_msckf/src/ros/ROSVisualizerHelper.h b/ov_msckf/src/ros/ROSVisualizerHelper.h
+index 14c1514..4dff304 100644
+--- a/ov_msckf/src/ros/ROSVisualizerHelper.h
++++ b/ov_msckf/src/ros/ROSVisualizerHelper.h
+@@ -34,7 +34,7 @@
+ #include <sensor_msgs/msg/point_cloud2.hpp>
+ #include <sensor_msgs/point_cloud2_iterator.hpp>
+ #include <tf2/transform_datatypes.h>
+-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
++#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
+ #endif
+ 
+ namespace ov_type {
+diff --git a/ov_msckf/src/run_subscribe_msckf.cpp b/ov_msckf/src/run_subscribe_msckf.cpp
+index 6a5b341..6dbe700 100644
+--- a/ov_msckf/src/run_subscribe_msckf.cpp
++++ b/ov_msckf/src/run_subscribe_msckf.cpp
+@@ -112,6 +112,10 @@ int main(int argc, char **argv) {
+   executor.spin();
+ #endif
+ 
++  // Quiesce owned workers before destroying publishers and image plugins.
++#if ROS_AVAILABLE == 2
++  viz->stop_threads();
++#endif
+   // Final visualization
+   viz->visualize_final();
+ #if ROS_AVAILABLE == 1
+@@ -120,6 +124,9 @@ int main(int argc, char **argv) {
+   rclcpp::shutdown();
+ #endif
+ 
++  // Release global owners before static image_transport/plugin loaders.
++  viz.reset();
++  sys.reset();
+   // Done!
+   return EXIT_SUCCESS;
+ }

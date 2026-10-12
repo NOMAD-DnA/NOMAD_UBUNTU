@@ -1,0 +1,136 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a84fa86..b7f36c9 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -34,6 +34,7 @@ find_package(realsense2 QUIET)  # optional
+ # its own version of Eigen and you cannot mix and match Eigen versions.
+ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+ # hopefully insisting on "MODULE" below causes system Eigen to be ignored
++get_target_property(EIGEN_INCLUDE_DIR_HINTS Eigen3::Eigen INTERFACE_INCLUDE_DIRECTORIES)
+ find_package(EIGEN3 MODULE REQUIRED)
+ 
+ 
+diff --git a/include/basalt_ros/imu_subscriber.hpp b/include/basalt_ros/imu_subscriber.hpp
+index fae4a9a..4e0002e 100644
+--- a/include/basalt_ros/imu_subscriber.hpp
++++ b/include/basalt_ros/imu_subscriber.hpp
+@@ -51,7 +51,7 @@ private:
+   void callback_accel(const ImuMsgConstPtr msg);
+   void callback_combined(const ImuMsgConstPtr msg);
+   // ----- variables --
+-  std::shared_ptr<rclcpp::Node> node_;
++  rclcpp::Node * node_;  // non-owning; the enclosing ROS node owns this subscriber
+   rclcpp::Subscription<ImuMsg>::SharedPtr gyroSub_;
+   rclcpp::Subscription<ImuMsg>::SharedPtr accelSub_;
+   rclcpp::Subscription<ImuMsg>::SharedPtr combinedSub_;
+diff --git a/include/basalt_ros/optical_flow_publisher.hpp b/include/basalt_ros/optical_flow_publisher.hpp
+index 9f4d01c..506edaf 100644
+--- a/include/basalt_ros/optical_flow_publisher.hpp
++++ b/include/basalt_ros/optical_flow_publisher.hpp
+@@ -31,6 +31,8 @@ class OpticalFlowPublisher
+ public:
+   OpticalFlowPublisher(rclcpp::Node * node, const std::string & topic);
+ 
++  ~OpticalFlowPublisher();
++
+   tbb::concurrent_bounded_queue<basalt::OpticalFlowResult::Ptr> *
+   getInputQueue()
+   {
+diff --git a/include/basalt_ros/vio_backend.hpp b/include/basalt_ros/vio_backend.hpp
+index caae632..8d8fffc 100644
+--- a/include/basalt_ros/vio_backend.hpp
++++ b/include/basalt_ros/vio_backend.hpp
+@@ -42,6 +42,8 @@ public:
+   typedef std::shared_ptr<OpticalFlowInputQueue> OpticalFlowInputQueuePtr;
+   explicit VIOBackEnd(rclcpp::Node * node);
+ 
++  ~VIOBackEnd();
++
+   tbb::concurrent_bounded_queue<basalt::OpticalFlowResult::Ptr> *
+   getOpticalFlowQueue()
+   {
+diff --git a/include/basalt_ros/vio_frontend.hpp b/include/basalt_ros/vio_frontend.hpp
+index d2731d9..9229035 100644
+--- a/include/basalt_ros/vio_frontend.hpp
++++ b/include/basalt_ros/vio_frontend.hpp
+@@ -34,6 +34,8 @@ class VIOFrontEnd
+ {
+ public:
+   explicit VIOFrontEnd(rclcpp::Node * node);
++  ~VIOFrontEnd();
++
+   void setOpticalFlowOutputQueue(
+     tbb::concurrent_bounded_queue<basalt::OpticalFlowResult::Ptr> * q)
+   {
+diff --git a/src/optical_flow_publisher.cpp b/src/optical_flow_publisher.cpp
+index 3b71059..371ec20 100644
+--- a/src/optical_flow_publisher.cpp
++++ b/src/optical_flow_publisher.cpp
+@@ -66,4 +66,12 @@ void OpticalFlowPublisher::start()
+   thread_ = std::thread(&OpticalFlowPublisher::processingThread, this);
+ }
+ 
++OpticalFlowPublisher::~OpticalFlowPublisher()
++{
++  inputQueue_.push(nullptr);
++  if (thread_.joinable()) {
++    thread_.join();
++  }
++}
++
+ }  // namespace basalt_ros
+diff --git a/src/vio_backend.cpp b/src/vio_backend.cpp
+index ed48ba5..3dab557 100644
+--- a/src/vio_backend.cpp
++++ b/src/vio_backend.cpp
+@@ -74,6 +74,18 @@ void VIOBackEnd::publishingThread()
+   }
+ }
+ 
++VIOBackEnd::~VIOBackEnd()
++{
++  imuSub_.reset();
++  flowSub_.reset();
++  vio_->imu_data_queue.push(nullptr);
++  vio_->vision_data_queue.push(nullptr);
++  vio_->maybe_join();
++  if (thread_.joinable()) {
++    thread_.join();
++  }
++}
++
+ }  // namespace basalt_ros
+ 
+ RCLCPP_COMPONENTS_REGISTER_NODE(basalt_ros::VIOBackEndNode)
+diff --git a/src/vio_frontend.cpp b/src/vio_frontend.cpp
+index df8b6a2..8a7fa6c 100644
+--- a/src/vio_frontend.cpp
++++ b/src/vio_frontend.cpp
+@@ -46,6 +46,14 @@ VIOFrontEnd::VIOFrontEnd(rclcpp::Node * node) : node_(node)
+   }
+ }
+ 
++VIOFrontEnd::~VIOFrontEnd()
++{
++  imageSub_.reset();
++  opticalFlow_->input_queue.push(nullptr);
++  opticalFlow_.reset();
++  opticalFlowPub_.reset();
++}
++
+ }  // namespace basalt_ros
+ 
+ RCLCPP_COMPONENTS_REGISTER_NODE(basalt_ros::VIOFrontEndNode)
+diff --git a/src/viz_flow_node.cpp b/src/viz_flow_node.cpp
+index a148a9b..3624d3e 100644
+--- a/src/viz_flow_node.cpp
++++ b/src/viz_flow_node.cpp
+@@ -13,7 +13,7 @@
+ // See the License for the specific language governing permissions and
+ // limitations under the License.
+ 
+-#include <cv_bridge/cv_bridge.h>
++#include <cv_bridge/cv_bridge.hpp>
+ #include <message_filters/subscriber.h>
+ #include <message_filters/sync_policies/exact_time.h>
+ #include <message_filters/synchronizer.h>
