@@ -3,7 +3,7 @@ set -eo pipefail
 # Keep Gazebo Transport local and separate from other team PCs.
 export NOMAD_GZ_PARTITION="${NOMAD_GZ_PARTITION:-nomad_gazebo_$(hostname)_${NOMAD_ROS_DOMAIN_ID:-42}}"
 export GZ_IP="${GZ_IP:-127.0.0.1}"
-source "$(dirname -- "${BASH_SOURCE[0]}")/.nomad/env.sh"
+source "$(dirname -- "${BASH_SOURCE[0]}")/../.nomad/env.sh"
 # Existing invocation stays the same; an explicit world_file bypasses the menu.
 nomad_custom_world=false
 nomad_bare_map=false

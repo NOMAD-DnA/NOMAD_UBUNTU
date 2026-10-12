@@ -2,7 +2,7 @@
 
 ```bash
 cd ~/nomad_ws
-./run_terrain_map.sh  # 맵 선택 → Gazebo·조종 창·높이/경사/클래스 지도
+./scripts/run_terrain_map.sh  # 맵 선택 → Gazebo·조종 창·높이/경사/클래스 지도
 ```
 
 20cm 격자, NN입력·지도갱신10Hz목표(실제처리율은상태로확인).

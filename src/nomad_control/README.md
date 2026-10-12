@@ -1,7 +1,7 @@
 # 차량 제어
 
 ```bash
-./run_module.sh control  # Planning 명령 → 구동 출력·실측 피드백
+./scripts/run_module.sh control  # Planning 명령 → 구동 출력·실측 피드백
 ```
 
 입력 `/nomad/planning/drive_command`, 출력 `/cmd_vel`, 피드백 `/nomad/control/vehicle_state`.

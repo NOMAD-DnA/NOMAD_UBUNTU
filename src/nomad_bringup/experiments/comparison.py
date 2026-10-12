@@ -102,7 +102,7 @@ def background(directory, manifest, pilot_only=False):
                                      pass_fds=(lock.fileno(),))
         save(directory/'runner.json', dict(pid=child.pid, started=time.time(), command=command))
         print(f'백그라운드 시작: {directory.name} (PID {child.pid})\n'
-              f'진행: ./run_experiment.sh status {directory.name} --watch\n'
+              f'진행: ./scripts/run_experiment.sh status {directory.name} --watch\n'
               f'로그: {directory / "background.log"}')
     except Exception as error:
         if not isinstance(error, RuntimeError) or str(error) != '이미 실행 중인 실험입니다.':

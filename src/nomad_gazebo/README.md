@@ -1,11 +1,11 @@
 # 센서·차량·맵 시뮬레이션
 
 ```bash
-./run_module.sh sim     # 맵 선택·센서·차량, 위치TF는외부융합
-./run_module.sh teleop  # 수동 초기정렬; Space정지, 창종료후Control사용
+./scripts/run_module.sh sim     # 맵 선택·센서·차량, 위치TF는외부융합
+./scripts/run_module.sh teleop  # 수동 초기정렬; Space정지, 창종료후Control사용
 ```
 
-GT 기반 수동실험은 `./run_forest.sh`. 실제융합과 동적TF를 동시에 켜지 않는다.
+GT 기반 수동실험은 `./scripts/run_forest.sh`. 실제융합과 동적TF를 동시에 켜지 않는다.
 
 | 대상 | 설정·코드 |
 |---|---|

@@ -74,7 +74,7 @@ def generate_launch_description():
                 on_exit=Shutdown(reason="Map viewer closed"),
             ),
             ExecuteProcess(
-                cmd=[str(root / "run_teleop.sh")],
+                cmd=[str(root / "scripts/run_teleop.sh")],
                 condition=IfCondition(LaunchConfiguration("teleop")),
                 output="screen",
             ),

@@ -1,7 +1,7 @@
 # 플래닝
 
 ```bash
-./run_module.sh planning  # 기존 메뉴에서 GPP/LPP 선택
+./scripts/run_module.sh planning  # 기존 메뉴에서 GPP/LPP 선택
 ```
 
 입력: 융합 pose·전역/지역 costmap·목표·센서 상태·Control 피드백.

@@ -1,8 +1,8 @@
 # 실제 인지·융합 자율주행
 
 ```bash
-./run_terrain_navigation.sh viewer:=false  # 맵·GPP/LPP 선택, B0+VIO/GNSS+지도+제어+RViz
-./run_teleop.sh                            # 초기정렬 이동 후 정지·종료
+./scripts/run_terrain_navigation.sh viewer:=false  # 맵·GPP/LPP 선택, B0+VIO/GNSS+지도+제어+RViz
+./scripts/run_teleop.sh                            # 초기정렬 이동 후 정지·종료
 ```
 
 위치추정·인지 READY와3초 정지가 확인되면 Planning/Control이 시작된다. RViz에서 목표 지정.

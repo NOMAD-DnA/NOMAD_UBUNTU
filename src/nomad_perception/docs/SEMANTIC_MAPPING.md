@@ -30,7 +30,7 @@ ros2 run nomad_perception semantic_session --map 7
 cd ~/nomad_ws
 export NOMAD_ROS_DOMAIN_ID=92 NOMAD_GZ_PARTITION=nomad_semantic_mapping_92
 source .nomad/env.sh
-./run_teleop.sh
+./scripts/run_teleop.sh
 ```
 
 W/S는 속도, A/D는 조향, Space는 정지다. 실행 중인 다른 시뮬레이션은

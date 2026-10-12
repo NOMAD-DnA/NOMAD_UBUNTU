@@ -11,7 +11,7 @@
 - 후진 방향을 직접 강제하지 않으며 기존 계획/복구 모듈이 결정. 실제 후진 거리를 기록.
 - 6개 조합 × 3회 × 8개 맵 =144회, 별도 파일럿6회.
 - 모든 비영상 토픽과 접촉·실측속도·제어·경로·경유점 이벤트 보존.
-- 준비 명령: ./run_experiment.sh batch all_maps_routes_20261007
-- 새 코드의 정상 중단: ./run_experiment.sh stop all_maps_routes_20261007
+- 준비 명령: ./scripts/run_experiment.sh batch all_maps_routes_20261007
+- 새 코드의 정상 중단: ./scripts/run_experiment.sh stop all_maps_routes_20261007
 - 중단 후 resume은 중단된 1회를 새 시뮬레이션으로 재시도하며 이전 attempt는 보존.
 - 노션 게시·시각화는 실행하지 않음.

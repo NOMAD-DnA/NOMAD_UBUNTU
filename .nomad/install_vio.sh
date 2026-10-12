@@ -28,7 +28,7 @@ if ! "$TASK_SKIP_DEPS"; then
   # Do not scan Basalt's bundled ROS1 internals as independent ROS2 packages.
   rosdep install --from-paths src/nomad_interfaces src/nomad_gazebo \
     src/nomad_vio src/nomad_localization src/nomad_bringup \
-    src/nomad_perception src/nomad_control src/nomad_path_planning \
+    src/nomad_perception src/nomad_control src/nomad_path_planning src/nomad_semantic \
     src/third_party/vio/basalt_ros src/third_party/vio/basalt_vio_msgs \
     src/third_party/vio/open_vins/ov_core src/third_party/vio/open_vins/ov_init \
     src/third_party/vio/open_vins/ov_msckf --ignore-src --skip-keys basalt -r -y

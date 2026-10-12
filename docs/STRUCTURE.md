@@ -25,3 +25,5 @@ RGB → nomad_semantic → 라벨 ─┐                    │
 패키지 경로는 모두 `src/` 아래. 토픽 계약은 `nomad_bringup/config/topics.yaml`, 공통 차량 기하는 `config/vehicle.yaml`.
 융합만 `odom → base_link` 동적 TF를 발행한다. `/odom`은 Gazebo GT와 제어 피드백용이며 플래닝 위치는 융합 출력이다.
 실험·학습·이전 기록은 실행 경로에 넣지 않는다. 생성 결과는 `sessions/`, 빌드는 `build/install/log`, 이전 자료는 `docs/archive/` 또는 GPT 기록에 보관한다.
+
+실행 진입점은 `scripts/`, 사용자 안내는 `docs/실행안내.md`, 최초 설치 도구는 `.nomad/`에 모은다.

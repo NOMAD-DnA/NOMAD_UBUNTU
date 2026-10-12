@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -eo pipefail
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
-  echo 'Usage: ./run_semantic.sh [-p model:=/path/model.onnx] [-p backend:=cuda|cpu|trt] [-p view:=true]'
+  echo 'Usage: ./scripts/run_semantic.sh [-p model:=/path/model.onnx] [-p backend:=cuda|cpu|trt] [-p view:=true]'
   exit 0
 fi
 workspace=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)

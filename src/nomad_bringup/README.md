@@ -1,6 +1,6 @@
 # 모듈 통합
 
-사용자 명령은 루트 [실행안내](../../실행안내.md). 전체 실행과 단독 실행을 함께 켜지 않는다.
+사용자 명령은 [실행안내](../../docs/실행안내.md). 전체 실행과 단독 실행을 함께 켜지 않는다.
 
 - `config/topics.yaml`: 각 파트 토픽 이름·remap.
 - `config/modules.yaml`: 기본 GT 공급자. 실제융합 통합은 `nomad_perception/config/modules_terrain_navigation.yaml`.

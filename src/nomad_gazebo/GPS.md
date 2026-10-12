@@ -1,7 +1,7 @@
 # GPS 설정·실물 교체
 
 ```bash
-./run_forest.sh                                      # GPS 포함 시뮬레이션
+./scripts/run_forest.sh                                      # GPS 포함 시뮬레이션
 source ~/nomad_ws/.nomad/env.sh                       # 다른 터미널
 ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix    # 위도·경도·고도
 ```
@@ -37,7 +37,7 @@ ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix    # 위도·경도·고도
 ## GPS 시각화
 
 ```bash
-./run_forest.sh                                    # GPS + 미터 좌표 계산 노드
+./scripts/run_forest.sh                                    # GPS + 미터 좌표 계산 노드
 # 다른 터미널
 source ~/nomad_ws/.nomad/env.sh
 ros2 launch nomad_gazebo gps_rviz.launch.py         # 보라색 GPS 위치·이동 궤적

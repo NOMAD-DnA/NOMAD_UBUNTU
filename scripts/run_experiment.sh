@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -eo pipefail
-experiment_workspace="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+experiment_workspace="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$experiment_workspace/.nomad/env.sh"
 export MPLCONFIGDIR="${MPLCONFIGDIR:-$experiment_workspace/log/experiment-matplotlib}"
 mkdir -p "$MPLCONFIGDIR"

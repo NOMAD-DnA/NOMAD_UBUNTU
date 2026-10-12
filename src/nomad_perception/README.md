@@ -1,8 +1,8 @@
 # 인지·지도
 
 ```bash
-./run_module.sh semantic  # 별도 터미널: RGB 분할
-./run_module.sh map       # 깊이·분할·융합 pose → 지도·코스트맵
+./scripts/run_module.sh semantic  # 별도 터미널: RGB 분할
+./scripts/run_module.sh map       # 깊이·분할·융합 pose → 지도·코스트맵
 ```
 
 핵심은 `terrain_layers.py`(지면·클래스), `navigation_costmap.py`(비용·관측기억), `navigation_terrain.py`(ROS IO).

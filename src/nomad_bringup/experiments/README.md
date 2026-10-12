@@ -3,12 +3,12 @@
 기존 `nomad_bringup forest.launch.py`, 알고리즘 선택 목록, 토픽 설정, ROS bag을 이용한다. GPP/LPP·인지·제어 알고리즘은 변경하지 않는다. 실행 전에 `.nomad/env.sh`를 읽는 루트 `run_experiment.sh`를 사용한다.
 
 ```bash
-./run_experiment.sh record 비교01       # 생성 → 파일럿 6회 → 본실험 54회
-./run_experiment.sh status 비교01       # 현재 실행 / 진행률
-./run_experiment.sh resume 비교01       # 완료 결과 보존, 중단/평가불가 실행 재시도
-./run_experiment.sh evaluate 비교01     # 저장 기록 평가, CSV/HTML/PNG 갱신
-./run_experiment.sh show 비교01         # 결과 갱신 후 HTML 경로 표시
-./run_experiment.sh prepare 비교01      # 스냅샷·실험표 생성만
+./scripts/run_experiment.sh record 비교01       # 생성 → 파일럿 6회 → 본실험 54회
+./scripts/run_experiment.sh status 비교01       # 현재 실행 / 진행률
+./scripts/run_experiment.sh resume 비교01       # 완료 결과 보존, 중단/평가불가 실행 재시도
+./scripts/run_experiment.sh evaluate 비교01     # 저장 기록 평가, CSV/HTML/PNG 갱신
+./scripts/run_experiment.sh show 비교01         # 결과 갱신 후 HTML 경로 표시
+./scripts/run_experiment.sh prepare 비교01      # 스냅샷·실험표 생성만
 ```
 
 실험명을 생략하면 입력 또는 기존 목록 번호 선택. `--pilot-only`는 작은 시험만 수행한다. Ctrl+C는 이 도구가 시작한 프로세스 그룹에만 종료 신호를 보내고 기록기를 정상 종료한다. 기존 사용자 프로세스는 종료하지 않는다. 기본 실험 ROS domain 186은 시작 전 점유 여부를 검사하며 `NOMAD_EXPERIMENT_DOMAIN`으로 변경할 수 있다. Gazebo partition은 시도마다 고유하다. 이 도구는 장기 실행을 담당하는 기존 노드들을 별도로 재구현하지 않는다.
@@ -57,8 +57,8 @@ MCAP의 Zstd 무손실 청크 압축을 쓰며 512MiB 단위로 분할한다. �
 원시 MCAP은 전체 메시지 필드를 보존한다. 나중에 시뮬레이터 없이 다음 명령으로 특정 토픽의 모든 필드를 열린 형식(JSONL gzip)으로 내보낼 수 있다. `bag_sim_ns`는 bag 수신 시뮬레이션 시간이며 원래 header stamp도 message 안에 남는다. 선속도는 `twist.twist.linear.x`를 그대로 쓴다.
 
 ```bash
-./run_experiment.sh export 실험명 --topic /odom
-./run_experiment.sh export 실험명 --topic /nomad/control/vehicle_state
+./scripts/run_experiment.sh export 실험명 --topic /odom
+./scripts/run_experiment.sh export 실험명 --topic /nomad/control/vehicle_state
 ```
 
 오늘의 수집 모드에서는 각 실행 후 그림·노션을 생성하지 않는다. `progress.json`, 각 시도의 원시 파일과 검사 결과만 갱신한다. 수집 완료 후 필요할 때 `evaluate`를 명시적으로 실행한다. 원시 기록·중단 기록·기존 샘플은 자동 삭제하지 않는다.
@@ -66,8 +66,8 @@ MCAP의 Zstd 무손실 청크 압축을 쓰며 512MiB 단위로 분할한다. �
 ## 4번 맵 순환로만 실행 (2026-10-07)
 
 ```bash
-./run_experiment.sh route map4_loop_20261007 --pair 3
-./run_experiment.sh status map4_loop_20261007
+./scripts/run_experiment.sh route map4_loop_20261007 --pair 3
+./scripts/run_experiment.sh status map4_loop_20261007
 ```
 
 노션 `ROS Gazebo 환경 → 맵 구성 → 04. 혼합림 순환로`의 같은 방향 2바퀴
@@ -88,7 +88,7 @@ ROS 토픽, 물리 접촉, 경로·제어·실측 속도와 경유점 도달 이
 
 ## 전체 1~8번 맵 기록 (2026-10-07)
 
-`./run_experiment.sh batch all_maps_routes_20261007`로 6개 조합 × 8개 맵 × 3회,
+`./scripts/run_experiment.sh batch all_maps_routes_20261007`로 6개 조합 × 8개 맵 × 3회,
 총144회와 기록 확인용 파일럿6회를 실행한다. 1·2번은 기존 목표(23,16),
 3번은 기본5° 레인의 끝(20,-25)을 새 실험 목표로 사용한다.
 4~7번은 기준 순환로2바퀴, 8번은 진입→분기점복귀→우회로를 순서대로 전달한다.
@@ -118,11 +118,11 @@ colcon 검색에서 제외한다. 기존 기록도 `experiments/COLCON_IGNORE`�
 파일럿은 실행·센서·기록 검증을 통과해야 본실험으로 넘어간다. 검증된 기록의 도착 실패(충돌·시간 초과 등)는 알고리즘 성능 결과로 보존하고 본실험을 계속한다. 파일럿 성공 수와 성능 실패 수는 별도로 표시하며 본실험 성공률에 섞지 않는다.
 
 ```bash
-./run_experiment.sh compare map4_clicked_20261012
-./run_experiment.sh status map4_clicked_20261012 --watch
-./run_experiment.sh stop map4_clicked_20261012
-./run_experiment.sh resume map4_clicked_20261012
-./run_experiment.sh show map4_clicked_20261012
+./scripts/run_experiment.sh compare map4_clicked_20261012
+./scripts/run_experiment.sh status map4_clicked_20261012 --watch
+./scripts/run_experiment.sh stop map4_clicked_20261012
+./scripts/run_experiment.sh resume map4_clicked_20261012
+./scripts/run_experiment.sh show map4_clicked_20261012
 ```
 
 `compare`와 이 비교 실험의 `resume`은 기본으로 백그라운드에서 실행한다.

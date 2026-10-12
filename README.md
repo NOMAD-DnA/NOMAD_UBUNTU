@@ -1,25 +1,35 @@
 # NOMAD
 
-Ubuntu 24.04 · ROS 2 Jazzy · Gazebo Harmonic. 위치추정 → 인지 지도 → 플래닝 → 제어를 독립 실행할 수 있는 차량 시뮬레이션.
+야지 차량 시뮬레이션: 위치추정 → 의미·경사 지도 → 플래닝 → 제어.
 
-- **처음 실행:** [실행안내](실행안내.md)
-- **코드·설정 위치:** [구조](docs/STRUCTURE.md)
+## 처음 프로젝트를 사용하는 경우
+
+Ubuntu 24.04·ROS 2 Jazzy·NVIDIA 드라이버가 준비된 PC에서 시작한다.
+환경 준비부터 소스 받기·설치·빌드까지 **[설치 및 실행 안내](docs/실행안내.md#1-처음-설치할-때)** 순서대로 진행한다.
+
+## 설치를 끝낸 경우
 
 ```bash
-./run_terrain_navigation.sh viewer:=false  # 맵·플래너 선택 → B0·융합·지도·제어·RViz
-./run_module.sh help                      # 각 파트 독립 실행
+cd ~/nomad_ws
+./scripts/run_terrain_navigation.sh viewer:=false  # 맵·플래너 선택 → 전체 실행 + RViz
 ```
 
-| 파트 | 문서 |
-|---|---|
-| 센서·차량·맵 | [nomad_gazebo](src/nomad_gazebo/README.md) |
-| VIO·GNSS 융합 | [nomad_vio](src/nomad_vio/README.md) · [융합](src/nomad_localization/README.md) |
-| 의미분할 | [nomad_semantic](src/nomad_semantic/README.md) |
-| 원본 점·경사·코스트맵 | [nomad_perception](src/nomad_perception/README.md) |
-| GPP·LPP·후진 복구 | [nomad_path_planning](src/nomad_path_planning/README.md) |
-| 차량 제어 | [nomad_control](src/nomad_control/README.md) |
-| 토픽·메시지 계약 | [nomad_bringup](src/nomad_bringup/README.md) · [nomad_interfaces](src/nomad_interfaces/README.md) |
+다른 터미널에서 `./scripts/run_teleop.sh`로 초기정렬 이동 후 정지·창 종료.
+위치추정·인지가 준비되면 RViz `2D Goal Pose`로 목표를 찍는다.
 
-기존 GT 기반 실행은 `./run_autonomy.sh`, 수동 시뮬레이션은 `./run_forest.sh`. 실제 VIO 융합 실행과 동시에 켜지 않는다.
-기존 설계·시험 기록은 [보관 문서](docs/archive/). 빌드·실행 생성물은 Git에 포함하지 않는다.
-현재 막다른 길 후진 복구 이력과 지도 지연 문제는 남아 있다. 단독 연결·일반 전진 주행 확인을 완주 보장으로 해석하지 않는다.
+## 각 파트만 켜고 싶은 경우
+
+```bash
+./scripts/run_module.sh help  # sim / localization / semantic / map / planning / control / rviz
+```
+
+실행 순서와 설명은 **[파트별 실행](docs/실행안내.md#3-각-파트를-따로-실행할-때)**.
+
+## 파일을 찾을 때
+
+- `scripts/`: 사람이 실행하는 쉘 스크립트
+- `docs/`: 설치·실행 안내와 [코드 구조](docs/STRUCTURE.md)
+- `src/`: 각 파트 코드·config
+- `.nomad/`: 설치 도구·개발 환경
+
+기존 GT 기반 자율주행은 `scripts/run_autonomy.sh`. 기술 상세·과거 문서는 각 패키지 README와 `docs/archive/`에 보관한다.

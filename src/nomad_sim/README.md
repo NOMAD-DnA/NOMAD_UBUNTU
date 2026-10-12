@@ -3,7 +3,7 @@
 현재 ROS 2 Jazzy + MVSim 1.4.0에서 쓰는 패키지입니다. 설치·빌드 순서는 워크스페이스 최상위 `README.md`를 참고하세요.
 
 ```bash
-~/nomad_ws/run_forest.sh
+~/nomad_ws/scripts/run_forest.sh
 ```
 
 종료는 실행 터미널 Ctrl+C. 두 MVSim을 동시에 띄우지 마세요(포트23700). 환경 설정은 `~/nomad_ws/.nomad/env.sh`; 기본 ROS domain42·LOCALHOST, 다운스트림은 `use_sim_time:=true`입니다.

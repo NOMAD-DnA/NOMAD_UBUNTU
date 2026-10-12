@@ -25,7 +25,7 @@
 `headless:=true rviz:=false`를 덧붙이면 창 없이 실행할 수 있다.
 처음 받았거나 launch 파일을 추가한 뒤에는 아래 개별 빌드 명령을 한 번 실행한다.
 
-기존 시뮬레이터는 평소처럼 `~/nomad_ws/run_forest.sh`로 실행한다.
+기존 시뮬레이터는 평소처럼 `~/nomad_ws/scripts/run_forest.sh`로 실행한다.
 별도 터미널에서:
 
 ```bash

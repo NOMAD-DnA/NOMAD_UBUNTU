@@ -1,6 +1,6 @@
 # 차량 시험장
 
-기존 `./run_forest.sh` 또는 `./slam_experiment.sh sim` → **3번**.
+기존 `./scripts/run_forest.sh` 또는 `./slam_experiment.sh sim` → **3번**.
 
 | 경사 | 레인 중심 Y(m) |
 |---|---|

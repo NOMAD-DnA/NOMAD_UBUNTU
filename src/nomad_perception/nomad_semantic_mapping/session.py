@@ -281,7 +281,7 @@ def run_mapping(root: Path, args) -> int:
     try:
         atomic_json(active_path, active)
         print(f'선택한 맵: {map_id}\n지도 저장 폴더: {directory}', flush=True)
-        print('다른 터미널에서 이 폴더의 ./run_teleop.sh로 직접 주행하세요.', flush=True)
+        print('다른 터미널에서 이 폴더의 ./scripts/run_teleop.sh로 직접 주행하세요.', flush=True)
         print('주행 종료: Ctrl+C 또는 ros2 run nomad_perception semantic_session stop. 종료한 뒤 ros2 run nomad_perception semantic_session view로 지도를 다시 볼 수 있습니다.', flush=True)
         process = subprocess.Popen(command, cwd=directory, env=environment, start_new_session=True)
         metadata.update(state='running', launch_pid=process.pid)

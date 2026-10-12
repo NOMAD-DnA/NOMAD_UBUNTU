@@ -32,7 +32,7 @@ ros2 run nomad_perception geometry_session --map 7
 cd ~/nomad_ws
 export NOMAD_ROS_DOMAIN_ID=91 NOMAD_GZ_PARTITION=nomad_geometry_mapping_91
 source .nomad/env.sh
-./run_teleop.sh
+./scripts/run_teleop.sh
 ```
 
 W/S는 속도, A/D는 조향, Space는 정지다. 실행 중인 다른 시뮬레이션은

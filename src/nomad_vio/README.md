@@ -1,8 +1,8 @@
 # 위치추정
 
 ```bash
-./run_module.sh localization                   # Basalt + GNSS 융합·공통 출력
-./run_module.sh localization method:=openvins   # OpenVINS로 교체
+./scripts/run_module.sh localization                   # Basalt + GNSS 융합·공통 출력
+./scripts/run_module.sh localization method:=openvins   # OpenVINS로 교체
 ```
 
 설정: `config/vio/`, 융합: `../nomad_localization/config/fusion.yaml`.

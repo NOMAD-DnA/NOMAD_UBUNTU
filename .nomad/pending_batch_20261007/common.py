@@ -39,7 +39,7 @@ def sha(path):
 
 
 def source_files():
-    files = [WORKSPACE/'run_autonomy.sh', WORKSPACE/'run_experiment.sh', WORKSPACE/'.nomad/env.sh']
+    files = [WORKSPACE/'scripts/run_autonomy.sh', WORKSPACE/'scripts/run_experiment.sh', WORKSPACE/'.nomad/env.sh']
     for package in sorted((WORKSPACE/'src').glob('nomad_*')):
         if package.name == 'nomad_sim':
             continue

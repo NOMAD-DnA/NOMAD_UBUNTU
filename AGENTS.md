@@ -1,7 +1,7 @@
 # NOMAD 작업 지침
 
 ## 시작
-- 현재 구조는 [docs/STRUCTURE.md](docs/STRUCTURE.md), 사용자 실행 안내는 [실행안내.md](실행안내.md).
+- 현재 구조는 [docs/STRUCTURE.md](docs/STRUCTURE.md), 사용자 설치·실행 안내는 [docs/실행안내.md](docs/실행안내.md). 사람이실행하는루트wrapper는scripts/에모으고루트에중복파일·링크를두지않는다.
 - 기존 변경과 사용자 실행 프로세스를 먼저 확인한다. 사용 중인 시뮬레이션을 요청 없이 종료·초기화하지 않는다.
 - 과거 설정·실험은 [docs/archive/AGENTS_before_integration_refactor.md](docs/archive/AGENTS_before_integration_refactor.md)에 보존한다. 과거 값보다 현재 config와 이 문서를 우선한다.
 
@@ -13,8 +13,8 @@
 - 교체 인터페이스는 nomad_interfaces와 nomad_bringup/config/{topics,modules,vehicle}.yaml. 타입·좌표·유효기간·QoS 변경 시 관련 README와 테스트를 갱신한다.
 
 ## 현재 실행 정책
-- `./run_terrain_navigation.sh`: 맵 → 기존 GPP/LPP 메뉴 → 실제 VIO/GNSS 융합·B0·인지지도·Planning·Control·RViz.
-- `./run_module.sh`: 같은 각 파트를 단독 실행. 전체 실행과 중복 실행 금지. 기본 GT 실행은 run_autonomy.sh로 보존.
+- `./scripts/run_terrain_navigation.sh`: 맵 → 기존 GPP/LPP 메뉴 → 실제 VIO/GNSS 융합·B0·인지지도·Planning·Control·RViz.
+- `./scripts/run_module.sh`: 같은 각 파트를 단독 실행. 전체 실행과 중복 실행 금지. 기본 GT 실행은 run_autonomy.sh로 보존.
 - environment: .nomad/env.sh, domain42/LOCALHOST. 모든 시뮬레이션 소비 노드는 use_sim_time=true. 같은 domain/partition에 Gazebo 중복 실행 금지.
 - 외부 VIO일 때 fused provider만 odom→base_link 동적TF, Gazebo GT TF off. /odom은 GT/제어속도 피드백용이고 Planning위치는융합출력. 센서고정TF는 robot_state_publisher.
 - 초기2m이상 수동정렬→정지·teleop종료→위치/인지READY+정지3초→자율주행. GNSS는정지yaw제공안함. VIO원본/융합auto_restart=false,Control재시작확인연결미완료.
