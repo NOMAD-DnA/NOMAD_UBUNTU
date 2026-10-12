@@ -1,3 +1,4 @@
+from nomad_path_planning.experiment_timing import measured
 from nomad_path_planning.contracts import valid_grid
 from nomad_interfaces.msg import PlannedMotion
 import math
@@ -306,11 +307,12 @@ class LocalPlannerNode(Node):
             self.reverse_origin = None
             self.forward_origin = start
 
-        result = self.planner.plan(
-            start=start,
-            global_path=global_path,
-            costmap=costmap,
-        )
+        with measured(self, "lpp_strategy"):
+            result = self.planner.plan(
+                start=start,
+                global_path=global_path,
+                costmap=costmap,
+            )
 
         if result and result['success'] and getattr(self, 'gates', []):
             valid = [candidate for candidate in result['candidates']

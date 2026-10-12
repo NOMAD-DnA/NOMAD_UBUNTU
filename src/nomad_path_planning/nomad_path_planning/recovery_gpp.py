@@ -1,4 +1,5 @@
 """D* Lite with bounded retry, LPP feedback and validated A* recovery."""
+from nomad_path_planning.experiment_timing import measured
 import heapq
 import math
 import time
@@ -182,8 +183,9 @@ class RecoveryGPP(DStarLiteNode):
         if not (rebuild or moved or changed):
             return
         try:
-            success = self.planner.compute_shortest_path()
-            path = self.planner.extract_path() if success else []
+            with measured(self, "gpp_dstar_search_extract"):
+                success = self.planner.compute_shortest_path()
+                path = self.planner.extract_path() if success else []
         except RuntimeError as error:
             self.get_logger().warn(str(error))
             path = []
@@ -192,7 +194,8 @@ class RecoveryGPP(DStarLiteNode):
         fallback = not valid
         if fallback:
             # A failed incremental state must not leave the stopped car stuck forever.
-            path = astar_path(self.planner)
+            with measured(self, "gpp_astar_fallback"):
+                path = astar_path(self.planner)
         if not path:
             self.stop_and_retry('GPP_WAIT: NO_PATH; retrying once per second')
             return
@@ -233,9 +236,11 @@ class RecoveryGPP(DStarLiteNode):
         if feedback: self.feedback_replanned=True
         self.strategy_key=key
         try:
-            result=self.strategy.plan(request)
+            with measured(self, "gpp_strategy"):
+                result=self.strategy.plan(request)
             if self.lpp_algorithm=='rpp' and self.algorithm not in ('hybrid_astar','state_lattice'):
-                result=self.reference_adapter.adapt(request,result)
+                with measured(self, "gpp_reference_adapter"):
+                    result=self.reference_adapter.adapt(request,result)
         except (BudgetExceeded,RuntimeError) as error:
             self.stop_and_retry(f'GPP_WAIT: {self.algorithm}: {error}')
             return
