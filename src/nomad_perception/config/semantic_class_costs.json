@@ -1,0 +1,406 @@
+{
+  "original_class_count": 64,
+  "excluded": [
+    0,
+    8,
+    53,
+    56
+  ],
+  "ground_ids": [
+    3,
+    5,
+    7,
+    9,
+    11,
+    21,
+    23,
+    24,
+    31
+  ],
+  "classes": [
+    {
+      "id": 0,
+      "name": "undefined",
+      "semantic_cost": null,
+      "ground": false
+    },
+    {
+      "id": 1,
+      "name": "traffic_cone",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 2,
+      "name": "snow",
+      "semantic_cost": 80.0,
+      "ground": false
+    },
+    {
+      "id": 3,
+      "name": "cobble",
+      "semantic_cost": 30.0,
+      "ground": true
+    },
+    {
+      "id": 4,
+      "name": "obstacle",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 5,
+      "name": "leaves",
+      "semantic_cost": 35.0,
+      "ground": true
+    },
+    {
+      "id": 6,
+      "name": "street_light",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 7,
+      "name": "bikeway",
+      "semantic_cost": 5.0,
+      "ground": true
+    },
+    {
+      "id": 8,
+      "name": "ego_vehicle",
+      "semantic_cost": null,
+      "ground": false
+    },
+    {
+      "id": 9,
+      "name": "pedestrian_crossing",
+      "semantic_cost": 5.0,
+      "ground": true
+    },
+    {
+      "id": 10,
+      "name": "road_block",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 11,
+      "name": "road_marking",
+      "semantic_cost": 5.0,
+      "ground": true
+    },
+    {
+      "id": 12,
+      "name": "car",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 13,
+      "name": "bicycle",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 14,
+      "name": "person",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 15,
+      "name": "bus",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 16,
+      "name": "forest",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 17,
+      "name": "bush",
+      "semantic_cost": 95.0,
+      "ground": false
+    },
+    {
+      "id": 18,
+      "name": "moss",
+      "semantic_cost": 45.0,
+      "ground": false
+    },
+    {
+      "id": 19,
+      "name": "traffic_light",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 20,
+      "name": "motorcycle",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 21,
+      "name": "sidewalk",
+      "semantic_cost": 5.0,
+      "ground": true
+    },
+    {
+      "id": 22,
+      "name": "curb",
+      "semantic_cost": 90.0,
+      "ground": false
+    },
+    {
+      "id": 23,
+      "name": "asphalt",
+      "semantic_cost": 5.0,
+      "ground": true
+    },
+    {
+      "id": 24,
+      "name": "gravel",
+      "semantic_cost": 25.0,
+      "ground": true
+    },
+    {
+      "id": 25,
+      "name": "boom_barrier",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 26,
+      "name": "rail_track",
+      "semantic_cost": 90.0,
+      "ground": false
+    },
+    {
+      "id": 27,
+      "name": "tree_crown",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 28,
+      "name": "tree_trunk",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 29,
+      "name": "debris",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 30,
+      "name": "crops",
+      "semantic_cost": 75.0,
+      "ground": false
+    },
+    {
+      "id": 31,
+      "name": "soil",
+      "semantic_cost": 20.0,
+      "ground": true
+    },
+    {
+      "id": 32,
+      "name": "rider",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 33,
+      "name": "animal",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 34,
+      "name": "truck",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 35,
+      "name": "on_rails",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 36,
+      "name": "caravan",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 37,
+      "name": "trailer",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 38,
+      "name": "building",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 39,
+      "name": "wall",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 40,
+      "name": "rock",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 41,
+      "name": "fence",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 42,
+      "name": "guard_rail",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 43,
+      "name": "bridge",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 44,
+      "name": "tunnel",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 45,
+      "name": "pole",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 46,
+      "name": "traffic_sign",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 47,
+      "name": "misc_sign",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 48,
+      "name": "barrier_tape",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 49,
+      "name": "kick_scooter",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 50,
+      "name": "low_grass",
+      "semantic_cost": 35.0,
+      "ground": false
+    },
+    {
+      "id": 51,
+      "name": "high_grass",
+      "semantic_cost": 65.0,
+      "ground": false
+    },
+    {
+      "id": 52,
+      "name": "scenery_vegetation",
+      "semantic_cost": 85.0,
+      "ground": false
+    },
+    {
+      "id": 53,
+      "name": "sky",
+      "semantic_cost": null,
+      "ground": false
+    },
+    {
+      "id": 54,
+      "name": "water",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 55,
+      "name": "wire",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 56,
+      "name": "outlier",
+      "semantic_cost": null,
+      "ground": false
+    },
+    {
+      "id": 57,
+      "name": "heavy_machinery",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 58,
+      "name": "container",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 59,
+      "name": "hedge",
+      "semantic_cost": 95.0,
+      "ground": false
+    },
+    {
+      "id": 60,
+      "name": "barrel",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 61,
+      "name": "pipe",
+      "semantic_cost": 100.0,
+      "ground": false
+    },
+    {
+      "id": 62,
+      "name": "tree_root",
+      "semantic_cost": 90.0,
+      "ground": false
+    },
+    {
+      "id": 63,
+      "name": "military_vehicle",
+      "semantic_cost": 100.0,
+      "ground": false
+    }
+  ]
+}

@@ -32,7 +32,7 @@ ros2 topic echo /gps/fix sensor_msgs/msg/NavSatFix    # 위도·경도·고도
 4. 실제 GPS와 Gazebo GPS가 같은 `/gps/fix`를 동시에 발행하지 않게 한다. 필요하면 시뮬레이션 `gps.enabled: false`. 실물은 ROS 시간, 시뮬레이션은 sim time으로 동기화하고, 고도 기준(타원체고/해발고)을 확인.
 5. NavSatFix status·공분산 의미 확인 후 융합 모듈 연결. 위성수·RTK 상태는 NavSatFix에 모두 들어가지 않으므로 수신기 전용 상태 토픽을 별도로 확인.
 
-현재 ros_gz_bridge는 공분산을 UNKNOWN으로 내보낸다. 위 sigma 설정을 변경해도 메시지 공분산이 자동으로 채워지지 않는다. VIO 융합 전 별도 공분산 처리가 필요하다. GPS↔VIO 융합은 아직 구현하지 않았다. 미터 좌표 변환은 아래 RViz 시각화에서 제공한다.
+현재 ros_gz_bridge는 공분산을 UNKNOWN으로 내보낸다. 위 sigma 설정을 변경해도 메시지 공분산이 자동으로 채워지지 않는다. VIO 융합 전 별도 공분산 처리가 필요하다. GNSS·VIO 융합은 [VIO 선택 실행](../nomad_vio/README.md)의 별도 노드로 제공한다. 미터 좌표 변환은 아래 RViz 시각화에서 제공한다.
 
 ## GPS 시각화
 
@@ -57,3 +57,40 @@ ros2 run nomad_gazebo gps_visualizer.py --ros-args \
 ros2 launch nomad_gazebo gps_rviz.launch.py use_sim_time:=false
 ```
 시뮬레이션이 이미 켜져 있으면 gps_visualizer를 중복 실행하지 않는다. RViz 설정 위치는 `src/nomad_gazebo/config/gps.rviz`.
+
+
+## GNSS 오류 시험 — 수동 실행
+
+```bash
+source ~/nomad_ws/.nomad/env.sh
+ros2 run nomad_gazebo gnss_fault_injector.py --ros-args -p use_sim_time:=true
+# 이벤트 데모 설정으로 실행
+ros2 run nomad_gazebo gnss_fault_injector.py --ros-args -p use_sim_time:=true \
+  -p profile_path:=$HOME/nomad_ws/src/nomad_gazebo/config/gnss_demo.yaml
+```
+
+두 명령 중 하나만 실행한다. 기본 설정 gnss_sim.yaml은 오차 없이 통과한다. 입력 /gps/fix는 그대로, 출력은 /experiment/gps/fix(NavSatFix)와 /experiment/gps/quality(nomad_interfaces/GnssQuality). launch 자동 실행과 기존 GT 어댑터 변경 없음. fusion/odometry/TF는 발행하지 않는다. 실물은 use_sim_time:=false.
+
+설정은 첫 입력 측정 stamp 기준 초, ENU=[동,북,상] m, 반개구간[start,start+duration). seed가 동일한 동일 입력은 재현된다. actual_sigma_enu_m는 실제 주입 잡음, reported_sigma_enu_m는 보고 공분산 1σ로 별도 설정한다(null이면 원본 공분산 유지). noise/offset/drift/spike(구간 첫 입력 딱1개)/dropout(위치·품질 모두중단)/no_fix(상태NO_FIX·좌표NaN)/delay(측정stamp유지·발행지연)/freeze(좌표·측정stamp반복)/quality 이벤트를 제공한다. 겹친 변위는 합산, 잡음·보고공분산·품질은 뒤 이벤트 우선. dropout은 새 출력 생성 중단이며 이전 delay 대기값은 예정대로 나올 수 있다.
+
+Gazebo 센서 자체 sigma는 0으로 유지하고 meter 잡음은 이 노드에서 넣는다. 현재 설치 NavSat의 수평 noise Apply가 degree 좌표에 적용되므로 기존 sensors.yaml의 비영점 수평 sigma를 미터로 믿고 넣지 않는다. 데모의 잡음/상태/8m 튐 등은 설명용 가정이며 F9P 야지 실측값이 아니다. 시간역행 시 이벤트·seed·delay queue를 초기화한다. delay 후 원래 stamp의 메시지가 늦게 도착할 수 있으므로 소비자가 시각 검사를 해야 한다.
+
+## 정상·실패 시험 프로필
+
+- `config/f9p_single.yaml`: F9P-01B 수평1.5m CEP 기반 Gaussian 근사.
+- `config/f9p_rtk.yaml`: 수평1cm+1ppm CEP, 기준국1km 가정(1.1cm).
+- `config/f9p_failure.yaml`: 잡음증가·연속으로변하는bias, 정상사양과별도인실패시험.
+- `config/gnss_demo.yaml`: 이전강한오류시험. 기본launch 자동실행없음.
+
+위 수평 사양을 E/N 독립Gaussian의 σ로환산. 실제시간상관성·수직오차·receiver공분산은미검증. 위성수/PDOP/보정age는이프로필에서미제공;covarianceUNKNOWN유지. 실제F9P가해당필드를제공하지않는다는뜻이아님.
+
+```bash
+ros2 run nomad_gazebo gnss_fault_injector.py --ros-args -p use_sim_time:=true \
+  -p profile_path:=$HOME/nomad_ws/src/nomad_gazebo/config/f9p_single.yaml
+```
+
+사양근거: https://content.u-blox.com/sites/default/files/documents/ZED-F9P-01B_DataSheet_UBX-17051259.pdf 표2. 구매보드칩/펌웨어미확정이며사양기준근사일뿐실물성능검증아님.
+
+### 독립 실패 시험
+
+`f9p_noise_010.yaml` / `f9p_noise_050.yaml` / `f9p_noise_200.yaml`: 수평축별σ0.1/0.5/2m를 각각별도시험. `f9p_bias.yaml`: 시간변화편향만시험. 각20–50초오류구간,앞뒤정상RTK근사. 이전f9p_failure.yaml은혼합이력용이며독립시험에는위4설정을사용. 모두수평만·인위적오류·수동실행,자동launch변경없음.

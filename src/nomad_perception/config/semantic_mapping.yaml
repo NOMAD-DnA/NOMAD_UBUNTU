@@ -1,0 +1,31 @@
+nomad_semantic_mapper:
+  ros__parameters:
+    use_sim_time: true
+    resolution_m: 0.2
+    semantic_min_points: 20
+    semantic_reference_points: 20
+    # Final cost only: S + beta*(1-effective_q_s)*(99-S). Initial tuning values.
+    confidence_beta: 0.25
+    neighbor_confidence_enabled: true
+    # Covers the q_s=0.35 case; original slope mapper used 0.3.
+    confidence_low_threshold: 0.5
+    confidence_neighbor_min: 0.7
+    confidence_histogram_tv_max: 0.10
+    confidence_high_cost_share_tolerance: 0.02
+    raw_window_s: 10.0
+    per_cell_max_points: 512
+    global_max_points: 1000000
+    near_tie_share_difference: 0.10
+    sampling_seed: 20261008
+    input_topic: /nomad/semantic_points
+    odometry_topic: /odom
+    frame_id: odom
+    max_input_age_s: 0.6
+    tf_wait_s: 0.5
+    update_period_s: 0.1
+    checkpoint_period_s: 5.0
+    initial_size_m: 80.0
+    max_size_m: 160.0
+    optical_min_z: 0.4
+    optical_max_z: 8.0
+    max_pending: 2

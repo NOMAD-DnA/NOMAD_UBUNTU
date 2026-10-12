@@ -147,3 +147,11 @@ Planning이 받는 두 costmap과 ModuleStatus 계약은 같으므로, 인지 �
 위치가 유효하지 않으면 기억 범위를 적용하지 않으며, 기존 센서/TF/위치 건강 상태에 따른
 정지 판단은 유지한다. 30초 후 재관측하지 못한 영역에서는 다시 멈출 수 있고, 보이지 않는
 동적 장애물의 안전을 보장하지 않는다. 정적 시뮬레이터에서 시험할 초기값이다.
+
+## 경사 비용 생성 모듈
+
+`nomad_geometry_mapping` 코드를 이 패키지에 포함한다. `ros2 run nomad_perception geometry_session`으로 수동 주행 중 경사 비용을 만들고 저장한다. 설정, 출력과 저장본 보기는 [경사 매핑 안내](docs/GEOMETRY_MAPPING.md)를 따른다.
+
+## 의미 비용 생성 모듈
+
+`nomad_semantic_mapping` 코드를 이 패키지에 포함한다. `ros2 run nomad_perception semantic_session`으로 의미 비용과 원본 대표 클래스를 만들고 저장한다. 클래스 비용, 출력과 저장본 보기는 [의미 매핑 안내](docs/SEMANTIC_MAPPING.md)를 따른다.

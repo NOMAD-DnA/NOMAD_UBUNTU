@@ -1,0 +1,48 @@
+# Times are seconds from the FIRST INPUT FIX measurement stamp.
+# RTK quality below is a synthetic test profile, not an RTK solver.
+seed: 42
+actual_sigma_enu_m: [0.03, 0.03, 0.06]
+reported_sigma_enu_m: [0.03, 0.03, 0.06]
+quality: {solution_type: RTK_FIXED, satellites_used: 24, pdop: 1.0, correction_age_s: 0.3}
+events:
+  - name: noise_float
+    type: noise
+    start_s: 10
+    duration_s: 10
+    actual_sigma_enu_m: [2.0, 2.0, 3.0]
+    reported_sigma_enu_m: [2.0, 2.0, 3.0]
+    quality: {solution_type: RTK_FLOAT, satellites_used: 8, pdop: 4.0, correction_age_s: 5.0}
+  - name: one_spike_fixed
+    type: spike
+    start_s: 22
+    duration_s: 1
+    offset_enu_m: [8.0, -3.0, 0.0]
+  - name: persistent_bias_fixed
+    type: offset
+    start_s: 30
+    duration_s: 10
+    offset_enu_m: [5.0, 0.0, 0.0]
+  - name: drift
+    type: drift
+    start_s: 45
+    duration_s: 10
+    rate_enu_mps: [0.5, 0.0, 0.0]
+    quality: {solution_type: SINGLE, satellites_used: 6, pdop: 6.0, correction_age_s: 20.0}
+  - name: blackout
+    type: dropout
+    start_s: 60
+    duration_s: 6
+  - name: no_fix
+    type: no_fix
+    start_s: 70
+    duration_s: 6
+    quality: {solution_type: NO_FIX, satellites_used: 0, pdop: 99.0, correction_age_s: 30.0}
+  - name: delayed_measurement
+    type: delay
+    start_s: 80
+    duration_s: 6
+    delay_s: 2.0
+  - name: frozen_measurement
+    type: freeze
+    start_s: 90
+    duration_s: 6

@@ -6,6 +6,8 @@ install(FILES README.md GPS.md DESTINATION share/${PROJECT_NAME})
 install(PROGRAMS
   scripts/gazebo_sensor_adapter.py
   scripts/lidar_bridge.py
+  scripts/gnss_fault_model.py
+  scripts/gnss_fault_injector.py
   scripts/gps_visualizer.py
   scripts/command_watchdog.py
   scripts/teleop.py

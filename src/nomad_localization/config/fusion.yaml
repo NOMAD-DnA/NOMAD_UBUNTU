@@ -1,0 +1,50 @@
+# ENU datum must match the selected world / real deployment.
+# GNSS quality unknown is supported; no automatic estimator restart by default.
+fusion:
+  ros__parameters:
+    use_sim_time: true
+    vio_topic: /fusion/vio_input
+    gps_topic: /gps/fix
+    quality_topic: /gps/quality
+    frame_id: odom
+    local_frame_id: fusion_odom
+    body_frame_id: oak_imu_frame
+    datum:
+    - 37.0
+    - 127.0
+    - 0.0
+    antenna_in_imu:
+    - -0.46
+    - 0.0
+    - 0.16
+    window_s: 10.0
+    keyframe_hz: 5.0
+    solve_hz: 2.0
+    max_iterations: 10
+    solver_time_s: 0.05
+    vio_translation_sigma_per_sqrt_s: 0.08
+    vio_rotation_sigma_per_sqrt_s: 0.02
+    gps_horizontal_sigma_m: 0.5
+    gps_vertical_sigma_m: 1.0
+    gps_nonfixed_sigma_m: 1.5
+    use_reported_gps_covariance: true
+    robust_loss_sigma: 3.0
+    gps_max_speed_mps: 5.0
+    gps_jump_margin_m: 0.5
+    gps_max_age_s: 1.0
+    gps_reacquire_s: 2.0
+    gps_reacquire_agreement_m: 0.5
+    quality_max_age_s: 0.5
+    vio_max_speed_mps: 5.0
+    vio_max_rotation_rate_rps: 3.0
+    vio_jump_margin_m: 0.15
+    vio_stale_s: 2.0
+    restart_disagreement_m: 3.0
+    restart_persistence_s: 3.0
+    restart_cooldown_s: 15.0
+    max_restarts: 3
+    auto_restart: false
+    alignment_require_rtk_fixed: false
+    alignment_min_span_m: 2.0
+    alignment_max_rmse_m: 1.5
+    path_max_points: 2000

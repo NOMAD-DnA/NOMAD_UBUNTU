@@ -1,0 +1,11 @@
+# Horizontal-only model. Gaussian shape and failure schedules are assumptions.
+# CEP = sigma * sqrt(2*ln(2)); RTK baseline assumed 1 km.
+# Vertical error/covariance, satellite count, PDOP and correction age are unspecified.
+seed: 42
+actual_sigma_enu_m:
+- 1.2739827004320285
+- 1.2739827004320285
+- 0.0
+quality:
+  solution_type: SINGLE
+events: []

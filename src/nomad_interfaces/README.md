@@ -130,3 +130,10 @@ ros2 interface show nomad_interfaces/msg/DriveCommand
 ros2 interface show nomad_interfaces/msg/VehicleState
 ros2 interface show nomad_interfaces/msg/ModuleStatus
 ```
+
+
+## GnssQuality.msg — GNSS 수신 품질
+
+NavSatFix와 동일한 측정 stamp/안테나 frame으로 위치와 연결한다. solution_type은 UNKNOWN/NO_FIX/SINGLE/DGNSS/RTK_FLOAT/RTK_FIXED. satellites_used는 사용 위성 수, pdop는 무차원, correction_age_s는 수신기 보고 보정 나이(로컬 RTCM 수신 나이가 아님). valid_fields에 해당 비트가 없는 값은 사용하지 않는다. 미제공 pdop/보정 나이는 NaN, 위성수는 유효비트로 구분한다. 위치 공분산은 NavSatFix ENU m²에 둔다.
+
+F9P 실물에서는 NAV-PVT의 fixType/gnssFixOK/diffSoln/carrSoln, numSV/pDOP 및 NMEA GGA/GNS diffAge를 정규화한다. 제품 펌웨어·드라이버 지원과 출력 활성화 확인이 필요하다. 시뮬레이션 품질은 설정한 시험값이며 위성/RTK 계산 결과가 아니다. 실제 주입 오차나 이벤트 이름은 품질 메시지에 넣지 않는다.

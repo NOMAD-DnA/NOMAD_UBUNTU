@@ -9,3 +9,6 @@
 .DS_Store
 
 /experiments/
+
+# Downloaded pinned VIO sources; recreate via .nomad/install_vio.sh
+/src/third_party/vio/

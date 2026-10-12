@@ -1,0 +1,2 @@
+# Unified patches require a space marker on empty context lines.
+.nomad/vio/patches/*.patch -whitespace

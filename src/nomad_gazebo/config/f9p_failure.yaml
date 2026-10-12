@@ -1,0 +1,75 @@
+# Horizontal-only model. Gaussian shape and failure schedules are assumptions.
+# CEP = sigma * sqrt(2*ln(2)); RTK baseline assumed 1 km.
+# Vertical error/covariance, satellite count, PDOP and correction age are unspecified.
+seed: 42
+actual_sigma_enu_m:
+- 0.00934253980316821
+- 0.00934253980316821
+- 0.0
+quality:
+  solution_type: RTK_FIXED
+events:
+- name: noise_mild
+  type: noise
+  start_s: 10
+  duration_s: 10
+  actual_sigma_enu_m:
+  - 0.1
+  - 0.1
+  - 0.0
+- name: noise_medium
+  type: noise
+  start_s: 20
+  duration_s: 10
+  actual_sigma_enu_m:
+  - 0.5
+  - 0.5
+  - 0.0
+- name: noise_severe
+  type: noise
+  start_s: 30
+  duration_s: 10
+  actual_sigma_enu_m:
+  - 2.0
+  - 2.0
+  - 0.0
+- name: bias_rising
+  type: drift
+  start_s: 50
+  duration_s: 10
+  rate_enu_mps:
+  - 0.15
+  - -0.05
+  - 0.0
+- name: bias_falling_offset
+  type: offset
+  start_s: 60
+  duration_s: 10
+  offset_enu_m:
+  - 1.5
+  - -0.5
+  - 0.0
+- name: bias_falling
+  type: drift
+  start_s: 60
+  duration_s: 10
+  rate_enu_mps:
+  - -0.25
+  - 0.1
+  - 0.0
+- name: bias_recovering_offset
+  type: offset
+  start_s: 70
+  duration_s: 10
+  offset_enu_m:
+  - -1.0
+  - 0.5
+  - 0.0
+- name: bias_recovering
+  type: drift
+  start_s: 70
+  duration_s: 10
+  rate_enu_mps:
+  - 0.1
+  - -0.05
+  - 0.0

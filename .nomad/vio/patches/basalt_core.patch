@@ -1,0 +1,55 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 8873bc2..abda25e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -514,9 +514,11 @@ install(FILES ${CONFIG_FILES}
+ macro(install)
+ endmacro()
+ # Include subproject (or any other CMake code) with "disabled" install().
+-enable_testing()
+-add_subdirectory(thirdparty/basalt-headers/test)
+-add_subdirectory(test)
++if(BUILD_TESTING)
++  enable_testing()
++  add_subdirectory(thirdparty/basalt-headers/test)
++  add_subdirectory(test)
++endif()
+ # Restore original install() behavior.
+ macro(install)
+   _install(${ARGN})
+diff --git a/src/vi_estimator/sqrt_keypoint_vio.cpp b/src/vi_estimator/sqrt_keypoint_vio.cpp
+index 55984fc..7394c1b 100644
+--- a/src/vi_estimator/sqrt_keypoint_vio.cpp
++++ b/src/vi_estimator/sqrt_keypoint_vio.cpp
+@@ -162,7 +162,13 @@ void SqrtKeypointVioEstimator<Scalar_>::initialize(const Eigen::Vector3d& bg_,
+     const Vec3 gyro_cov = calib.dicrete_time_gyro_noise_std().array().square();
+ 
+     typename ImuData<Scalar>::Ptr data = popFromImuDataQueue();
+-    BASALT_ASSERT_MSG(data, "first IMU measurment is nullptr");
++    if (!data) {
++      if (out_vis_queue) out_vis_queue->push(nullptr);
++      if (out_marg_queue) out_marg_queue->push(nullptr);
++      if (out_state_queue) out_state_queue->push(nullptr);
++      finished = true;
++      return;
++    }
+ 
+     data->accel = calib.calib_accel_bias.getCalibrated(data->accel);
+     data->gyro = calib.calib_gyro_bias.getCalibrated(data->gyro);
+diff --git a/thirdparty/CMakeLists.txt b/thirdparty/CMakeLists.txt
+index 855b30d..580a93d 100644
+--- a/thirdparty/CMakeLists.txt
++++ b/thirdparty/CMakeLists.txt
+@@ -54,10 +54,11 @@ set_target_properties(opengv PROPERTIES
+   DEBUG_POSTFIX "")
+ 
+ # fix opengv: compile options (CMAKE_CXX_FLAGS is overwritten by Opengv)
++separate_arguments(BASALT_PASSED_CXX_OPTIONS NATIVE_COMMAND "${BASALT_PASSED_CXX_FLAGS}")
+ target_compile_options(opengv PRIVATE
+   -Wno-unused-private-field
+   ${BASALT_MARCH_FLAGS}
+-  ${BASALT_PASSED_CXX_FLAGS})
++  ${BASALT_PASSED_CXX_OPTIONS})
+ 
+ # TODO: enable once mpark issue is fixed upstream pangolin
+ #set_target_properties(pangolin PROPERTIES
