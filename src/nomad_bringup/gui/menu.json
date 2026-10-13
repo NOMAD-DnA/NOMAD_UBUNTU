@@ -1,0 +1,248 @@
+{
+  "fields": {
+    "map": {
+      "label": "맵",
+      "kind": "choice",
+      "source": "maps",
+      "default": "02_fork2_gentle"
+    },
+    "vio": {
+      "label": "위치추정",
+      "kind": "choice",
+      "choices": [
+        [
+          "Basalt",
+          "basalt"
+        ],
+        [
+          "OpenVINS",
+          "openvins"
+        ]
+      ]
+    },
+    "planner": {
+      "label": "플래닝",
+      "kind": "choice",
+      "source": "planners",
+      "default_index": 2
+    },
+    "rviz": {
+      "label": "RViz 표시",
+      "kind": "bool",
+      "default": true
+    },
+    "headless": {
+      "label": "Gazebo 창 숨기기",
+      "kind": "bool",
+      "default": false
+    },
+    "backend": {
+      "label": "분할 실행 장치",
+      "kind": "choice",
+      "choices": [
+        [
+          "GPU (CUDA)",
+          "cuda"
+        ],
+        [
+          "CPU",
+          "cpu"
+        ]
+      ]
+    },
+    "rate": {
+      "label": "분할 주기 [Hz]",
+      "kind": "number",
+      "default": 10,
+      "min": 1,
+      "max": 30
+    },
+    "overlay": {
+      "label": "분할 영상 창",
+      "kind": "bool",
+      "default": true
+    },
+    "resolution": {
+      "label": "셀 크기 [m]",
+      "kind": "number",
+      "default": 0.2,
+      "min": 0.05,
+      "max": 1
+    },
+    "radius": {
+      "label": "장애물 비용 반경 [m]",
+      "kind": "number",
+      "default": 1.2,
+      "min": 0.1,
+      "max": 3
+    }
+  },
+  "menus": [
+    {
+      "id": "all",
+      "title": "전체 자율주행",
+      "script": "scripts/run_terrain_navigation.sh",
+      "fields": [
+        "map",
+        "vio",
+        "planner",
+        "rviz",
+        "headless"
+      ],
+      "args": [
+        "method:={vio}",
+        "gpp:={gpp}",
+        "lpp:={lpp}",
+        "rviz:={rviz}",
+        "headless:={headless}"
+      ],
+      "resources": [
+        "sim",
+        "localization",
+        "semantic",
+        "map",
+        "planning",
+        "control",
+        "rviz"
+      ],
+      "hint": "전체 실행 → 초기 조종 창에서 2–3 m 이동 → 정렬 후 자동 정지·창 종료 → 지도 준비·정지 확인 → RViz 목표 지정"
+    },
+    {
+      "id": "sim",
+      "title": "시뮬레이션 · 센서",
+      "script": "scripts/run_module.sh",
+      "fields": [
+        "map",
+        "headless"
+      ],
+      "args": [
+        "sim",
+        "headless:={headless}"
+      ],
+      "resources": [
+        "sim"
+      ],
+      "hint": "외부 융합이 위치 TF를 담당하는 시뮬레이션입니다."
+    },
+    {
+      "id": "localization",
+      "title": "위치추정 · GNSS 융합",
+      "script": "scripts/run_module.sh",
+      "fields": [
+        "vio",
+        "rviz"
+      ],
+      "args": [
+        "localization",
+        "method:={vio}"
+      ],
+      "resources": [
+        "localization"
+      ],
+      "hint": "시뮬레이션 또는 센서가 먼저 필요합니다. 초기정렬 이동 후 READY를 확인하세요."
+    },
+    {
+      "id": "semantic",
+      "title": "인지 · 의미분할",
+      "script": "scripts/run_module.sh",
+      "fields": [
+        "backend",
+        "rate",
+        "overlay"
+      ],
+      "args": [
+        "semantic",
+        "-p",
+        "backend:={backend}",
+        "-p",
+        "rate:={rate}",
+        "-p",
+        "view:={overlay}"
+      ],
+      "resources": [
+        "semantic"
+      ],
+      "hint": "RGB 입력을 받아 B0로 분할합니다. 지도 작성은 아래 별도 메뉴입니다."
+    },
+    {
+      "id": "map",
+      "title": "인지 · 지도와 코스트맵",
+      "script": "scripts/run_module.sh",
+      "fields": [
+        "resolution",
+        "radius",
+        "rviz"
+      ],
+      "args": [
+        "map",
+        "-p",
+        "resolution:={resolution}",
+        "-p",
+        "obstacle_cost_radius:={radius}"
+      ],
+      "resources": [
+        "map"
+      ],
+      "hint": "분할·깊이·융합 위치가 필요합니다. 현재 정책은 원본 지면점 TLS입니다."
+    },
+    {
+      "id": "planning",
+      "title": "플래닝",
+      "script": "scripts/run_module.sh",
+      "fields": [
+        "planner",
+        "rviz"
+      ],
+      "args": [
+        "planning",
+        "gpp:={gpp}",
+        "lpp:={lpp}"
+      ],
+      "resources": [
+        "planning"
+      ],
+      "hint": "지도와 위치추정 READY를 확인한 뒤 실행하세요."
+    },
+    {
+      "id": "control",
+      "title": "차량 제어",
+      "script": "scripts/run_module.sh",
+      "fields": [
+        "rviz"
+      ],
+      "args": [
+        "control"
+      ],
+      "resources": [
+        "control"
+      ],
+      "hint": "수동 조종 창을 종료한 뒤 플래닝 명령을 실행합니다."
+    },
+    {
+      "id": "teleop",
+      "title": "수동 조종 · 초기정렬",
+      "script": "scripts/run_module.sh",
+      "fields": [],
+      "args": [
+        "teleop"
+      ],
+      "resources": [
+        "teleop"
+      ],
+      "hint": "Space로 정지. 초기정렬 후 조종 창을 종료하고 자율주행하세요."
+    },
+    {
+      "id": "rviz",
+      "title": "RViz · 지도와 경로",
+      "script": "scripts/run_module.sh",
+      "fields": [],
+      "args": [
+        "rviz"
+      ],
+      "resources": [
+        "rviz"
+      ],
+      "hint": "지도·차량·경로를 보고 2D Goal Pose로 목표를 지정합니다."
+    }
+  ]
+}

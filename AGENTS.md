@@ -17,7 +17,7 @@
 - `./scripts/run_module.sh`: 같은 각 파트를 단독 실행. 전체 실행과 중복 실행 금지. 기본 GT 실행은 run_autonomy.sh로 보존.
 - environment: .nomad/env.sh, domain42/LOCALHOST. 모든 시뮬레이션 소비 노드는 use_sim_time=true. 같은 domain/partition에 Gazebo 중복 실행 금지.
 - 외부 VIO일 때 fused provider만 odom→base_link 동적TF, Gazebo GT TF off. /odom은 GT/제어속도 피드백용이고 Planning위치는융합출력. 센서고정TF는 robot_state_publisher.
-- 초기2m이상 수동정렬→정지·teleop종료→위치/인지READY+정지3초→자율주행. GNSS는정지yaw제공안함. VIO원본/융합auto_restart=false,Control재시작확인연결미완료.
+- 전체 실행은 초기 정렬 조종 창 자동 표시(initial_teleop=true)→2m 이상 수동 이동→위치 정렬 완료→조종 정지 ACK·발행자 종료 확인→지도 READY·실제 /odom 정지3초→자율주행. 초기 창 옵션을 끄면 기존 수동 조종/종료 흐름 사용. GNSS는정지yaw제공안함. VIO원본/융합auto_restart=false,Control재시작확인연결미완료.
 
 ## 인지 정책
 - 20cm셀, 원본 지면점 TLS 반경.3m/XYbin.05m. 셀높이는표시용이며경사입력아님. 부족한관측을heightfallback으로채우지않음.
@@ -37,3 +37,10 @@
 - 생성SDF/OBJ/URDF만수정하지말고 authoring·생성입력을보존한다. maps1–8/원본자료/src/nomad_sim·mvsim삭제금지.
 - build/install/log/.nomad/deps/sessions는생성물. 상세시험/학습자료는별도보관하고실행경로에넣지않는다.
 - 변경범위에맞는회귀·빌드·ROS계약검증,실제성공/실패와미해결을구분한다. 이번정리커밋·푸시는사용자구조검증후에만수행.
+
+## GUI 로그 기록
+- 실시간 실행 로그는 노드·수준·검색어로 화면만 필터링한다. 저장에는 전체 메시지를 유지한다.
+- GUI의 NOMAD_RUN_LOG_DIR이 설정된 실행만 nomad_logging.CsvLog로 기존 계산값을 기록한다. 별도 토픽 구독/rosbag/영상 녹화는 추가하지 않는다. 위치·Control/GT 피드백은 최대5Hz, 인지는1Hz. 설정되지 않으면 수치 기록은 비활성이다.
+- 로그 저장은 실행별 CSV·지도 스냅샷·VIO 텍스트·설정과 요약 그림을 자동 포함한다. 외부 파일은 로그 뷰어 안에서 연다. 콘솔만 남은 과거 기록은 출력된 처리시간만 복구할 수 있고, 없는 궤적은 복원하지 않는다.
+
+- Gazebo transport 분리는 .nomad/env.sh에서 공통 적용한다: 기본 partition=nomad_gazebo_<hostname>_<domain>, GZ_IP=127.0.0.1. 통합 실행이 run_forest.sh를 우회하더라도 같은 분리 정책을 적용해야 한다. ROS LOCALHOST만으로 Gazebo transport가 분리되는 것은 아니다. 명시적 NOMAD_GZ_PARTITION/GZ_IP override는 유지한다.

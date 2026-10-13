@@ -9,11 +9,26 @@ import rclpy
 from rclpy.node import Node
 from nomad_interfaces.msg import ModuleStatus
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Trigger
 from ament_index_python.packages import get_package_share_directory
 
 
-def ready_to_start(latest, wall):
-    if not all(k in latest for k in ("vio", "perception", "pose")):
+def localization_ready(latest, wall):
+    """Alignment completion is distinct from map readiness and vehicle stopping."""
+    if not all(key in latest for key in ("vio", "pose")):
+        return False
+    status, arrived = latest["vio"]
+    pose, pose_arrived = latest["pose"]
+    p, q = pose.pose.pose.position, pose.pose.pose.orientation
+    values = (p.x, p.y, p.z, q.x, q.y, q.z, q.w)
+    return (status.state == ModuleStatus.READY and 0 <= wall-arrived < .6
+            and 0 <= wall-pose_arrived < .6 and pose.header.frame_id == "odom"
+            and pose.child_frame_id == "base_link" and all(math.isfinite(v) for v in values)
+            and q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w > 1e-8)
+
+
+def ready_to_start(latest, wall, motion_key="pose"):
+    if not all(k in latest for k in ("vio", "perception", "pose", motion_key)):
         return False
     if not all(
         latest[k][0].state == ModuleStatus.READY and 0 <= wall - latest[k][1] < 0.6
@@ -21,11 +36,13 @@ def ready_to_start(latest, wall):
     ):
         return False
     pose, arrived = latest["pose"]
-    v = pose.twist.twist.linear
-    w = pose.twist.twist.angular
+    motion, motion_arrived = latest[motion_key]
+    v = motion.twist.twist.linear
+    w = motion.twist.twist.angular
     values = (v.x, v.y, v.z, w.x, w.y, w.z)
     return (
         0 <= wall - arrived < 0.6
+        and 0 <= wall - motion_arrived < 0.6
         and pose.header.frame_id == "odom"
         and pose.child_frame_id == "base_link"
         and all(math.isfinite(x) for x in values)
@@ -34,10 +51,34 @@ def ready_to_start(latest, wall):
     )
 
 
+def finish_initialization_teleop(node):
+    """Stop the startup teleop and wait until its command publisher disappears."""
+    def active():
+        return any(info.node_name == "nomad_gazebo_teleop" for info in node.get_publishers_info_by_topic("/cmd_vel"))
+    if not active():
+        return True  # The user may already have closed the initialization window.
+    client = node.create_client(Trigger, "/nomad/initialization/finish_teleop")
+    try:
+        if not client.wait_for_service(timeout_sec=1.0):
+            node.get_logger().warn("Close the manual teleop window before autonomy starts.")
+            return False
+        future = client.call_async(Trigger.Request())
+        rclpy.spin_until_future_complete(node, future, timeout_sec=2.0)
+        if not future.done() or future.exception() is not None or not future.result().success:
+            return False
+        deadline = time.monotonic() + 3.0
+        while rclpy.ok() and active() and time.monotonic() < deadline:
+            rclpy.spin_once(node, timeout_sec=0.05)
+        return not active()
+    finally:
+        node.destroy_client(client)
+
+
 def main():
     rclpy.init()
     n = Node("terrain_navigation_start")
     n.declare_parameter("rviz", True)
+    n.declare_parameter("initial_teleop", False)
     for key in ("gpp", "lpp", "params_file"):
         n.declare_parameter(key, "")
     n.declare_parameter(
@@ -66,17 +107,30 @@ def main():
             10,
         )
     )
+    subs.append(n.create_subscription(
+        Odometry, "/odom", lambda m: latest.update(motion=(m, time.monotonic())), 10))
     n.get_logger().info(
-        "Manual initialization: drive >2m, stop and exit teleop. Autonomy starts after both providers READY and stationary for 3s."
+        "Initial alignment: drive >2m and stop. Managed teleop stops and closes immediately after alignment; external teleop must be closed. Autonomy starts after both providers READY and stationary for 3s."
     )
     # Require stable readiness, leaving the user time to stop the warm-up teleop.
     stable = None
     ready = False
+    teleop_released = not n.get_parameter("initial_teleop").value
     try:
         while rclpy.ok():
             rclpy.spin_once(n, timeout_sec=0.1)
             wall = time.monotonic()
-            ready = ready_to_start(latest, wall)
+            if not teleop_released:
+                if not localization_ready(latest, wall):
+                    continue
+                n.get_logger().info("Localization aligned: stopping initial teleop and closing its window.")
+                teleop_released = finish_initialization_teleop(n)
+                stable = None
+                if not teleop_released:
+                    continue
+                n.get_logger().info("Initial teleop closed. Waiting for map readiness and physical stop for 3s.")
+                continue
+            ready = ready_to_start(latest, wall, motion_key="motion")
             if ready:
                 stable = wall if stable is None else stable
                 if wall - stable >= 3:

@@ -133,9 +133,11 @@ def launch_nodes(context):
         if gps_directory is not None:
             gps_directory.cleanup()
     cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(function=cleanup_files)]))
-    map_root = original_world.parent.parent
+    resource_root = LaunchConfiguration("world_resource_root").perform(context).strip()
+    map_root = Path(resource_root).resolve() if resource_root else original_world.parent.parent
     resources = [str(share), str(share/'models'), str(original_world.parent), str(map_root), str(map_root/'models')]
-    robot = ET.fromstring((share/'urdf/nomad_vehicle.urdf').read_text(encoding='utf-8'))
+    description = LaunchConfiguration("robot_description_file").perform(context).strip()
+    robot = ET.fromstring((Path(description) if description else share/'urdf/nomad_vehicle.urdf').read_text(encoding='utf-8'))
     if gps_mount is not None:
         ET.SubElement(robot, 'link', name='gps_link')
         joint = ET.SubElement(robot, 'joint', name='gps_mount', type='fixed')
@@ -173,6 +175,8 @@ def launch_nodes(context):
 def generate_launch_description():
     share = get_package_share_directory('nomad_gazebo')
     return LaunchDescription([
+        DeclareLaunchArgument('world_resource_root', default_value=''),
+        DeclareLaunchArgument('robot_description_file', default_value=''),
         DeclareLaunchArgument('publish_ground_truth_tf', default_value='true'),
         DeclareLaunchArgument('ros_remappings', default_value='{}'),
         DeclareLaunchArgument('headless', default_value='False'),

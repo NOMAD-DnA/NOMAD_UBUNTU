@@ -2,6 +2,8 @@
 
 No paths, goals, costmaps or recovery state enter this module.
 """
+from nomad_logging import CsvLog
+
 import math
 import time
 
@@ -61,6 +63,8 @@ class Controller(Node):
         if not all(math.isfinite(v) and v>0 for v in
                    (self.max_speed,self.max_steer,self.wheelbase,self.track,self.command_timeout,self.rate)):
             raise ValueError('Control limits/timing must be finite and positive')
+        self.feedback_log = CsvLog('ground_truth', ['x','y','z','qx','qy','qz','qw','speed','frame_id','child_frame_id'])
+        self.numeric_log = CsvLog('control', ['speed','steering_angle','target_speed','target_steering_angle','ready','fault','stop_requested'])
         self.command = None
         self.command_wall = -math.inf
         self.latest_command_stamp = -math.inf
@@ -108,6 +112,10 @@ class Controller(Node):
 
     def on_odometry(self,msg):
         stamp = seconds(msg.header.stamp)
+        p,q=msg.pose.pose.position,msg.pose.pose.orientation
+        logger = getattr(self, 'feedback_log', None)
+        if logger is not None:
+            logger.emit(stamp,p.x,p.y,p.z,q.x,q.y,q.z,q.w,msg.twist.twist.linear.x,msg.header.frame_id,msg.child_frame_id)
         speed = msg.twist.twist.linear.x
         if (msg.child_frame_id != self.base_frame or not math.isfinite(speed)
                 or not -.05 <= self.now()-stamp <= .6):
@@ -149,6 +157,12 @@ class Controller(Node):
         state.fault = self.clock_fault
         state.ready = bool(speed_valid and steer_valid and not state.fault and wall-self.last_clock_change <= .5)
         state.detail = 'SIM: measured odometry and steering joints' if state.ready else 'WAIT: fresh measurements/clock; restart after clock reset'
+        command=self.command
+        logger = getattr(self, 'numeric_log', None)
+        if logger is not None:
+            logger.emit(now,self.speed,self.steer,
+                command.target_speed if command else 0.,command.target_steering_angle if command else 0.,
+                int(state.ready),int(state.fault),int(command.stop_requested) if command else 1)
         self.state_pub.publish(state)
         reason = None
         if not state.ready:

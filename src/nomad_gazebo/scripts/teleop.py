@@ -5,6 +5,7 @@ import sys
 
 import rclpy
 from geometry_msgs.msg import Twist
+from std_srvs.srv import Trigger
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
@@ -17,6 +18,7 @@ class TeleopWindow(QWidget):
         self.yaw_rate = 0.0
         self.left_down = False
         self.right_down = False
+        self.close_reason = "user closed window"
 
         self.setWindowTitle('NOMAD Gazebo 조종')
         self.setFocusPolicy(Qt.StrongFocus)
@@ -50,6 +52,7 @@ class TeleopWindow(QWidget):
             self.left_down = self.right_down = False
             self.publish_command()
         elif key == Qt.Key_Q:
+            self.close_reason = "Q key"
             self.close()
         else:
             super().keyPressEvent(event)
@@ -94,18 +97,46 @@ class TeleopWindow(QWidget):
 def main():
     rclpy.init()
     node = rclpy.create_node('nomad_gazebo_teleop')
+    initialization_only = node.declare_parameter("initialization_only", False).value
     publisher = node.create_publisher(Twist, '/cmd_vel', 5)
     app = QApplication([sys.argv[0]])
     window = TeleopWindow(publisher)
+    if initialization_only:
+        window.setWindowTitle('NOMAD 초기 위치 정렬 · 수동 조종')
+        window.layout().insertWidget(0, QLabel('빈 길로 2–3 m 이동\n위치 정렬이 끝나면 자동으로 정지하고 이 창이 닫힙니다.'))
+        def finish(_request, response):
+            window.speed = window.yaw_rate = 0.0
+            window.left_down = window.right_down = False
+            window.timer.stop()
+            window.close_reason = "automatic close after localization alignment"
+            node.get_logger().info("Initial alignment complete: manual command stopped; closing window.")
+            publisher.publish(Twist())
+            response.success = True
+            response.message = 'Manual command stopped; initialization window closing'
+            QTimer.singleShot(150, window.close)
+            return response
+        service = node.create_service(Trigger, '/nomad/initialization/finish_teleop', finish)
+    def pump_ros():
+        if rclpy.ok():
+            rclpy.spin_once(node, timeout_sec=0)
+        else:
+            window.close()
+    ros_timer = QTimer(window)
+    ros_timer.timeout.connect(pump_ros)
+    ros_timer.start(20)
     window.show()
     window.activateWindow()
     window.setFocus()
     try:
         return app.exec_()
     finally:
-        publisher.publish(Twist())
+        if rclpy.ok():
+            node.get_logger().info("Teleop exit: " + window.close_reason)
+        if rclpy.ok():
+            publisher.publish(Twist())
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == '__main__':

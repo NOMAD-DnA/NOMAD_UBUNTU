@@ -31,6 +31,7 @@ def generate_launch_description():
             DeclareLaunchArgument("auto_restart", default_value="false"),
             DeclareLaunchArgument("output_warmup_s", default_value="0.0"),
             DeclareLaunchArgument("stop_before_restart", default_value="true"),
+            DeclareLaunchArgument("vio_topic", default_value="/fusion/vio_input"),
             DeclareLaunchArgument("gps_topic", default_value="/gps/fix"),
             DeclareLaunchArgument("quality_topic", default_value="/gps/quality"),
             DeclareLaunchArgument(
@@ -45,10 +46,12 @@ def generate_launch_description():
                 executable="fusion_node",
                 name="fusion",
                 output="screen",
+                remappings=[("/fusion/vio_input", lc("vio_topic")), ("/gps/fix", lc("gps_topic")), ("/gps/quality", lc("quality_topic"))],
                 parameters=[
                     lc("config"),
                     {
                         "use_sim_time": boolean("use_sim_time"),
+                        "vio_topic": lc("vio_topic"),
                         "gps_topic": lc("gps_topic"),
                         "quality_topic": lc("quality_topic"),
                         "auto_restart": boolean("auto_restart"),
@@ -60,6 +63,7 @@ def generate_launch_description():
                 executable="vio_supervisor.py",
                 name="vio_supervisor",
                 output="screen",
+                remappings=[("/fusion/vio_input", lc("vio_topic")), ("/gps/fix", lc("gps_topic")), ("/gps/quality", lc("quality_topic"))],
                 parameters=[
                     {
                         "method": lc("method"),
@@ -80,6 +84,7 @@ def generate_launch_description():
                 executable="fusion_adapter",
                 name="nomad_fusion_adapter",
                 output="screen",
+                remappings=[("/fusion/vio_input", lc("vio_topic")), ("/gps/fix", lc("gps_topic")), ("/gps/quality", lc("quality_topic"))],
                 parameters=[
                     lc("adapter_config"),
                     {

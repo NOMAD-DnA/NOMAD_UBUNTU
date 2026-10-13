@@ -1,5 +1,7 @@
 """Measured semantic RGB-D -> persistent 2.5D diagnostic grid. No cost output."""
 
+from nomad_logging import CsvLog
+
 import json, time
 from array import array
 from pathlib import Path
@@ -82,6 +84,7 @@ class LiveTerrain(Node):
         self.errors = {}
         self.last_status = time.monotonic()
         self.last_save = 0.0
+        self.numeric_log = CsvLog('perception', ['processing_ms','frames','height_cells','slope_cells','class_cells','sync_dropped'],interval=1.)
         self.directory = self.get_parameter("directory").value
         q = QoSProfile(
             depth=1,
@@ -201,6 +204,7 @@ class LiveTerrain(Node):
                     "current_cell_sources"
                 ],
             }
+            self.numeric_log.emit(stamp,*[report[key] for key in ('processing_ms','frames','height_cells','slope_cells','class_cells','sync_dropped')])
             self.status_pub.publish(String(data=json.dumps(report)))
             if time.monotonic() - self.last_status > 5:
                 self.get_logger().info(
@@ -263,13 +267,14 @@ class LiveTerrain(Node):
         g = self.layers.views.grid
         arrays = arrays or self.layers.arrays(self.estimates)
         np.savez_compressed(
-            root / "map.npz",
+            root / "map.pending.npz",
             height=arrays[0],
             slope=arrays[1],
             classes=arrays[2],
             origin=[g.origin_x, g.origin_y],
             resolution=g.resolution,
         )
+        (root / "map.pending.npz").replace(root / "map.npz")
         if report:
             (root / "status.json").write_text(json.dumps(report, indent=2))
         self.last_save = time.monotonic()

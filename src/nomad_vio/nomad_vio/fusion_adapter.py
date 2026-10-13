@@ -6,6 +6,8 @@ and is withheld from autonomy. Velocity is a finite difference, with explicitly
 unknown covariance; the backend covariance is not a calibrated posterior.
 """
 from copy import deepcopy
+from nomad_logging import CsvLog
+
 import math
 import time
 import signal
@@ -50,6 +52,7 @@ class FusionAdapter(Node):
         if self.offset.shape != (3,) or not np.isfinite(self.offset).all():
             raise ValueError('imu_in_base must be 3 finite meters')
         self.publish_tf = p('publish_tf', True)
+        self.numeric_log = CsvLog('localization', ['x','y','z','qx','qy','qz','qw','vx','vy','vz','angular_z','frame_id','child_frame_id'])
         self.valid_orientation = False
         self.mode = 'WAITING'
         self.diagnostic_stamp = -math.inf
@@ -126,6 +129,9 @@ class FusionAdapter(Node):
                 out.twist.twist.angular.x, out.twist.twist.angular.y, out.twist.twist.angular.z = map(float, omega)
         self.previous = (stamp, point, quat)
         self.last_stamp, self.last_wall = stamp, time.monotonic()
+        self.numeric_log.emit(stamp,*point,q.x,q.y,q.z,q.w,
+            out.twist.twist.linear.x,out.twist.twist.linear.y,out.twist.twist.linear.z,
+            out.twist.twist.angular.z,out.header.frame_id,out.child_frame_id)
         self.pub.publish(out)
         if self.publish_tf:
             tf = TransformStamped()
