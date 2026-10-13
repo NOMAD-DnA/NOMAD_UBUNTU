@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, QWidg
     QDoubleSpinBox, QMessageBox, QAbstractItemView, QLineEdit)
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg, NavigationToolbar2QT
+from log_filter import entry, matches, GROUPS
 from log_data import load_numeric, sessions, rigid_alignment, configure_fonts, load_snapshot, recover_console_metrics, summary_plots
 
 
@@ -65,7 +66,11 @@ class LogViewer(QDialog):
         map_layout.addWidget(NavigationToolbar2QT(map_canvas,self));map_layout.addWidget(map_canvas,1)
         self.tabs.addTab(map_page,'지도·이미지');self.figures['지도·이미지']=map_figure;self.canvases['지도·이미지']=map_canvas
         text_page=QWidget();text_layout=QVBoxLayout(text_page)
-        filter_row=QHBoxLayout();self.text_query=QLineEdit();self.text_query.setPlaceholderText('로그 내용 검색')
+        filter_row=QHBoxLayout();self.console_group=QComboBox();self.console_group.addItem('전체 파트','')
+        for group in GROUPS:self.console_group.addItem(group,group)
+        filter_row.addWidget(self.console_group)
+        self.console_group.currentIndexChanged.connect(self.filter_console)
+        self.text_query=QLineEdit();self.text_query.setPlaceholderText('로그 내용 검색')
         self.errors_only=QCheckBox('오류·경고만');filter_row.addWidget(self.text_query,1);filter_row.addWidget(self.errors_only)
         self.text_query.textChanged.connect(self.filter_console);self.errors_only.toggled.connect(self.filter_console)
         text_layout.addLayout(filter_row)
@@ -158,6 +163,7 @@ class LogViewer(QDialog):
         query=self.text_query.text().casefold();only_errors=self.errors_only.isChecked()
         lines=[]
         for line in self.console_text.splitlines():
+            if not matches(entry(line),group=self.console_group.currentData()):continue
             lower=line.casefold()
             if query and query not in lower:continue
             if only_errors and not any(word in lower for word in ('error','warn','fault','failed','exception','오류','경고','실패')):continue

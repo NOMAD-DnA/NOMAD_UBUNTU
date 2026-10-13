@@ -113,3 +113,153 @@ def test_optional_numeric_logger_rate_and_clock_reset(tmp_path,monkeypatch):
     assert len(files)==2
     assert len(files[0].read_text().splitlines())==3
     assert len(files[1].read_text().splitlines())==2
+
+
+def test_module_categories_and_saved_prefix():
+    spec=importlib.util.spec_from_file_location('group_filter_test',ROOT/'src/nomad_bringup/gui/log_filter.py')
+    filters=importlib.util.module_from_spec(spec);spec.loader.exec_module(filters)
+    for node,group in [('basalt','위치추정'),('fusion_adapter','위치추정'),('semantic','인지'),('navigation_terrain','인지'),('gpp_node','플래닝'),('nomad_control','제어'),('gazebo','시뮬레이션')]:
+        item=filters.entry(f'[INFO] [1790939680.6] [{node}]: ready')
+        assert filters.category(item)==group
+        assert filters.matches(item,group=group)
+    assert filters.category(filters.entry('2026-10-13T00:00:00 [위치추정] [VIO] tracker ready'))=='위치추정'
+
+
+def test_recording_is_opt_in_selected_and_has_no_results(tmp_path,monkeypatch):
+    monkeypatch.setenv('QT_QPA_PLATFORM','offscreen');monkeypatch.setenv('NOMAD_LOG_DIR',str(tmp_path))
+    gui_path=str(ROOT/'src/nomad_bringup/gui');sys.path.insert(0,gui_path)
+    try:
+        from PyQt5.QtWidgets import QApplication
+        from launcher import Launcher
+        app=QApplication.instance() or QApplication([])
+        window=Launcher()
+        window.append_log('[INFO] [1790939680.6] [semantic]: BEFORE')
+        assert window.record_stream is None
+        assert not list(tmp_path.glob('*/manifest.json'))
+        assert not (Path(window.log_spool.name)/'console.log').exists()
+        window.start_recording('selected',{'인지'})
+        window.append_log('[INFO] [1790939681.6] [semantic]: INCLUDED')
+        window.append_log('[ERROR] [1790939682.6] [basalt]: EXCLUDED')
+        window.finish_recording()
+        directory=window.record_directory
+        window.append_log('[INFO] [1790939683.6] [semantic]: AFTER')
+        text=(directory/'console.log').read_text()
+        assert 'INCLUDED' in text
+        assert all(word not in text for word in ('BEFORE','EXCLUDED','AFTER'))
+        manifest=json.loads((directory/'manifest.json').read_text())
+        assert manifest['files']==[] and manifest['console_metrics_processed']
+        assert not list(directory.glob('*.png'))
+        window.group_filter.setCurrentIndex(window.group_filter.findData('인지'))
+        window.flush_live_log()
+        assert 'EXCLUDED' not in window.log.toPlainText()
+        from log_viewer import LogViewer
+        viewer=LogViewer(window,tmp_path);viewer.open_session(0,0)
+        assert 'INCLUDED' in viewer.text.toPlainText();viewer.close();window.close()
+    finally:
+        sys.path.remove(gui_path)
+
+
+def test_gui_launch_arguments_are_accepted_by_real_ros_parser(tmp_path,monkeypatch):
+    monkeypatch.setenv('QT_QPA_PLATFORM','offscreen');monkeypatch.setenv('NOMAD_LOG_DIR',str(tmp_path))
+    gui_path=str(ROOT/'src/nomad_bringup/gui');sys.path.insert(0,gui_path)
+    try:
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QProcess
+        from launcher import Launcher
+        from ros2launch.api.api import parse_launch_arguments
+        app=QApplication.instance() or QApplication([])
+        import launcher
+        monkeypatch.setattr(launcher,'conflicts',lambda *_:[])
+        captured=[];monkeypatch.setattr(QProcess,'start',lambda self,exe,args:captured.append(args))
+        window=Launcher();window.launch()
+        args=[a for a in captured[0] if ':=' in a]
+        parsed=dict(parse_launch_arguments(args))
+        assert parsed['record_results']=='false'
+        assert 'record_directory' not in parsed
+        for run in window.runs.values():assert not run['process'].processEnvironment().contains('NOMAD_RUN_LOG_DIR')
+        window.runs.clear();window.close()
+    finally:sys.path.remove(gui_path)
+
+
+def test_process_guard_detects_other_gui_and_orphans_by_domain(tmp_path):
+    spec=importlib.util.spec_from_file_location('process_guard_test',ROOT/'src/nomad_bringup/gui/process_guard.py')
+    guard=importlib.util.module_from_spec(spec);spec.loader.exec_module(guard)
+    for pid,domain,args in [(12001,42,['parameter_bridge','-r','__node:=nomad_gz_bridge']),
+                            (12002,99,['fusion_node']),
+                            (12003,42,['python3','ros2','launch','nomad_perception','terrain_navigation.launch.py'])]:
+        folder=tmp_path/str(pid);folder.mkdir()
+        (folder/'cmdline').write_bytes('\0'.join(args).encode())
+        (folder/'environ').write_bytes(f'ROS_DOMAIN_ID={domain}\0'.encode())
+    result=guard.conflicts(['sim','localization'],42,tmp_path)
+    assert sorted(pid for pid,_ in result)==[12001,12003]
+    assert guard.conflicts(['control'],99,tmp_path)==[]
+
+
+def test_process_guard_only_signals_its_own_group(tmp_path,monkeypatch):
+    spec=importlib.util.spec_from_file_location('process_reap_test',ROOT/'src/nomad_bringup/gui/process_guard.py')
+    guard=importlib.util.module_from_spec(spec);spec.loader.exec_module(guard)
+    for pid,group in [(12001,11000),(12002,22000)]:
+        folder=tmp_path/str(pid);folder.mkdir();(folder/'stat').write_text(f'{pid} (python worker) S 1 {group} 0')
+    assert guard.group_members(11000,tmp_path)==[12001]
+    calls=[];monkeypatch.setattr(guard,'group_members',lambda group:guard_members[group])
+    guard_members={11000:[12001]};monkeypatch.setattr(guard.os,'kill',lambda pid,sig:calls.append(pid))
+    guard.signal_children(11000,15);assert calls==[12001]
+
+
+def test_startup_cleanup_scopes_workspace_domain_and_children():
+    gui_path=str(ROOT/'src/nomad_bringup/gui');sys.path.insert(0,gui_path)
+    try:
+        import cleanup_previous as cleanup
+        def proc(args,domain=42,parent=1,workspace=ROOT):return {'args':args,'env':{'ROS_DOMAIN_ID':str(domain),'NOMAD_WS_ROOT':str(workspace)},'parent':parent,'start':'1'}
+        processes={12001:proc([str(ROOT/'install/nomad_control/lib/nomad_control/controller')]),
+                   12002:proc(['external_worker'],parent=12001),
+                   12003:proc(['/other/install/nomad_control/lib/nomad_control/controller'],workspace='/other'),
+                   12004:proc([str(ROOT/'install/nomad_control/lib/nomad_control/controller')],99),
+                   12005:proc(['python3','unrelated.py']),
+                   12006:proc(['python3',str(ROOT/'src/nomad_bringup/gui/launcher.py')]),
+                   12007:proc(['ros2','launch','nomad_perception','terrain_navigation.launch.py'],workspace='/other')}
+        assert set(cleanup.select_targets(processes,ROOT,42))=={12001,12002}
+    finally:sys.path.remove(gui_path)
+
+
+def test_log_write_failure_does_not_crash_gui(tmp_path,monkeypatch):
+    monkeypatch.setenv('QT_QPA_PLATFORM','offscreen');monkeypatch.setenv('NOMAD_LOG_DIR',str(tmp_path))
+    gui_path=str(ROOT/'src/nomad_bringup/gui');sys.path.insert(0,gui_path)
+    try:
+        from PyQt5.QtWidgets import QApplication
+        from launcher import Launcher
+        app=QApplication.instance() or QApplication([]);window=Launcher()
+        class BrokenStream:
+            def write(self,_):raise OSError('disk full')
+            def flush(self):raise OSError('disk full')
+            def close(self):pass
+        window.record_stream=BrokenStream();window.record_groups={'인지'};window.record_directory=tmp_path/'missing'
+        window.append_log('[INFO] [1790939680.6] [semantic]: test')
+        assert window.record_stream is None and '기록 오류' in window.log_hint.text()
+        window.append_log('[INFO] [1790939681.6] [semantic]: {"value": "quoted"}')
+        window.flush_live_log()
+        assert '{"value": "quoted"}' in window.log.toPlainText() and '&quot;' not in window.log.toPlainText()
+        window.close()
+    finally:sys.path.remove(gui_path)
+
+
+def test_all_gui_menus_generate_nonempty_ros_values(tmp_path,monkeypatch):
+    monkeypatch.setenv('QT_QPA_PLATFORM','offscreen');monkeypatch.setenv('NOMAD_LOG_DIR',str(tmp_path))
+    gui_path=str(ROOT/'src/nomad_bringup/gui');sys.path.insert(0,gui_path)
+    try:
+        from PyQt5.QtWidgets import QApplication
+        from PyQt5.QtCore import QProcess
+        import launcher
+        from ros2launch.api.api import parse_launch_arguments
+        app=QApplication.instance() or QApplication([])
+        monkeypatch.setattr(launcher,'conflicts',lambda *_:[])
+        captured=[];monkeypatch.setattr(QProcess,'start',lambda self,exe,args:captured.append(args))
+        window=launcher.Launcher()
+        for index,menu in enumerate(window.menus):
+            window.menu.setCurrentIndex(index);window.launch()
+            assert len(captured)==index+1,menu['id']
+            parsed=dict(parse_launch_arguments([arg for arg in captured[-1] if ':=' in arg]))
+            if menu['id'] in ('all','map'):assert parsed['record_results']=='false'
+            window.runs.clear()
+        window.close()
+    finally:sys.path.remove(gui_path)

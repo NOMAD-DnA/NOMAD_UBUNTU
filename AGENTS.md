@@ -39,8 +39,11 @@
 - 변경범위에맞는회귀·빌드·ROS계약검증,실제성공/실패와미해결을구분한다. 이번정리커밋·푸시는사용자구조검증후에만수행.
 
 ## GUI 로그 기록
-- 실시간 실행 로그는 노드·수준·검색어로 화면만 필터링한다. 저장에는 전체 메시지를 유지한다.
-- GUI의 NOMAD_RUN_LOG_DIR이 설정된 실행만 nomad_logging.CsvLog로 기존 계산값을 기록한다. 별도 토픽 구독/rosbag/영상 녹화는 추가하지 않는다. 위치·Control/GT 피드백은 최대5Hz, 인지는1Hz. 설정되지 않으면 수치 기록은 비활성이다.
-- 로그 저장은 실행별 CSV·지도 스냅샷·VIO 텍스트·설정과 요약 그림을 자동 포함한다. 외부 파일은 로그 뷰어 안에서 연다. 콘솔만 남은 과거 기록은 출력된 처리시간만 복구할 수 있고, 없는 궤적은 복원하지 않는다.
+- 기본 기록 비활성. 기록 시작 버튼에서 파트 선택 후 선택한 실행 메시지만 저장, 종료 시 flush/manifest 종료시간 저장. 화면 필터와 저장 선택은 독립이다.
+- GUI는 NOMAD_RUN_LOG_DIR을 자식 환경에서 제거하고 record_results:=false로 지도 결과 저장을 끈다. 자동 CSV/지도/그림 저장은 하지 않는다. 기존 CLI의 명시적 결과 기록 기능과 nomad_logging 옵트인 패키지는 보존한다.
+- 실시간/저장 실행 로그 필터는 시뮬레이션·위치추정·인지·플래닝·제어·실행 관리. 로그 폭주 시 화면 최근200줄/100ms로 갱신 작업을 제한하며 선택된 콘솔 기록은 별도 buffered stream으로 저장한다. VIO tail은 활성 실행만1초주기로 확인한다.
+- Gazebo transport 분리는 .nomad/env.sh에서 공통 적용한다: 기본 partition=nomad_gazebo_<hostname>_<domain>, GZ_IP=127.0.0.1. 통합 실행이 run_forest.sh를 우회하더라도 같은 분리 정책을 적용한다. ROS LOCALHOST만으로 Gazebo transport가 분리되지 않는다. 명시적 NOMAD_GZ_PARTITION/GZ_IP override는 유지한다.
 
-- Gazebo transport 분리는 .nomad/env.sh에서 공통 적용한다: 기본 partition=nomad_gazebo_<hostname>_<domain>, GZ_IP=127.0.0.1. 통합 실행이 run_forest.sh를 우회하더라도 같은 분리 정책을 적용해야 한다. ROS LOCALHOST만으로 Gazebo transport가 분리되는 것은 아니다. 명시적 NOMAD_GZ_PARTITION/GZ_IP override는 유지한다.
+- GUI 실행 전 /proc에서 동일 ROS domain의 기존 모듈을 검사한다. 다른 GUI/고아 실행과 겹치면 차단한다. QProcess 부모가 끝나도 소유 PGID 자식에 TERM→2초 후 KILL 정리를 적용한다. 다른 그룹을 종료하지 않는다. 원격 Gazebo 격리와 로컬 중복 실행 방지는 별개다.
+
+- run_gui.sh 시작 시 cleanup_previous.py로 이전 NOMAD 실행을 정리한다. 같은 UID·정확한 NOMAD_WS_ROOT·ROS_DOMAIN_ID·프로젝트 명령 증거가 필요하며, 자식도 같은 workspace/domain이어야 한다. PID starttime으로 재사용을 방어한다. 일반 Python/다른 workspace/domain/기존 GUI 자체는 자동 종료하지 않는다. SIGINT3초→TERM2초→KILL1초 후 남으면 GUI 시작을 중단한다.

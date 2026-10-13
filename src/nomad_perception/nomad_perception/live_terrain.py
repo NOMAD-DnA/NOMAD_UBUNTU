@@ -68,6 +68,7 @@ class LiveTerrain(Node):
             ("min_confidence", 0.5),
             ("ground_ids", [8]),
             ("directory", ""),
+            ("record_results", True),
         ]:
             self.declare_parameter(k, v)
         self.layers = self.create_layers()
@@ -260,7 +261,7 @@ class LiveTerrain(Node):
             self.pubs[name].publish(m)
 
     def save(self, arrays=None, report=None):
-        if not self.directory:
+        if not self.directory or not self.get_parameter("record_results").value:
             return
         root = Path(self.directory)
         root.mkdir(parents=True, exist_ok=True)

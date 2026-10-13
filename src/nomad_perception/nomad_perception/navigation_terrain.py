@@ -185,6 +185,8 @@ class NavigationTerrain(LiveTerrain):
         self.map_wall = time.monotonic()
 
     def save(self, arrays=None, report=None):
+        if not self.directory or not self.get_parameter("record_results").value:
+            return
         super().save(arrays, report)
         if self.directory and getattr(self, "latest_costmaps", None) is not None:
             from pathlib import Path

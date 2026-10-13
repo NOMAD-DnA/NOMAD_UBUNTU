@@ -35,6 +35,7 @@ def generate_launch_description():
     return LaunchDescription(
         [
             DeclareLaunchArgument("world_file", default_value=""),
+            DeclareLaunchArgument("record_results", default_value="true"),
             DeclareLaunchArgument("record_directory", default_value=str(directory)),
             DeclareLaunchArgument("vio_log_directory", default_value=str(Path.home()/".ros/nomad_vio")),
             DeclareLaunchArgument("ros_remappings", default_value="{}"),
@@ -138,7 +139,8 @@ def generate_launch_description():
                 executable="navigation_terrain",
                 parameters=[
                     lc("terrain_config"),
-                    {"directory": ParameterValue(lc("record_directory"), value_type=str)},
+                    {"directory": ParameterValue(lc("record_directory"), value_type=str),
+                     "record_results": ParameterValue(lc("record_results"), value_type=bool)},
                 ],
                 output="screen",
                 on_exit=Shutdown(reason="Terrain stopped"),

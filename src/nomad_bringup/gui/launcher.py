@@ -1,5 +1,6 @@
 """Small script launcher: menu definitions contain commands, GUI owns only its runs."""
 
+import codecs
 import importlib.util
 import json
 import os
@@ -11,6 +12,7 @@ import tempfile
 from copy import deepcopy
 from options import OptionsDialog, defaults, overrides
 from log_actions import LogActions
+from process_guard import conflicts, signal_children
 from datetime import datetime, timezone
 
 from PyQt5.QtCore import QProcess, QProcessEnvironment, QTimer
@@ -315,6 +317,13 @@ class Launcher(LogActions, QMainWindow):
                     "수동 조종과 차량 제어를 동시에 실행하지 않습니다.",
                 )
                 return
+        outside = conflicts(menu['resources'], domain)
+        if outside:
+            detail='\n'.join(f"PID {pid}: {', '.join(parts)}" for pid,parts in outside[:8])
+            QMessageBox.warning(self, '다른 실행이 남아 있음',
+                '같은 domain의 모듈이 다른 창이나 이전 실행에서 동작 중입니다. 해당 실행을 종료한 뒤 시작하세요.\n'+detail)
+            self.append_log('[실행 차단] 같은 domain의 기존 모듈 감지\n'+detail)
+            return
         try:
             directory = tempfile.TemporaryDirectory(prefix="nomad-gui-options-")
             args = command(menu, self.values()) + overrides(
@@ -322,11 +331,11 @@ class Launcher(LogActions, QMainWindow):
             )
             runtime_directory=Path(self.log_spool.name)/f"run_{self.counter+1:03d}"
             runtime_directory.mkdir()
-            if menu["id"]=="all":args.extend([f"record_directory:={runtime_directory/'map'}",f"vio_log_directory:={runtime_directory/'vio'}"])
+            if menu["id"]=="all":args.extend(["record_results:=false",f"vio_log_directory:={runtime_directory/'vio'}"])
             elif menu["id"]=="localization":args.append(f"vio_log_directory:={runtime_directory/'vio'}")
-            elif menu["id"]=="map":args.extend(["-p",f"directory:={runtime_directory/'map'}"])
+            elif menu["id"]=="map":args.extend(["-p","record_results:=false"])
             self.option_dirs.append(directory)
-        except (ValueError, KeyError) as error:
+        except (ValueError, KeyError, OSError) as error:
             QMessageBox.warning(self, "설정 확인", str(error))
             return
         self.counter += 1
@@ -340,7 +349,7 @@ class Launcher(LogActions, QMainWindow):
         process.setProcessChannelMode(QProcess.MergedChannels)
         env = QProcessEnvironment.systemEnvironment()
         env.insert("NOMAD_ROS_DOMAIN_ID", str(domain))
-        env.insert("NOMAD_RUN_LOG_DIR", str(runtime_directory))
+        env.remove("NOMAD_RUN_LOG_DIR")
         env.insert("NOMAD_MAP", str(self.values()["map"]))
         env.insert("NOMAD_PLANNER_PAIR", str(self.fields["planner"].currentIndex() + 1))
         if menu["id"] == "semantic":
@@ -376,6 +385,7 @@ class Launcher(LogActions, QMainWindow):
         run = self.runs[key]
         run["record"]["started_at"] = datetime.now(timezone.utc).isoformat()
         run["record"]["pid"] = int(run["process"].processId())
+        run["group"] = int(run["process"].processId())
         self.table.item(run["row"], 1).setText("실행 중")
         self.table.item(run["row"], 2).setText(str(run["process"].processId()))
 
@@ -383,7 +393,8 @@ class Launcher(LogActions, QMainWindow):
         if key not in self.runs:
             return
         run = self.runs[key]
-        text = bytes(run["process"].readAllStandardOutput()).decode(errors="replace")
+        decoder=run.setdefault("decoder",codecs.getincrementaldecoder("utf-8")(errors="replace"))
+        text = decoder.decode(bytes(run["process"].readAllStandardOutput()))
         buffered=run.get("log_buffer", "")+text
         lines=buffered.split("\n")
         run["log_buffer"]=lines.pop()
@@ -394,6 +405,10 @@ class Launcher(LogActions, QMainWindow):
             return
         self.read_log(key)
         run = self.runs.pop(key)
+        # A launch parent may exit before its module children do. Reap only our group.
+        group=run.get('group')
+        signal_children(group,signal.SIGTERM)
+        QTimer.singleShot(2000,lambda group=group:signal_children(group,signal.SIGKILL))
         if run.get("log_buffer"):
             self.append_log(run["log_buffer"],source=run["menu"]["title"])
         run["record"]["ended_at"] = datetime.now(timezone.utc).isoformat()
@@ -418,7 +433,9 @@ class Launcher(LogActions, QMainWindow):
 
     def terminate(self, key):
         if key in self.runs:
-            self.runs[key]["process"].terminate()
+            group=self.runs[key].get('group')
+            signal_children(group,signal.SIGTERM)
+            QTimer.singleShot(2000,lambda group=group:signal_children(group,signal.SIGKILL))
 
     def stop_selected(self):
         row = self.table.currentRow()
@@ -441,6 +458,8 @@ class Launcher(LogActions, QMainWindow):
         else:
             for directory in self.option_dirs:
                 directory.cleanup()
+            self.finish_recording()
+            self.display_timer.stop()
             self.tail_timer.stop()
             self.log_spool.cleanup()
             event.accept()

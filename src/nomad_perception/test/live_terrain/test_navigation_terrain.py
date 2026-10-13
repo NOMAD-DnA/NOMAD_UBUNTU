@@ -195,3 +195,26 @@ def test_same_capture_roundoff_keeps_actual_scan_free_memory():
  assert (glob==5).all() and (local==5).all()
  _,expired=navigation_arrays(m,{},m.arrays({}),capture+31.,local_age=30.)
  assert (expired==-1).all()
+
+
+def test_disabled_recording_skips_both_terrain_and_costmap_files(tmp_path):
+ from types import SimpleNamespace as NS
+ from nomad_perception.navigation_terrain import NavigationTerrain
+ node=NavigationTerrain.__new__(NavigationTerrain)
+ node.__dict__.update(directory=str(tmp_path/'not_created'),get_parameter=lambda _:NS(value=False),
+  latest_costmaps=(np.zeros((1,1)),np.zeros((1,1))))
+ # Exercise the actual subclass save path, including the first valid costmap update.
+ for _ in range(3):node.save()
+ assert not (tmp_path/'not_created').exists()
+
+
+def test_enabled_recording_preserves_both_outputs(tmp_path):
+ from types import SimpleNamespace as NS
+ from nomad_perception.navigation_terrain import NavigationTerrain
+ node=NavigationTerrain.__new__(NavigationTerrain)
+ a=(np.zeros((1,1)),np.zeros((1,1)),np.zeros((1,1)))
+ node.__dict__.update(directory=str(tmp_path/'recorded'),get_parameter=lambda _:NS(value=True),
+  latest_costmaps=(a[0],a[1]),layers=NS(views=NS(grid=NS(origin_x=0,origin_y=0,resolution=.2)),bootstrap_origin=None),
+  map_stamp=1,scan_stats=dict(received=0,integrated=0,expired=0))
+ node.save(a,{'frames':1})
+ assert sorted(p.name for p in (tmp_path/'recorded').iterdir())==['costmaps.npz','map.npz','status.json']
