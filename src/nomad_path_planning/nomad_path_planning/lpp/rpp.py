@@ -10,13 +10,27 @@ from nomad_path_planning.gpp.base import Grid,Request
 
 
 class RegulatedPurePursuit(AckermannRollout):
-    def __init__(self, lookahead=.8,lateral_accel=.35,**kwargs):
+    def __init__(self, lookahead=.8,lateral_accel=.35,adaptive_lookahead=False,**kwargs):
         super().__init__(**kwargs)
         if not all(math.isfinite(v) and v>0 for v in (lookahead,lateral_accel,self.speed,self.wheelbase,self.max_steer)):
             raise ValueError('RPP requires finite positive geometry, speed and regulation parameters')
         self.lookahead,self.lateral_accel=lookahead,lateral_accel
+        self.adaptive_lookahead=adaptive_lookahead
 
     def plan(self,start,global_path,costmap):
+        # Bounded opt-in fallback; never shorten the collision-check horizon.
+        distances=[self.lookahead]
+        if self.adaptive_lookahead:
+            distances+=sorted((v for v in (.6,.8,1.,1.2,1.5) if abs(v-self.lookahead)>1e-9),
+                              key=lambda v:abs(v-self.lookahead))
+        for lookahead in distances:
+            result=self._plan_at_distance(start,global_path,costmap,lookahead)
+            if result['success']:
+                result['best']['lookahead']=lookahead
+                return result
+        return result
+
+    def _plan_at_distance(self,start,global_path,costmap,lookahead):
         failed={'success':False,'best':None,'candidates':[]}
         # Path poses are base_link (x, y, vehicle yaw), not tangent headings.
         # Missing/invalid yaw cannot safely be reconstructed from center positions.
@@ -29,7 +43,7 @@ class RegulatedPurePursuit(AckermannRollout):
         yaw=start[2]
         rx,ry=start[0]-self.reference_offset*math.cos(yaw),start[1]-self.reference_offset*math.sin(yaw)
         nearest=self.nearest_path_index(rx,ry,rear)
-        target=rear[-1]; remaining=self.lookahead
+        target=rear[-1]; remaining=lookahead
         for a,b in zip(rear[nearest:],rear[nearest+1:]):
             length=math.hypot(b[0]-a[0],b[1]-a[1])
             if length>=remaining and length>0:
@@ -41,7 +55,11 @@ class RegulatedPurePursuit(AckermannRollout):
         if forward<=0 or dx*dx+dy*dy<1e-8: return failed
         curvature=2*lateral/(dx*dx+dy*dy)
         steer=math.atan(self.wheelbase*curvature)
-        if abs(steer)>self.max_steer+1e-6: return failed
+        # Chord interpolation of a sampled circle can exceed its steering by
+        # a few microradians. Only absorb numerical error, never tracking error.
+        if abs(steer)>self.max_steer+1e-5: return failed
+        steer=max(-self.max_steer,min(self.max_steer,steer))
+        curvature=math.tan(steer)/self.wheelbase
         distance=math.hypot(global_path[-1][0]-start[0],global_path[-1][1]-start[1])
         speed=min(self.speed,math.sqrt(self.lateral_accel/max(abs(curvature),1e-9)),max(.05,distance*.5))
         grid=Grid(Request(costmap,start,global_path[-1][:2]))

@@ -63,13 +63,13 @@ class FieldDStar:
                    tuple((g.x,g.y,g.yaw,g.half_width) for g in request.gates))
         if self.graph is None or signature!=self.signature:
             self.graph=FieldGraph(data['width'],data['height'],data['data'],start,goal,
-                                  unknown_penalty=self.unknown_penalty)
+                                  unknown_penalty=self.unknown_penalty, proximity=data.get('proximity'))
             self.signature=signature
         graph=self.graph
         graph.budget=Budget(self.seconds,self.expansions)
         graph.edge_filter=lambda a,b: not any(g.blocks(grid.world(a),grid.world(b)) for g in request.gates)
         graph.move_start(start)
-        graph.update_costmap(data['data'])
+        graph.update_costmap(data['data'], data.get('proximity'))
         if not graph.compute_shortest_path():
             return Result(detail='no field path')
         cells=graph.extract_path()

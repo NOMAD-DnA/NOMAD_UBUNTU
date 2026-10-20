@@ -1,10 +1,26 @@
 dstar_lite_gpp:
   ros__parameters:
+    navigation.goal_mode: direct # observed_corridor opts into sensor-only subgoals
+    corridor.final_approach_radius: 3.0 # metres; latch final goal, stop/retry on failure (0: legacy)
     gpp_algorithm: dstar_lite
     lpp_algorithm: rollout
     gpp.time_budget: 0.0  # 0 disables the wall-clock planning timeout
     gpp.max_expansions: 50000
     gpp.weighted_astar_weight: 1.5
+    gpp.proximity_radius: 2.0  # metres from confirmed obstacle cell centres
+    gpp.proximity_weight: 4.0  # additive soft weight; 0 disables
+    gpp.unknown_direction_weight: 0.0 # Opt-in near unknown-side penalty
+    gpp.unknown_direction_radius: 6.0 # metres around current planning pose
+    gpp.unknown_direction_free_angle_deg: 30.0
+    gpp.cost_mode: legacy  # multi is opt-in; consumes atomic PlanningCostLayers
+    gpp.slope_weight: 1.0
+    gpp.terrain_weight: 1.0
+    gpp.missing_feature_cost: 1.0
+    gpp.cluster_influence: 0.0  # metres; 0 preserves original solid-area density
+    gpp.cluster_saturation: 1.0  # new experiments use 0.4
+    gpp.cluster_weight: 0.0  # opt-in observed solid-area density
+    gpp.cluster_radius: 4.0  # metres; full-disk normalization
+    gpp.unknown_surcharge: 4.5
     unknown_penalty: 4.5
 ackermann_rollout_lpp:
   ros__parameters:
@@ -14,10 +30,12 @@ ackermann_rollout_lpp:
     managed_recovery: true
     forward_speed: 0.4
     allow_unknown: false
+    observed_guard.enabled: true
     require_sensor_health: true
     sensor_health_timeout: 0.6
 nomad_recovery_supervisor:
   ros__parameters:
+    navigation.goal_mode: direct # observed_corridor opts into sensor-only subgoals
     recovery.behind_seconds: 0.3
     recovery.stuck_seconds: 4.0
     recovery.stuck_radius: 0.3
@@ -35,5 +53,12 @@ nomad_recovery_supervisor:
     recovery.gate_ttl: 120.0
 nomad_planning_command:
   ros__parameters:
+    navigation.goal_mode: direct # observed_corridor opts into sensor-only subgoals
     allow_unknown: false
     health_label: navigation sensors/TF
+    observed_guard.enabled: true
+    observed_guard.half_length: 0.52 # Body and wheel envelope at max_steer .4
+    observed_guard.half_width: 0.40 # Only newly entered unknown cells block forward travel
+    observed_guard.deceleration: 0.4 # Provisional simulation braking assumption, m/s^2
+    observed_guard.latency: 0.3 # Command lease/response allowance; map age is added, sim seconds
+    observed_guard.margin: 0.1 # Additional stopping distance, metres

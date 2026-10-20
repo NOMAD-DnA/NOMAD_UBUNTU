@@ -65,6 +65,7 @@ LOCKED = {
     "track",
 }
 LABELS = {
+    'worker_timeout_wall_sec': '지도 계산 응답 제한 (초)',
     "resolution": "셀 크기 (m)",
     "size": "초기 지도 크기 (m)",
     "max_size": "최대 지도 크기 (m)",
@@ -111,6 +112,8 @@ LABELS = {
     "datum": "GNSS 원점 [위도, 경도, 고도]",
     "antenna_in_imu": "IMU 기준 안테나 위치 [x,y,z] (m)",
     "gpp.time_budget": "전역 탐색 시간 제한 (초, 0=해제)",
+    "gpp.proximity_radius": "GPP 장애물 근접 비용 반경",
+    "gpp.proximity_weight": "GPP 장애물 근접 추가 가중치",
     "gpp.max_expansions": "전역 탐색 확장 한계",
     "gpp.weighted_astar_weight": "Weighted A* 가중치",
     "unknown_penalty": "미관측 영역 탐색 비용",
@@ -181,6 +184,7 @@ UNITS = {
     "alignment_min_span_m": "m", "alignment_max_rmse_m": "m", "path_max_points": "points",
     "datum": "lat: deg, lon: deg, alt: m", "antenna_in_imu": "x,y,z: m",
     "gpp.time_budget": "s, wall time; 0=unlimited", "gpp.max_expansions": "expansions",
+    "gpp.proximity_radius": "m", "gpp.proximity_weight": "dimensionless",
     "gpp.weighted_astar_weight": "dimensionless", "unknown_penalty": "dimensionless",
     "rpp.lookahead": "m", "rpp.lateral_accel": "m/s²", "max_steer": "rad", "forward_speed": "m/s",
     "sensor_health_timeout": "s", "recovery.behind_seconds": "s", "recovery.stuck_seconds": "s",
@@ -243,6 +247,7 @@ def parameter_label(path, value, label=None):
     return f"{name} [{unit}]" if unit else name
 
 RANGES = {
+    "gpp.proximity_weight": (0.0, 1000000.0),
     "resolution": (0.05, 1.0),
     "size": (10.0, 160.0),
     "max_size": (10.0, 320.0),

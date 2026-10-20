@@ -17,10 +17,10 @@ import numpy as np
 SIDES = ("rgb", "depth", "left", "right")
 DEFAULT_CAMERA = dict(
     width=640, height=480, fps=30.0,
-    rgb_hfov_deg=69.0, rgb_vfov_deg=54.0,
-    mono_hfov_deg=73.0, mono_vfov_deg=58.0,
+    rgb_hfov_deg=110.0, rgb_vfov_deg=70.0,
+    mono_hfov_deg=110.0, mono_vfov_deg=70.0,
     rgb_fx=None, rgb_fy=None, mono_fx=None, mono_fy=None, cx=None, cy=None,
-    baseline_m=0.075, depth_min_m=0.4, depth_max_m=8.0,
+    baseline_m=0.12, depth_min_m=0.4, depth_max_m=8.0,
 )
 
 
@@ -148,7 +148,7 @@ def normalize_image(source, side, minimum_m=0.4, maximum_m=8.0):
     return result
 
 
-def camera_info(source, side, baseline_m=0.075):
+def camera_info(source, side, baseline_m=0.12):
     frame = optical_frame(side)
     if not math.isfinite(baseline_m) or baseline_m < 0:
         raise ValueError("Stereo baseline must be finite and nonnegative")

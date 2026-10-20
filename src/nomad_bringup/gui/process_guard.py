@@ -7,6 +7,9 @@ from pathlib import Path
 def resource_set(args):
     names={Path(arg).name for arg in args}
     resources=set()
+    # Gazebo detaches its server and rewrites argv[0]; the launch parent may be gone.
+    if args and args[0].strip() in ("gz sim server", "gz sim gui"):
+        resources.add("sim")
     if 'terrain_navigation.launch.py' in names or 'autonomy.launch.py' in names:
         return {'sim','localization','semantic','map','planning','control'}
     for resource,executables in (

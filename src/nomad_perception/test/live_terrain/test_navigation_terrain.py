@@ -3,14 +3,14 @@ from nomad_perception.navigation_terrain import NavigationLayers,navigation_arra
 from test_live_terrain import ground_patch
 
 def test_observed_ground_cost_and_slope_block():
- m=NavigationLayers(size=6.,max_size=6.);p=ground_patch(np.tan(np.deg2rad(12)))
+ m=NavigationLayers(size=6.,max_size=6.);p=ground_patch(np.tan(np.deg2rad(6)))
  e=m.ingest(p,np.full(len(p),8,dtype=np.uint32),1.)
  a=m.arrays(e);g,l=navigation_arrays(m,e,a,1.)
  assert np.any((g>=0)&(g<80));assert not np.any(g==100)
  m=NavigationLayers(size=6.,max_size=6.);p=ground_patch(np.tan(np.deg2rad(25)))
- for stamp in [1.,1.3,1.6,1.9]:e=m.ingest(p,np.full(len(p),8,dtype=np.uint32),stamp)
+ for stamp in [1.,1.79,2.58]:e=m.ingest(p,np.full(len(p),8,dtype=np.uint32),stamp)
  a=m.arrays(e)
- g,l=navigation_arrays(m,e,a,1.9)
+ g,l=navigation_arrays(m,e,a,2.58)
  assert np.any(g==100)
 
 def test_canopy_does_not_block_but_collision_height_does():
@@ -218,3 +218,69 @@ def test_enabled_recording_preserves_both_outputs(tmp_path):
   map_stamp=1,scan_stats=dict(received=0,integrated=0,expired=0))
  node.save(a,{'frames':1})
  assert sorted(p.name for p in (tmp_path/'recorded').iterdir())==['costmaps.npz','map.npz','status.json']
+
+
+def test_disabled_bootstrap_never_invents_observation_even_at_cell_center():
+ m=NavigationLayers(size=6.,max_size=6.,bootstrap_override=True);g=m.views.grid
+ x=g.origin_x+.5*g.resolution;y=g.origin_y+.5*g.resolution
+ before=g.seen.copy();odds=g.log_odds.copy()
+ m.bootstrap_free(x,y,1.,0.,yaw=0.)
+ assert getattr(m,'bootstrap_origin',None) is None
+ np.testing.assert_array_equal(g.seen,before)
+ np.testing.assert_array_equal(g.log_odds,odds)
+ a=m.arrays({});glob,local=navigation_arrays(m,{},a,1.)
+ assert np.all(glob==-1) and np.all(local==-1)
+ m.solid[(0,0)]=1.
+ glob,local=navigation_arrays(m,{},a,1.)
+ cx,cy=g.cell(.1,.1)
+ assert glob[cy,cx]==100 and local[cy,cx]==100
+
+def test_obstacle_stage_diagnostics_report_projected_tree_evidence():
+ m=NavigationLayers(size=6.,max_size=6.);m.body_z=0.
+ p=ground_patch(0)+[0,0,.5]
+ for t in [1.,1.3,1.6,1.9]:m.ingest(p,np.ones(len(p),dtype=np.uint32),t)
+ d=m.obstacle_diagnostics
+ assert d['tree_points']==len(p) and d['rock_points']==0
+ assert d['collision_height_points']==len(p)
+ assert d['candidate_cells']>0 and d['confirmed_cells']>0
+
+
+def test_confirmation_at_measured_slow_capture_rate():
+ f=TemporalBlockEvidence();k=(0,0)
+ assert not f.update(k,True,1.)
+ assert not f.update(k,True,1.79)
+ assert f.update(k,True,2.58)
+ # Three nonblocking captures must not weaken the original clearing rule.
+ for t in [4.,4.79,5.58]: assert f.update(k,False,t)
+ assert not f.update(k,False,6.37)
+
+
+def test_sparse_or_inconsistent_observations_do_not_confirm():
+ f=TemporalBlockEvidence();k=(0,0)
+ for t in [1.,2.6,4.2,5.8]: assert not f.update(k,True,t)
+ f=TemporalBlockEvidence()
+ for t,b in [(1.,True),(1.5,False),(2.,True),(2.5,False),(3.,True)]:
+  assert not f.update(k,b,t)
+
+
+def test_retained_slope_is_not_new_confirmation_evidence():
+ from types import SimpleNamespace as NS
+ m=NavigationLayers(size=6.,max_size=6.)
+ e=NS(height_valid=True,height=.2,slope_valid=True,slope_deg=25.,slope_reused=True)
+ m.core.snapshot=lambda stamp:{(0,0):e}
+ pts=np.tile([.1,.1,.2],(20,1)).astype(np.float32)
+ for t in [1.,1.79,2.58]:m.ingest(pts,np.full(20,8,dtype=np.uint32),t)
+ assert not m.solid and not m.block_evidence.history
+ e.slope_reused=False
+ for t in [3.37,4.16,4.95]:m.ingest(pts,np.full(20,8,dtype=np.uint32),t)
+ assert (0,0) in m.solid
+
+
+def test_non_ground_capture_cannot_recount_cached_steep_plane():
+ from types import SimpleNamespace as NS
+ m=NavigationLayers(size=6.,max_size=6.)
+ e=NS(height_valid=True,height=.2,slope_valid=True,slope_deg=25.,slope_reused=False)
+ m.core.snapshot=lambda stamp:{(0,0):e}
+ pts=np.tile([.1,.1,.2],(20,1)).astype(np.float32)
+ for t in [1.,1.79,2.58]:m.ingest(pts,np.full(20,0,dtype=np.uint32),t)
+ assert not m.solid and not m.block_evidence.history

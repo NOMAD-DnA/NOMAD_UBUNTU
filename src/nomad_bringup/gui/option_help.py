@@ -1,5 +1,8 @@
 """What each option controls; keep explanations out of the form labels."""
 DESCRIPTIONS = {
+    'gpp.proximity_radius': '확정 장애물 셀 중심에서 GPP 추가 비용을 적용하는 거리입니다. 통행 불가 영역을 확대하지 않습니다.',
+    'gpp.proximity_weight': 'GPP 이동 가중치에 더하는 근접 비용의 세기입니다. 0이면 추가 비용을 끕니다.',
+    'worker_timeout_wall_sec': '지도 계산 작업 프로세스의 응답을 기다리는 최대 실제시간(초)입니다.',
     'initial_teleop': '전체 자율주행을 실행할 때 GPS·VIO 초기 좌표 정렬을 위한 수동 조종 창을 함께 엽니다.',
     'rviz': '현재 파트의 RViz 창을 표시합니다. 지도와 목표점, 위치 또는 경로를 확인하는 용도입니다.',
     'map_view': '경사도·클래스·주행가능성을 나란히 보여 주는 지도 전용 창을 표시합니다.',
@@ -25,7 +28,7 @@ DESCRIPTIONS = {
     'ground_ids': '경사도 계산에 사용할 지면 클래스 ID 목록입니다. 현재 모델의 클래스 정의와 맞아야 합니다.',
     'slope_limit_deg': '이 각도 이상으로 확인된 지면 경사를 통행 불가로 판단합니다. 실측 차량 등판 한계가 아닌 설정 기준입니다.',
     'local_max_age': '지역 지도에서 관측을 유효하게 유지하는 시간입니다. 오래된 관측은 지역 지도에서 만료됩니다.',
-    'bootstrap_radius': '출발 가능하다고 가정하는 초기 전방 영역의 반경입니다. 차량을 따라 이동하는 영역은 아닙니다.',
+    'bootstrap_radius': '기본값 0은 초기 자유공간 가정을 끕니다. 양수는 센서로 확인하지 않은 출발 전방을 통행 가능으로 채우는 과거 실험용 설정입니다.',
     'bootstrap_override': '초기 출발 영역의 여유 공간 가정을 우선 적용합니다. 시작 구간에서 인지 결과 때문에 출발이 막히는 것을 완화합니다.',
     'obstacle_cost_radius': '장애물 주변에 추가 비용을 부여할 거리입니다. 비용은 100·(1−(d/r)²)로 감소하며 범위 전체가 통행 불가인 것은 아닙니다.',
     'passable_semantic_ids': '통행 가능 식생으로 취급할 클래스 ID입니다. 충분한 최근 분류 증거가 있으면 장애물 판정을 완화합니다.',
@@ -138,10 +141,13 @@ def description(path):
         return '핀홀 카메라의 픽셀 단위 초점거리입니다. 비우면 해상도와 화각으로 계산합니다. 양안 값은 VIO 보정에도 반영합니다.'
     if key in ('cx', 'cy'):
         return '영상에서 광축이 지나는 주점의 픽셀 좌표입니다. 비우면 영상 중앙을 사용합니다.'
-    return DESCRIPTIONS[key]
+    return DESCRIPTIONS.get(key, f'{key} 노드 설정입니다. 상세 설명은 아직 등록되지 않았습니다.')
 
 # Each entry adds the practical consequence, beyond the brief field definition.
 EFFECTS = {
+    'gpp.proximity_radius': '크게 하면 더 멀리서 장애물을 피하는 경로를 선호합니다. LPP 지도는 바뀌지 않습니다.',
+    'gpp.proximity_weight': '크게 하면 짧고 좁은 길보다 긴 우회로를 선호합니다. 장애물로 인식되지 않은 물체에는 적용되지 않습니다.',
+    'worker_timeout_wall_sec': '이 시간을 초과하면 인지 상태를 FAULT로 전환하며 재시작이 필요합니다. 지도·위치정보의 기존 신선도 검사와 시작 전 정상 상태 확인 조건은 별도로 유지됩니다.',
     'initial_teleop': '2–3 m 이동해 위치 정렬이 완료되면 조종 입력을 정지하고 창을 닫습니다. 이후 지도 READY와 실제 차량 정지 3초를 확인해 자율주행을 시작합니다. 직접 움직이는 기능이며 자동 이동 명령은 보내지 않습니다.',
     'rviz': '위치추정 메뉴는 정렬된 VIO와 융합 궤적, 지도 메뉴는 관측·비용 지도, 플래닝 메뉴는 GPP·LPP 경로, 제어 메뉴는 차량 자세를 표시합니다. 시각화를 끄더라도 해당 파트 계산은 계속 실행됩니다.',
     'map_view': 'RViz와 별개인 3개 레이어 창입니다. 셀을 클릭해 값을 확인할 수 있습니다. 창만 닫아도 지도 계산은 계속 실행됩니다.',
@@ -167,7 +173,7 @@ EFFECTS = {
     'ground_ids': '입력 예시: 하나는 [8], 복수는 [8, 3]처럼 대괄호 안에 정수를 쉼표로 구분합니다. [8, 3]은 형식 예시이며 잔디를 지면 경사 계산에 포함할지는 따로 판단해야 합니다. 문자열이나 8,3만 입력하는 형식은 받지 않습니다. 현재 지면 ID는 8입니다. 나무나 바위 클래스를 넣으면 바닥 경사로 잘못 해석할 수 있으므로 모델 클래스 정의를 먼저 확인합니다.',
     'slope_limit_deg': '낮추면 완만한 곳도 차단하고, 높이면 더 가파른 경사를 허용합니다. 시뮬레이션 차량의 실제 등판 성공과는 별도로 검증해야 합니다.',
     'local_max_age': '길게 하면 재방문·후진 때 이전 관측을 더 오래 쓰고, 짧게 하면 주변 변화에 빠르게 대응합니다. 전역 누적 기억과 지역 관측 만료는 구분됩니다.',
-    'bootstrap_radius': '출발 구간의 임시 여유 가정입니다. 반경을 크게 해도 후방을 실제 관측한 것으로 바꾸지는 않습니다.',
+    'bootstrap_radius': '기본값 0을 유지하면 미관측 셀을 관측으로 조작하지 않습니다. 과거 저장 설정의 양수 반경은 명시적으로 다시 확인하세요.',
     'bootstrap_override': '센서가 정확히 장애물을 본 경우에도 초기 출발 가정이 우선할 수 있습니다. 장애물 없는 출발 위치라는 가정에 맞춰 사용해야 합니다.',
     'obstacle_cost_radius': '현재 차단 기준은 비용 80이며, 비용 반경 전체를 장애물로 막지 않습니다. 반경이 커지면 좁은 통로의 경로 선택에 더 큰 영향을 줍니다.',
     'passable_semantic_ids': '입력 예시: 하나는 [3], 복수는 [3, 4], 비우려면 []입니다. 복수 예시는 통행 권장이 아니라 입력 형식을 보여 줍니다. ID는 0–9 정수여야 하며 모델을 바꾸면 클래스 정의도 다시 확인합니다. 현재 잔디 ID 3의 통행 허용은 시뮬레이션 가정입니다. 실제 식생의 높이, 밀도, 지면 상태까지 판단한 결과는 아닙니다.',
@@ -301,6 +307,8 @@ def detailed_description(path):
             effect = '이 값은 카메라 핀홀 기하를 정합니다. fx·fy는 픽셀 단위이며 화각은 도(deg)입니다. 영상 기하 변경에 맞춰 VIO 보정을 함께 생성하지만 실측 보정 정확도를 보장하지는 않습니다.'
     if key in ('ground_ids', 'passable_semantic_ids'):
         effect += '\n\n현재 모델 클래스: 0 Background, 1 Trees, 2 Lush Bushes, 3 Dry Grass, 4 Dry Bushes, 5 Ground Clutter, 6 Logs, 7 Rocks, 8 Landscape, 9 Sky.'
+    if effect is None:
+        effect = '변경한 값은 다음 실행에 적용됩니다. 해당 노드의 설정과 단위를 확인하세요.'
     meaning = description(path)
     # Break long explanations into short paragraphs, without breaking decimal numbers.
     sentences = meaning.split('. ')
@@ -311,3 +319,20 @@ def detailed_description(path):
 
 def brief_description(path):
     return description(path).split('. ')[0].rstrip('.') + '.'
+
+DESCRIPTIONS.update({
+    'navigation.goal_mode': 'direct는 최종 목표로 직접 탐색하고 observed_corridor는 관측된 영역의 중간 경유점을 선택합니다.',
+    'corridor.retain_safe_path': '기존 경로가 최신 지도에서 유효하고 차량이 경로를 추종 중이면 재탐색 대신 남은 경로를 유지합니다.',
+    'corridor.incremental_selection': '유효한 기존 경유점을 우선 유지합니다. 경로 자체 유지 설정과는 별개입니다.',
+    'corridor.observation_guard': '새 경로 앞쪽의 반복 관측지원이 부족하면 경로를 거부합니다.',
+    'corridor.observation_turn_weight': '관측지원이 낮은 방향으로 회전하는 경로에 부여하는 추가 비용 가중치입니다.',
+    'corridor.final_approach_radius': '최종 목표를 고정하는 접근 반경이며 단위는 m입니다. 도착 판정 반경과 다릅니다.',
+    'gpp.cost_mode': '전역 경로 탐색에 사용할 비용 구성을 선택합니다. multi는 분리된 비용 항을 조합합니다.',
+    'gpp.cluster_radius': '장애물 군집 비용을 계산하는 반경이며 단위는 m입니다.',
+    'gpp.cluster_weight': '장애물이 모인 영역을 우회하도록 유도하는 비용 가중치입니다.',
+    'gpp.slope_weight': '경사 비용의 가중치입니다.',
+    'gpp.terrain_weight': '지면 비용의 가중치입니다.',
+    'gpp.unknown_surcharge': '미관측 셀에 더하는 탐색 비용입니다. 별도 관측 제한을 해제하지 않습니다.',
+    'recovery.enabled': '후진 복구 기능 사용 여부입니다.',
+    'rpp.adaptive_lookahead': '기본 추종거리에서 유효한 궤적을 찾지 못하면 다른 추종거리도 검사합니다.',
+})

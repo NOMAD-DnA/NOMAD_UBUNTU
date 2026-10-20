@@ -186,12 +186,14 @@ def test_process_guard_detects_other_gui_and_orphans_by_domain(tmp_path):
     guard=importlib.util.module_from_spec(spec);spec.loader.exec_module(guard)
     for pid,domain,args in [(12001,42,['parameter_bridge','-r','__node:=nomad_gz_bridge']),
                             (12002,99,['fusion_node']),
+                            (12004,42,['gz sim server']),
+                            (12005,99,['gz sim server']),
                             (12003,42,['python3','ros2','launch','nomad_perception','terrain_navigation.launch.py'])]:
         folder=tmp_path/str(pid);folder.mkdir()
         (folder/'cmdline').write_bytes('\0'.join(args).encode())
         (folder/'environ').write_bytes(f'ROS_DOMAIN_ID={domain}\0'.encode())
     result=guard.conflicts(['sim','localization'],42,tmp_path)
-    assert sorted(pid for pid,_ in result)==[12001,12003]
+    assert sorted(pid for pid,_ in result)==[12001,12003,12004]
     assert guard.conflicts(['control'],99,tmp_path)==[]
 
 

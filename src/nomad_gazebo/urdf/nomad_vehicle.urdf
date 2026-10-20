@@ -207,13 +207,13 @@
   <joint name="oak_left_optical_frame_joint" type="fixed">
     <parent link="base_link" />
     <child link="oak_left_optical_frame" />
-    <origin xyz="0.46 0.0375 0.29" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <origin xyz="0.46 0.06 0.29" rpy="-1.5707963267949 0 -1.5707963267949" />
   </joint>
   <link name="oak_right_optical_frame" />
   <joint name="oak_right_optical_frame_joint" type="fixed">
     <parent link="base_link" />
     <child link="oak_right_optical_frame" />
-    <origin xyz="0.46 -0.0375 0.29" rpy="-1.5707963267949 0 -1.5707963267949" />
+    <origin xyz="0.46 -0.06 0.29" rpy="-1.5707963267949 0 -1.5707963267949" />
   </joint>
   <link name="scan" />
   <joint name="scan_joint" type="fixed">

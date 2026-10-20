@@ -510,6 +510,58 @@ def generate_vehicle(output_dir: Path, sensor_config: Path | dict[str, Any], *,
     return metadata
 
 
+def prepare_sensor_world(world_path: Path, config: dict, directory: Path):
+    """Apply configured sensors to a disposable world, retaining physics/contacts."""
+    from copy import deepcopy
+    directory.mkdir(parents=True, exist_ok=True)
+    world_path = Path(world_path).resolve()
+    tree = ET.parse(world_path)
+    world = tree.getroot().find('world')
+    def resolve_uris(root, base):
+        for uri in root.iter('uri'):
+            value = (uri.text or '').strip()
+            if value and '://' not in value and not Path(value).is_absolute():
+                uri.text = str((base / value).resolve())
+    resolve_uris(world, world_path.parent)
+    includes = [x for x in world.findall('include') if x.findtext('name') == MODEL]
+    inline = world.findall("model[@name='nomad_vehicle']")
+    if len(includes) + len(inline) != 1:
+        raise ValueError('Sensor profile requires exactly one nomad_vehicle')
+    vehicle = None
+    if includes:
+        uri = includes[0].findtext('uri')
+        source = (world_path.parent.parent / 'models/nomad_vehicle/model.sdf'
+                  if uri == 'model://nomad_vehicle' else Path(uri))
+        vehicle = ET.parse(source)
+        model = vehicle.getroot().find('model')
+        resolve_uris(model, source.parent)
+    else:
+        model = inline[0]
+    generated = directory / 'generated'
+    generate_vehicle(generated, config)
+    fresh = ET.parse(generated / 'models/nomad_vehicle/model.sdf').find('model')
+    base = model.find("link[@name='base_link']")
+    if base is None:
+        raise ValueError('Sensor profile requires base_link')
+    for sensor in fresh.findall("link[@name='base_link']/sensor"):
+        existing = base.find(f"sensor[@name='{sensor.get('name')}']")
+        if existing is not None:
+            base.remove(existing)
+        base.append(deepcopy(sensor))
+    for frame in fresh.findall('frame'):
+        existing = model.find(f"frame[@name='{frame.get('name')}']")
+        if existing is not None:
+            model.remove(existing)
+        model.append(deepcopy(frame))
+    if vehicle is not None:
+        target = directory / 'vehicle.sdf'
+        vehicle.write(target, encoding='utf-8', xml_declaration=True)
+        includes[0].find('uri').text = str(target)
+    target = directory / 'world.sdf'
+    tree.write(target, encoding='utf-8', xml_declaration=True)
+    return target, generated / 'urdf/nomad_vehicle.urdf'
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True, help="nomad_gazebo package root")

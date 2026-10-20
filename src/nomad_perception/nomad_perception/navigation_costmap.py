@@ -10,7 +10,7 @@ from .terrain_layers import Layers
 class TemporalBlockEvidence:
     """Independent capture votes; no repeated timestamp can confirm a block."""
 
-    def __init__(self, window=2.0, min_hits=4, min_span=0.5, share=0.75):
+    def __init__(self, window=3.0, min_hits=3, min_span=0.5, share=0.75):
         self.window = window
         self.min_hits = min_hits
         self.min_span = min_span
@@ -35,7 +35,7 @@ class TemporalBlockEvidence:
         # Clear only repeated direct nonblocking evidence, not unobserved time.
         misses = [t for t, b in history if not b]
         if (
-            len(misses) >= self.min_hits
+            len(misses) >= 4
             and misses[-1] - misses[0] >= 1.0
             and not any(b for t, b in history if t >= stamp - 1.0)
         ):
@@ -45,7 +45,7 @@ class TemporalBlockEvidence:
 
 class NavigationLayers(Layers):
     def __init__(self, *args, **kwargs):
-        self.slope_limit = kwargs.pop("slope_limit", 20.0)
+        self.slope_limit = kwargs.pop("slope_limit", 10.0)
         self.obstacle_cost_radius = kwargs.pop("obstacle_cost_radius", 1.2)
         self.passable_semantic_ids = tuple(kwargs.pop("passable_semantic_ids", (3,)))
         if (
@@ -66,6 +66,10 @@ class NavigationLayers(Layers):
         """User-selected initial clear-area assumption; unknown cells only."""
         if getattr(self, "bootstrap_origin", None) is not None:
             return
+        if not math.isfinite(radius) or radius < 0:
+            raise ValueError("bootstrap_radius must be finite and nonnegative")
+        if radius == 0:
+            return  # Disabled: do not invent seen timestamps or free cells.
         g = self.views.grid
         g.ensure_bounds(x, y, radius)
         yy, xx = np.mgrid[: g.height, : g.width]
@@ -91,7 +95,11 @@ class NavigationLayers(Layers):
         observed = np.unique(keys, axis=0)
         for k in observed:
             self.seen[tuple(k)] = stamp
+        # A cached plane alone is not a new independent ground observation.
+        ground_keys = {tuple(k) for k in keys[np.isin(classes, self.ground_ids)]}
         candidates = set()
+        height_points = 0
+        vetoed = 0
         # Only solid returns within vehicle collision height, not overhead canopy.
         if self.body_z is not None:
             reference = np.full(len(xyz), self.body_z, dtype=np.float64)
@@ -106,6 +114,7 @@ class NavigationLayers(Layers):
                 & (xyz[:, 2] >= reference + 0.2)
                 & (xyz[:, 2] <= reference + 0.8)
             )
+            height_points = int(mask.sum())
             unique, counts = np.unique(keys[mask], axis=0, return_counts=True)
             for k, n in zip(unique, counts):
                 if n >= 3:
@@ -122,14 +131,23 @@ class NavigationLayers(Layers):
                 and e.slope_deg is not None
                 and e.slope_deg >= self.slope_limit
             )
+            fresh_slope = (
+                k in ground_keys and e is not None
+                and not getattr(e, "slope_reused", False)
+            )
             votes = self.votes.get(k)
             passable = (
                 votes is not None
                 and votes.sum() >= self.min_points
                 and votes[list(self.passable_semantic_ids)].sum() / votes.sum() >= 0.6
             )
+            if passable and (k in candidates or steep):
+                vetoed += 1
             # This experiment treats confident grass as traversable vegetation.
             # A normal fit to foliage is not ground-slope proof at a grass cell.
+            if steep and not fresh_slope and k not in candidates and not passable:
+                # No new slope evidence: neither confirm nor clear this cell.
+                continue
             confirmed = self.block_evidence.update(
                 k, (k in candidates or steep) and not passable, stamp
             )
@@ -137,6 +155,11 @@ class NavigationLayers(Layers):
                 self.solid[k] = stamp
             elif k in self.solid:
                 del self.solid[k]
+        self.obstacle_diagnostics = dict(projected_points=len(xyz),
+            tree_points=int(np.count_nonzero(classes == 1)),
+            rock_points=int(np.count_nonzero(classes == 7)),
+            collision_height_points=height_points, candidate_cells=len(candidates),
+            grass_veto_cells=vetoed, confirmed_cells=len(self.solid))
         return estimates
 
 
@@ -172,7 +195,7 @@ def scan_free_memory(layers, now):
     return np.isfinite(history), now - history
 
 
-def navigation_arrays(layers, estimates, arrays, now, slope_limit=20.0, local_age=30.0):
+def navigation_arrays(layers, estimates, arrays, now, slope_limit=10.0, local_age=30.0):
     """Ordinary costs 0..79; confirmed collision 100; insufficient evidence -1."""
     g = layers.views.grid
     h, s, c = arrays

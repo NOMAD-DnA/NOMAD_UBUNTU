@@ -13,7 +13,7 @@ class LocalPlanner(Protocol):
     def plan(self,start,global_path,costmap): ...
 
 
-def create(name, *, lookahead=.8,lateral_accel=.35,**kwargs):
+def create(name, *, lookahead=.8,lateral_accel=.35,adaptive_lookahead=False,**kwargs):
     if name=='rollout': return AckermannRollout(**kwargs)
-    if name=='rpp': return RegulatedPurePursuit(lookahead=lookahead,lateral_accel=lateral_accel,**kwargs)
+    if name=='rpp': return RegulatedPurePursuit(lookahead=lookahead,lateral_accel=lateral_accel,adaptive_lookahead=adaptive_lookahead,**kwargs)
     raise ValueError(f'Unknown LPP {name!r}; choose {", ".join(NAMES)}')

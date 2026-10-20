@@ -7,6 +7,8 @@
   <license>Apache-2.0</license>
   <buildtool_depend>ament_python</buildtool_depend>
   <depend>rclpy</depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-opencv</exec_depend>
   <depend>nomad_interfaces</depend>
   <test_depend>nomad_perception</test_depend>
   <test_depend>nomad_control</test_depend>

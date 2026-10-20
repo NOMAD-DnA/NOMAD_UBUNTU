@@ -21,8 +21,8 @@ def choose(selection=None):
         for number, (label, _, _) in enumerate(PAIRS, 1):
             print(f'  {number}. {label}', file=sys.stderr)
         while True:
-            print('번호 입력 [기본 3]: ', end='', file=sys.stderr, flush=True)
-            value = input().strip() or '3'
+            print('번호 입력 [기본 1]: ', end='', file=sys.stderr, flush=True)
+            value = input().strip() or '1'
             try:
                 return choose(value)
             except ValueError:

@@ -4,6 +4,7 @@ from nomad_interfaces.msg import PlannedMotion
 import math
 from nomad_path_planning.route_guard import route_is_behind
 import time
+from nomad_path_planning.observed_guard import known_prefix
 
 import rclpy
 from rclpy.node import Node
@@ -32,6 +33,7 @@ class LocalPlannerNode(Node):
         self.pose_msg = None
         self.global_path_msg = None
         self.allow_unknown = self.declare_parameter('allow_unknown', False).value
+        self.observed_prefix = self.declare_parameter('observed_guard.enabled', True).value
         self.forward_speed = self.declare_parameter('forward_speed', 0.4).value
         self.wheelbase = self.declare_parameter('wheelbase', 0.72).value
         self.max_steer = self.declare_parameter('max_steer', 0.4).value
@@ -45,6 +47,7 @@ class LocalPlannerNode(Node):
         self.planner = create_lpp(
             self.algorithm,
             lookahead=self.declare_parameter('rpp.lookahead', .8).value,
+            adaptive_lookahead=self.declare_parameter('rpp.adaptive_lookahead', False).value,
             lateral_accel=self.declare_parameter('rpp.lateral_accel', .35).value,
             wheelbase=self.wheelbase,
             max_steer=self.max_steer,
@@ -99,6 +102,7 @@ class LocalPlannerNode(Node):
             10,
         )
 
+        self.recovery_enabled = self.declare_parameter('recovery.enabled',True).value
         self.managed_recovery = self.declare_parameter('managed_recovery', False).value
         self.gates = []
         self.gate_width = self.declare_parameter('recovery.gate_half_width', 2.0).value
@@ -296,6 +300,15 @@ class LocalPlannerNode(Node):
 
         costmap = self.make_costmap()
 
+        if getattr(self, 'observed_prefix', False):
+            global_path = known_prefix(start, global_path, costmap)
+            length = sum(math.hypot(b[0]-a[0],b[1]-a[1]) for a,b in zip(global_path,global_path[1:]))
+            if length < .1:
+                self.publish_empty_path()
+                self.publish_failed(False)
+                self.publish_status('LPP_WAIT_OBSERVATION: no connected known route prefix')
+                return
+
         if self.forward_origin is not None and math.hypot(
             start[0]-self.forward_origin[0], start[1]-self.forward_origin[1]) > 1.0:
             self.recovery_count = 0
@@ -328,12 +341,12 @@ class LocalPlannerNode(Node):
             result is None
             or not result['success']
         ):
-            if getattr(self, 'managed_recovery', False):
+            if getattr(self, 'managed_recovery', False) or not getattr(self,'recovery_enabled',True):
                 self.publish_failed(True)
                 self.publish_empty_path()
                 self.publish_status('LPP_PATH_BEHIND: forward motion rejected; waiting for recovery'
                                     if route_is_behind(start, global_path) else
-                                    'LPP_FAILED: waiting for history recovery supervisor')
+                                    ('LPP_FAILED: waiting for history recovery supervisor' if getattr(self,'recovery_enabled',True) else 'LPP_FAILED: recovery disabled'))
                 return
             if self.recovery_count < 3:
                 self.reverse_origin = start

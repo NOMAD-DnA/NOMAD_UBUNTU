@@ -48,6 +48,13 @@ class Grid:
         self.g = request.grid
         self.r = self.g['resolution']
         self.unknown_penalty = unknown_penalty
+        extra = self.g.get('proximity', [0.] * len(self.g['data']))
+        if 'cell_weights' in self.g:
+            from .multicost import validate_weights
+            self.weights = validate_weights(self.g['data'], self.g['cell_weights'])
+            return
+        self.weights = [math.inf if v >= 80 else unknown_penalty if v < 0
+                        else 1+4*v/79+p for v,p in zip(self.g['data'], extra)]
 
     def cell(self, x, y):
         return (math.floor((x-self.g['origin_x'])/self.r),
@@ -61,8 +68,7 @@ class Grid:
         cx, cy = self.cell(x, y)
         if not (0 <= cx < self.g['width'] and 0 <= cy < self.g['height']):
             return math.inf
-        v = self.g['data'][cy*self.g['width']+cx]
-        return math.inf if v >= 80 else self.unknown_penalty if v < 0 else 1+4*v/79
+        return self.weights[cy*self.g['width']+cx]
 
     def segment(self, a, b):
         if any(g.blocks(a, b) for g in self.request.gates):

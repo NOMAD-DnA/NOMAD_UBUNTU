@@ -2,6 +2,9 @@
 from pathlib import Path
 import fcntl
 import os
+import atexit
+import tempfile
+import yaml
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
@@ -11,6 +14,40 @@ from launch.substitutions import LaunchConfiguration
 from .configuration import load_topics,load_modules,remappings,selected_specs
 
 _locks = []
+
+
+def merged_parameter_file(files, overrides=None):
+    """Resolve file precedence before ROS merges wildcard and named selectors.
+
+    ROS can retain selector insertion order across files, letting an earlier
+    wildcard override a later named node. Expand its values into each named
+    selector in file order; emit the wildcard first in one canonical file.
+    """
+    common, nodes = {}, {}
+    for filename in files:
+        document = yaml.safe_load(Path(filename).read_text()) or {}
+        wildcard = document.get('/**', {}).get('ros__parameters', {})
+        common.update(wildcard)
+        for values in nodes.values():
+            values.update(wildcard)
+        for selector, entry in document.items():
+            if selector == '/**':
+                continue
+            values = entry.get('ros__parameters') if isinstance(entry, dict) else None
+            if values is None:
+                raise ValueError(f'Expected flat ROS parameter selector in {filename}: {selector}')
+            nodes.setdefault(selector, dict(common)).update(values)
+    if overrides:
+        common.update(overrides)
+        for values in nodes.values():
+            values.update(overrides)
+    document = {'/**': {'ros__parameters': common}}
+    document.update({name: {'ros__parameters': values} for name, values in nodes.items()})
+    with tempfile.NamedTemporaryFile(mode='w', prefix='nomad_parameters_', suffix='.yaml', delete=False) as stream:
+        yaml.safe_dump(document, stream, sort_keys=False)
+        filename = stream.name
+    atexit.register(lambda: Path(filename).unlink(missing_ok=True))
+    return filename
 
 
 def start(context,module):
@@ -53,12 +90,14 @@ def start(context,module):
         params = [str(share/'config'/config),value('vehicle_file')]
         if override:
             params.append(override)
+        final_overrides = {}
         if package == 'nomad_perception' and value('simulator_grass_world').strip():
             if providers['vio'] != 'builtin' or providers['tf_owner'] != 'gazebo':
                 raise ValueError('Simulator grass oracle requires builtin VIO and gazebo TF ownership')
-            params.append({'terrain.simulator_grass_world': value('simulator_grass_world')})
+            final_overrides['terrain.simulator_grass_world'] = value('simulator_grass_world')
         if role in ('gpp','lpp') and algorithm_overrides:
-            params.append(algorithm_overrides)
+            final_overrides.update(algorithm_overrides)
+        params = [merged_parameter_file(params, final_overrides)]
         nodes.append(Node(package=package,executable=executable,output='screen',
                           parameters=params,remappings=remappings(topics,role),
                           on_exit=Shutdown(reason=f'{package}/{executable} exited')))

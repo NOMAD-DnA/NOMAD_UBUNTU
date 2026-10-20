@@ -22,13 +22,13 @@
 ## 인지 정책
 - 20cm셀, 원본 지면점 TLS 반경.3m/XYbin.05m. 셀높이는표시용이며경사입력아님. 부족한관측을heightfallback으로채우지않음.
 - 의미분할 입력과 깊이는동일capture로맞추고촬영시각TF사용. palette/10클래스ID는모델metadata계약유지.
-- 확인차단은지면대비.2~.8m돌출또는validground slope20° 이상에4촬영/.5초/75%동의. 해제는반복직접관측. slope20°는실측차량한계아님.
+- 사용자 요청으로 경사 즉시 차단을 철회했다. 기준 초과 유효 경사 또는 지면대비.2~.8m돌출은 최근3sim초 내3촬영/.5초/75%동의로 확인한다. 잔디 예외도 이전 동작으로 복구. 경사 임계각 기본10도, GUI 입력값 우선. 해제는4회 반복직접관측. 경사 확정은 이번 촬영 지면점이 있는 셀의 재사용하지 않은 유효 평면만 집계. slope10°는실측차량한계아님.
 - 관측기억:실측negative-ray global누적/local30sim초. 미관측-1 유지, 미관측후방을가짜free로만들지않음.
-- 초기고정전방3m/bootstrap_override=true는사용자지정출발가정. 차량을따라움직이는freebubble아님.
+- 2026-10-19 사용자 요청으로 미관측 초기 free 가정은 기본 비활성: bootstrap_radius=0, bootstrap_override=false. 명시적 과거 실험의 양수 반경은 재현용으로만 보존. 센서 근거 없는 전방/후방을 free로 만들지 않음.
 - 장애물주변1.2m 추가비용100*(1-(d/r)^2),기존비용과max. unknown보존/80차단임계유지. 원본solid source100.
 - 확신잔디ID3(최근10점·60%)는현재시뮬통행가정. 실제식생통과보장아님.
 - timestamp는integer나노초변환,미세부동소수점허용1µs. 진짜미래관측·만료는허용하지않음.
-- B0는2번맵1000train/200val미세학습모델. 분할성능의타맵·실물일반화를보장하지않음. 모델출처·연구용라이선스보존.
+- 기본 B0는 nomad_b0_map04(4번 맵600train/100val)이며 기존 nomad_b0(2번 맵1000train/200val)는 보존한다. 같은 맵 검증이며 타맵·실물·변경된 카메라 화각의 성능을 보장하지 않는다. 모델출처·연구용라이선스보존.
 
 ## 수정·검증
 - active 알고리즘/토픽/TF/차량한계를리팩토링목적으로바꾸지않는다. 후진복구history/freshness미해결을완료로표시하지않는다.
@@ -47,3 +47,7 @@
 - GUI 실행 전 /proc에서 동일 ROS domain의 기존 모듈을 검사한다. 다른 GUI/고아 실행과 겹치면 차단한다. QProcess 부모가 끝나도 소유 PGID 자식에 TERM→2초 후 KILL 정리를 적용한다. 다른 그룹을 종료하지 않는다. 원격 Gazebo 격리와 로컬 중복 실행 방지는 별개다.
 
 - run_gui.sh 시작 시 cleanup_previous.py로 이전 NOMAD 실행을 정리한다. 같은 UID·정확한 NOMAD_WS_ROOT·ROS_DOMAIN_ID·프로젝트 명령 증거가 필요하며, 자식도 같은 workspace/domain이어야 한다. PID starttime으로 재사용을 방어한다. 일반 Python/다른 workspace/domain/기존 GUI 자체는 자동 종료하지 않는다. SIGINT3초→TERM2초→KILL1초 후 남으면 GUI 시작을 중단한다.
+
+## 2026-10-20 기본 플래닝 프로파일
+- 사용자 요청으로 일반 sensor-based 실행은 메뉴1번 Hybrid A* + RPP, terrain_planning.yaml의 observed_corridor·증분 경유점·다중 비용·관측 회전 검사 설정을 기본 적용한다. 최종목표3m 진입 후 목표를 유지하고 실패 시 정지·재계획하며 후진복구는 비활성이다. 맵·출발·목표는 사용자 선택을 유지한다.
+- 설정 승격은 완주 보장이나 지그재그 해결을 뜻하지 않는다. 검증·백업·복구 기록: experiments/default_profile_20261020/README.md.

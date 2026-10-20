@@ -32,6 +32,7 @@ class RecoverySupervisor(Node):
     def __init__(self):
         super().__init__('nomad_recovery_supervisor')
         p = lambda name, default: self.declare_parameter(name, default).value
+        self.enabled=p('recovery.enabled',True)
         self.frame = p('planning_frame', 'odom')
         self.behind_seconds = float(p('recovery.behind_seconds', .3))
         self.behind_since = None
@@ -83,6 +84,8 @@ class RecoverySupervisor(Node):
         self.last_status = None
         self.last_pose = None
         self.resume_after = 0.
+        self.navigation_target=None
+        self.goal_mode=self.declare_parameter('navigation.goal_mode','direct').value
         self.global_path = None
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.path_pub = self.create_publisher(Path, '/nomad/recovery_path', 10)
@@ -93,6 +96,8 @@ class RecoverySupervisor(Node):
         self.create_subscription(PoseStamped, '/nomad/current_pose', self.on_pose, 10)
         self.create_subscription(OccupancyGrid, '/nomad/local_costmap', self.on_map, latched)
         self.create_subscription(PoseStamped, '/nomad/goal', self.on_goal, latched)
+        if self.goal_mode=='observed_corridor':
+            self.create_subscription(PoseStamped,'/nomad/navigation_target',self.on_navigation_target,latched)
         self.create_subscription(Bool, '/nomad/sensors_ready', self.on_health, 10)
         self.create_subscription(Path, '/nomad/global_path', self.on_global, latched)
         self.create_timer(.1, self.tick)
@@ -131,6 +136,12 @@ class RecoverySupervisor(Node):
     def on_global(self, msg):
         self.global_path = msg
 
+    def on_navigation_target(self,msg):
+        if (msg.header.frame_id==self.frame and self.goal is not None
+                and stamp(msg)>=getattr(self,'mission_stamp',0.)
+                and all(math.isfinite(v) for v in (msg.pose.position.x,msg.pose.position.y))):
+            self.navigation_target=(msg.pose.position.x,msg.pose.position.y)
+
     def on_goal(self, msg):
         goal = (msg.pose.position.x, msg.pose.position.y)
         if msg.header.frame_id != self.frame or not all(math.isfinite(v) for v in goal):
@@ -138,6 +149,8 @@ class RecoverySupervisor(Node):
         if goal == self.goal:
             return
         self.goal = goal
+        self.navigation_target=None
+        self.mission_stamp=stamp(msg)
         self.behind_since = None
         self.mode, self.follower, self.attempts = 'FOLLOW', None, 0
         self.exit_follower = None
@@ -198,6 +211,9 @@ class RecoverySupervisor(Node):
         self.gate_pub.publish(msg)
 
     def tick(self):
+        if not getattr(self,'enabled',True):
+            self.report('RECOVERY_DISABLED')
+            return
         now = self.now()
         if self.previous_time is not None and now < self.previous_time:
             self.mode = 'FAULT'
@@ -328,7 +344,7 @@ class RecoverySupervisor(Node):
         if (msg is not None and msg.poses and msg.header.frame_id == self.frame
                 and -.05 <= now-stamp(msg) <= 3.):
             route = [(p.pose.position.x,p.pose.position.y) for p in msg.poses]
-            rearward = distance(route[-1], self.goal) <= .35 and route_is_behind(self.pose, route)
+            rearward = distance(route[-1], (getattr(self,'navigation_target',None) or self.goal)) <= .35 and route_is_behind(self.pose, route)
         if rearward:
             self.progress.clear()
             if getattr(self, 'behind_since', None) is None:
@@ -348,7 +364,7 @@ class RecoverySupervisor(Node):
                 or stamp(msg)+1e-6 < self.started or not -.05 <= now-stamp(msg) <= 3.):
             return None
         route = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
-        if (distance(route[-1], self.goal) > .35 or distance(route[0], self.pose) > .6
+        if (distance(route[-1], (getattr(self,'navigation_target',None) or self.goal)) > .35 or distance(route[0], self.pose) > .6
                 or not all(math.isfinite(v) for p in route for v in p)):
             return None
         return self.probe.plan(self.pose, route, self.grid, self.follower.reference,
@@ -361,7 +377,7 @@ class RecoverySupervisor(Node):
             return None
         route = [(p.pose.position.x, p.pose.position.y) for p in msg.poses]
         if (not all(math.isfinite(v) for p in route for v in p)
-                or distance(route[-1], self.goal) > .35):
+                or distance(route[-1], (getattr(self,'navigation_target',None) or self.goal)) > .35):
             return None
         # GPP is event-driven: a stopped vehicle may have an old but unchanged
         # route. It is guidance only here; both maneuver legs use the fresh local

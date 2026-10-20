@@ -1,6 +1,55 @@
-dstar_lite_gpp:
-  ros__parameters:
-    max_steer: 0.35 # Reserve 0.05 rad for local tracking; vehicle/RPP limit remains 0.4.
+# Default sensor-based navigation profile, promoted from Map04 trial on 2026-10-20.
+# Goal and map remain user-selected; 0.35m arrival tolerance is unchanged.
 ackermann_rollout_lpp:
   ros__parameters:
-    rpp.lookahead: 1.2 # Separate simulation integration tuning; steering limit remains 0.4 rad.
+    forward_speed: 0.5
+    managed_recovery: true
+    recovery.enabled: false
+    rpp.adaptive_lookahead: true
+    rpp.lookahead: 0.8
+    gpp_algorithm: hybrid_astar
+    lpp_algorithm: rpp
+dstar_lite_gpp:
+  ros__parameters:
+    corridor.bearing_weight: 1.0
+    corridor.clearance_weight: 1.0
+    corridor.final_approach_radius: 3.0
+    corridor.goal_weight: 1.0
+    corridor.heading_weight: 1.0
+    corridor.incremental_selection: true
+    corridor.retain_safe_path: true
+    corridor.retained_slope_increase: 0.2
+    corridor.length_weight: 0.15
+    corridor.narrow_weight: 2.0
+    corridor.observation_guard: true
+    corridor.observation_turn_weight: 80.0
+    corridor.risk_scale: 50.0
+    corridor.risk_weight: 3.0
+    corridor.visit_weight: 0.8
+    gpp.cluster_influence: 0.75
+    gpp.cluster_radius: 4.0
+    gpp.cluster_saturation: 0.4
+    gpp.cluster_weight: 64.0
+    gpp.cost_mode: multi
+    gpp.max_expansions: 200000
+    gpp.proximity_radius: 4.0
+    gpp.proximity_weight: 16.0
+    gpp.slope_weight: 10.0
+    gpp.terrain_weight: 0.5
+    gpp.time_budget: 20.0
+    gpp.unknown_direction_free_angle_deg: 15.0
+    gpp.unknown_direction_radius: 6.0
+    gpp.unknown_direction_weight: 4.0
+    gpp.unknown_surcharge: 9.0
+    gpp_algorithm: hybrid_astar
+    max_steer: 0.35
+    navigation.goal_mode: observed_corridor
+    unknown_penalty: 9.0
+    lpp_algorithm: rpp
+nomad_planning_command:
+  ros__parameters:
+    navigation.goal_mode: observed_corridor
+nomad_recovery_supervisor:
+  ros__parameters:
+    navigation.goal_mode: observed_corridor
+    recovery.enabled: false

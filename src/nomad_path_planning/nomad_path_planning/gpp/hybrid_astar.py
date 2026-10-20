@@ -14,8 +14,7 @@ class CostToGoal:
     def __init__(self, grid, goal, budget):
         self.grid, self.budget = grid, budget
         self.width, self.height = grid.g['width'], grid.g['height']
-        self.weights = [math.inf if v >= 80 else grid.unknown_penalty if v < 0
-                        else 1+4*v/79 for v in grid.g['data']]
+        self.weights = grid.weights
         cell = grid.cell(*goal)
         self.queue = [(0., cell)]
         self.best, self.closed = {cell: 0.}, {}

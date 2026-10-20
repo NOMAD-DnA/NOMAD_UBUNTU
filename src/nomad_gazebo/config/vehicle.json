@@ -196,7 +196,7 @@
       "parent": "base_link",
       "xyz": [
         0.46,
-        0.0375,
+        0.06,
         0.29
       ],
       "rpy": [
@@ -210,7 +210,7 @@
       "parent": "base_link",
       "xyz": [
         0.46,
-        -0.0375,
+        -0.06,
         0.29
       ],
       "rpy": [
@@ -253,21 +253,21 @@
     "width": 640,
     "height": 480,
     "fps": 30.0,
-    "baseline_m": 0.075,
+    "baseline_m": 0.12,
     "intrinsics": {
       "rgb": {
-        "fx": 465.60288917518244,
-        "fy": 471.02652132123615,
+        "fx": 224.06641222710715,
+        "fy": 342.75552161810754,
         "cx": 320.0,
         "cy": 240.0,
-        "horizontal_fov": 1.2042771838760873
+        "horizontal_fov": 1.9198621771937625
       },
       "mono": {
-        "fx": 432.4551801426587,
-        "fy": 432.97146126514167,
+        "fx": 224.06641222710715,
+        "fy": 342.75552161810754,
         "cx": 320.0,
         "cy": 240.0,
-        "horizontal_fov": 1.2740903539558606
+        "horizontal_fov": 1.9198621771937625
       }
     },
     "camera_mount": [
@@ -323,21 +323,21 @@
     "imu": "/nomad/raw/oak/imu"
   },
   "camera_source": {
-    "model_reference": "OAK-D Lite FF",
+    "model_reference": "ZED 2 (ideal Gazebo approximation)",
     "width": 640,
     "height": 480,
     "fps": 30.0,
-    "rgb_hfov_deg": 69.0,
-    "rgb_vfov_deg": 54.0,
-    "mono_hfov_deg": 73.0,
-    "mono_vfov_deg": 58.0,
+    "rgb_hfov_deg": 110.0,
+    "rgb_vfov_deg": 70.0,
+    "mono_hfov_deg": 110.0,
+    "mono_vfov_deg": 70.0,
     "rgb_fx": null,
     "rgb_fy": null,
     "mono_fx": null,
     "mono_fy": null,
     "cx": null,
     "cy": null,
-    "baseline_m": 0.075,
+    "baseline_m": 0.12,
     "depth_min_m": 0.4,
     "depth_max_m": 8.0,
     "depth_noise_sigma_m": 0.0,

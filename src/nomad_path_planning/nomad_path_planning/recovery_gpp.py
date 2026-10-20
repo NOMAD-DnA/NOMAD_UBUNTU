@@ -1,11 +1,14 @@
 """D* Lite with bounded retry, LPP feedback and validated A* recovery."""
 from nomad_path_planning.experiment_timing import measured
+import json
 import heapq
 import math
 import time
 
 import rclpy
 from std_msgs.msg import Bool
+from nomad_interfaces.msg import PlanningCostLayers
+from nomad_path_planning.gpp.multicost import compose
 from geometry_msgs.msg import PoseArray
 from rclpy.qos import QoSProfile, DurabilityPolicy
 from nomad_path_planning.history_recovery import EntryGate
@@ -13,9 +16,10 @@ from nomad_path_planning.gpp.dstar_lite import DStarLite
 from nomad_path_planning.gpp.registry import create as create_gpp
 from nomad_path_planning.gpp.base import Request, Grid, BudgetExceeded
 from nomad_path_planning.gpp.reference import ReferenceAdapter
+from nomad_path_planning.gpp.proximity import proximity_costs
 from nomad_path_planning.contracts import valid_pose, valid_grid
 from geometry_msgs.msg import PoseStamped
-from nav_msgs.msg import Path
+from nav_msgs.msg import Path, OccupancyGrid
 from nomad_path_planning.dstar_lite_node import DStarLiteNode
 
 
@@ -52,11 +56,65 @@ class RecoveryGPP(DStarLiteNode):
         self.last_report = None
         self.last_map_data = None
         super().__init__()
+        self.goal_mode = self.declare_parameter('navigation.goal_mode', 'direct').value
+        if self.goal_mode not in ('direct','observed_corridor'):
+            raise ValueError('invalid navigation.goal_mode')
+        from .corridor_selector import CorridorSelector
+        self.corridor = CorridorSelector(
+            final_approach_radius=self.declare_parameter('corridor.final_approach_radius',3.).value,
+            incremental=self.declare_parameter("corridor.incremental_selection",False).value,
+            horizon=self.declare_parameter('corridor.horizon',8.).value,
+            inset=self.declare_parameter('corridor.inset',.7).value,
+            arrival=self.declare_parameter('corridor.arrival',1.).value,
+            **{k:self.declare_parameter('corridor.'+k,v).value for k,v in dict(goal_weight=.4,length_weight=.15,narrow_weight=.8,heading_weight=.5,visit_weight=.8,clearance_weight=.35,risk_weight=0.,risk_scale=50.,bearing_weight=0.).items()})
+        self.subgoal_pub=self.create_publisher(PoseStamped,'/nomad/navigation_target',
+            QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
+        from std_msgs.msg import String
+        self.corridor_pub=self.create_publisher(String,'/nomad/corridor_status',10)
+        self.corridor_min_clearance=float(self.declare_parameter('corridor.min_clearance',0.).value)
+        if not math.isfinite(self.corridor_min_clearance) or self.corridor_min_clearance<0:raise ValueError('invalid planning clearance')
+        self.corridor_last_goal=None
+        self.observation_weight=float(self.declare_parameter("corridor.observation_turn_weight",0.).value)
+        self.observation_guard=bool(self.declare_parameter("corridor.observation_guard",False).value)
+        self.retain_safe_path=self.declare_parameter("corridor.retain_safe_path",False).value
+        self.retained_slope_increase=float(self.declare_parameter("corridor.retained_slope_increase",.2).value)
+        if not math.isfinite(self.retained_slope_increase) or self.retained_slope_increase<=0:
+            raise ValueError("corridor.retained_slope_increase must be positive and finite")
+        self.camera_support=None
+        self.create_subscription(OccupancyGrid,"/nomad/camera_observation_support",self.on_camera_support,QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.gates = []
         self.gate_width = self.declare_parameter('recovery.gate_half_width', 2.0).value
         self.create_subscription(PoseArray, '/nomad/recovery_gates', self.on_gates,
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.unknown_penalty = self.declare_parameter('unknown_penalty', 2.5).value
+        self.proximity_radius = self.declare_parameter('gpp.proximity_radius', 2.0).value
+        self.proximity_weight = self.declare_parameter('gpp.proximity_weight', 4.0).value
+        if not (math.isfinite(self.proximity_radius) and self.proximity_radius > 0 and math.isfinite(self.proximity_weight) and self.proximity_weight >= 0):
+            raise ValueError('Invalid GPP proximity configuration')
+        self.cost_mode = self.declare_parameter('gpp.cost_mode', 'legacy').value
+        if self.cost_mode not in ('legacy','multi'):
+            raise ValueError('gpp.cost_mode must be legacy or multi')
+        self.multi_options = dict(
+            obstacle_weight=self.proximity_weight, radius=self.proximity_radius,
+            slope_weight=self.declare_parameter('gpp.slope_weight',1.).value,
+            terrain_weight=self.declare_parameter('gpp.terrain_weight',1.).value,
+            missing_cost=self.declare_parameter('gpp.missing_feature_cost',1.).value,
+            unknown_surcharge=self.declare_parameter('gpp.unknown_surcharge',4.5).value,
+            cluster_weight=self.declare_parameter('gpp.cluster_weight',0.).value,
+            cluster_radius=self.declare_parameter('gpp.cluster_radius',4.).value,
+            cluster_influence=self.declare_parameter('gpp.cluster_influence',0.).value,
+            cluster_saturation=self.declare_parameter('gpp.cluster_saturation',1.).value)
+        self.unknown_direction_weight = float(self.declare_parameter('gpp.unknown_direction_weight', 0.).value)
+        self.unknown_direction_radius = float(self.declare_parameter('gpp.unknown_direction_radius', 6.).value)
+        self.unknown_direction_angle = math.radians(float(self.declare_parameter('gpp.unknown_direction_free_angle_deg', 30.).value))
+        from .gpp.unknown_direction import unknown_direction_cost
+        unknown_direction_cost(dict(width=1,height=1,resolution=1.,origin_x=0.,origin_y=0.,data=[0]), (0.,0.,0.), self.unknown_direction_weight, self.unknown_direction_radius, self.unknown_direction_angle)
+        self.feature_bundle = None
+        if self.cost_mode == 'multi':
+            self.destroy_subscription(self.costmap_sub)
+            self.costmap_sub = self.create_subscription(PlanningCostLayers,
+                '/nomad/planning_cost_layers', self.layers_callback,
+                QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.algorithm = self.declare_parameter('gpp_algorithm', 'dstar_lite').value
         self.lpp_algorithm = self.declare_parameter('lpp_algorithm', 'rollout').value
         if self.lpp_algorithm not in ('rollout', 'rpp'):
@@ -68,6 +126,10 @@ class RecoveryGPP(DStarLiteNode):
             unknown_penalty=self.unknown_penalty,
             seconds=self.declare_parameter('gpp.time_budget', 0.0).value,
             expansions=self.declare_parameter('gpp.max_expansions', 50000).value)
+        if self.goal_mode == 'observed_corridor':
+            # Bound each candidate solve; max three candidates per selection cycle.
+            options['seconds']=min(options['seconds'] or 2.,2.)
+            options['expansions']=min(options['expansions'],30000)
         weight=self.declare_parameter('gpp.weighted_astar_weight', 1.5).value
         self.strategy = create_gpp(self.algorithm, weight=weight, **options)
         self.reference_adapter = ReferenceAdapter(**options)
@@ -75,6 +137,36 @@ class RecoveryGPP(DStarLiteNode):
         self.get_logger().info(f'Selected GPP={self.algorithm}, LPP={self.lpp_algorithm}')
         self.create_subscription(Bool, '/nomad/lpp_failed', self.on_lpp, 10)
         self.create_timer(0.2, self.try_plan)
+
+    def on_camera_support(self,msg):
+        self.camera_support=msg
+
+    def layers_callback(self, msg):
+        try:
+            if not valid_grid(msg.grid,self.planning_frame):
+                raise ValueError('invalid layer geometry')
+            i=msg.grid.info
+            d=dict(width=i.width,height=i.height,resolution=i.resolution,data=msg.grid.data)
+            weights=compose(d,msg.slope_cost,msg.terrain_cost,**self.multi_options)
+        except ValueError as error:
+            self.costmap=None
+            self.stop_and_retry(f'GPP_WAIT: invalid cost layers: {error}')
+            return
+        self.feature_bundle=msg
+        self.multi_weights=weights
+        self.costmap_callback(msg.grid)
+
+    def proximity_for_map(self):
+        info = self.costmap.info
+        radius = getattr(self, 'proximity_radius', 2.0)
+        weight = getattr(self, 'proximity_weight', 4.0)
+        key = (info.width, info.height, info.resolution, radius, weight)
+        cached = getattr(self, '_proximity_cache', None)
+        if cached is None or cached[0] != key or cached[1] is not self.costmap.data:
+            values = proximity_costs(self.costmap.data, info.width, info.height,
+                                     info.resolution, radius, weight)
+            self._proximity_cache = (key, self.costmap.data, values)
+        return self._proximity_cache[2]
 
     def costmap_callback(self, msg):
         if not valid_grid(msg, self.planning_frame):
@@ -87,6 +179,9 @@ class RecoveryGPP(DStarLiteNode):
         self.goal_pose = msg
         if old is None or (old.pose.position.x, old.pose.position.y) != (
                 msg.pose.position.x, msg.pose.position.y):
+            if hasattr(self,'corridor'):
+                self.corridor.reset()
+                self.corridor_last_goal=None
             # The retry throttle for the previous goal must not delay a new one.
             self.last_attempt = -math.inf
             self.failed_since = None
@@ -131,7 +226,7 @@ class RecoveryGPP(DStarLiteNode):
     def try_plan(self):
         if self.costmap is None or self.current_pose is None or self.goal_pose is None:
             return
-        if getattr(self, 'algorithm', 'dstar_lite') != 'dstar_lite' or getattr(self, 'lpp_algorithm', 'rollout') != 'rollout':
+        if getattr(self,'goal_mode','direct') == 'observed_corridor' or getattr(self, 'cost_mode', 'legacy') == 'multi' or getattr(self, 'algorithm', 'dstar_lite') != 'dstar_lite' or getattr(self, 'lpp_algorithm', 'rollout') != 'rollout':
             self.plan_selected()
             return
         now = time.monotonic()
@@ -159,7 +254,7 @@ class RecoveryGPP(DStarLiteNode):
         changed, moved = [], False
         if rebuild:
             self.planner = DStarLite(info.width, info.height, self.costmap.data, start, goal,
-                                     unknown_penalty=self.unknown_penalty)
+                                     unknown_penalty=self.unknown_penalty, proximity=self.proximity_for_map())
             gates = tuple(getattr(self, 'gates', ()))
             if gates:
                 resolution, ox, oy = info.resolution, info.origin.position.x, info.origin.position.y
@@ -178,7 +273,7 @@ class RecoveryGPP(DStarLiteNode):
             # ROS replaces data on new messages; avoid comparing 160k cells
             # repeatedly when only the pose changed.
             if self.costmap.data is not getattr(self, 'last_map_data', None):
-                changed = self.planner.update_costmap(self.costmap.data)
+                changed = self.planner.update_costmap(self.costmap.data, self.proximity_for_map())
         self.last_map_data = self.costmap.data
         if not (rebuild or moved or changed):
             return
@@ -209,7 +304,7 @@ class RecoveryGPP(DStarLiteNode):
 
     def plan_selected(self):
         now=time.monotonic()
-        if now-self.last_attempt < (1.0 if self.retry_pending else .2):
+        if now-self.last_attempt < (1.0 if self.retry_pending or getattr(self,'goal_mode','direct')=='observed_corridor' else .2):
             return
         self.last_attempt=now
         for msg in (self.current_pose,self.goal_pose):
@@ -218,17 +313,30 @@ class RecoveryGPP(DStarLiteNode):
                 return
         info=self.costmap.info
         grid=dict(width=info.width,height=info.height,resolution=info.resolution,
-                  origin_x=info.origin.position.x,origin_y=info.origin.position.y,data=self.costmap.data)
+                  origin_x=info.origin.position.x,origin_y=info.origin.position.y,data=self.costmap.data,
+                  proximity=self.proximity_for_map())
+        if getattr(self,'cost_mode','legacy') == 'multi':
+            grid['cell_weights']=self.multi_weights
+            grid['slope_cost']=list(self.feature_bundle.slope_cost)
         p=self.current_pose.pose; q=p.orientation
         start=(p.position.x,p.position.y,math.atan2(2*(q.w*q.z+q.x*q.y),1-2*(q.y*q.y+q.z*q.z)))
         goal=(self.goal_pose.pose.position.x,self.goal_pose.pose.position.y)
         request=Request(grid,start,goal,tuple(self.gates))
         view=Grid(request,self.unknown_penalty)
+        if self.unknown_direction_weight:
+            from .gpp.unknown_direction import unknown_direction_cost
+            extra=unknown_direction_cost(grid,start,self.unknown_direction_weight,
+                                         self.unknown_direction_radius,self.unknown_direction_angle)
+            grid['cell_weights']=[v+float(e) for v,e in zip(view.weights,extra)]
+            view=Grid(request,self.unknown_penalty)
+        if getattr(self,'goal_mode','direct') == 'observed_corridor':
+            self.plan_corridor(grid,start,goal)
+            return
         if not all(math.isfinite(view.value(*xy)) for xy in (start[:2],goal)):
             self.stop_and_retry('GPP_WAIT: endpoint outside map or blocked')
             return
         # Cache by content, not message identity: unchanged maps arrive repeatedly.
-        key=(self.map_signature(),tuple(self.costmap.data),view.cell(*start[:2]),
+        key=(self.map_signature(),tuple(self.costmap.data),tuple(grid.get('cell_weights',())),view.cell(*start[:2]),
              round(start[2]/.1),goal,tuple((g.x,g.y,g.yaw,g.half_width) for g in self.gates))
         feedback=self.feedback_due(now)
         if not self.retry_pending and not feedback and key==self.strategy_key:
@@ -259,6 +367,101 @@ class RecoveryGPP(DStarLiteNode):
         self.path_pub.publish(msg)
         self.retry_pending=False
         self.report(f'GPP_OK [{self.algorithm}]: {result.detail}; poses={len(result.path)}, expansions={result.expansions}')
+
+    def plan_corridor(self, grid, start, mission):
+        from .corridor_selector import observed_grid, short_path_length, clearance_grid
+        from std_msgs.msg import String
+        now=self.get_clock().now().nanoseconds*1e-9
+        for message,age in ((self.costmap,3.),(self.current_pose,1.)):
+            stamp=message.header.stamp.sec+message.header.stamp.nanosec*1e-9
+            if not -.05<=now-stamp<=age:
+                self.stop_and_retry('GPP_WAIT: corridor input stale')
+                return
+        support=None
+        if self.observation_weight or self.observation_guard:
+            from .observation_turn import turn_weights, near_path_support
+            m=self.camera_support
+            def signature(a):
+                i=a.info
+                return (a.header.frame_id,a.header.stamp.sec,a.header.stamp.nanosec,i.width,i.height,i.resolution,i.origin.position.x,i.origin.position.y)
+            if m is None or signature(m)!=signature(self.costmap):
+                self.stop_and_retry('GPP_WAIT: matching camera observation support unavailable');return
+            support=list(m.data)
+            try:grid=turn_weights(grid,support,start,self.observation_weight)
+            except ValueError as error:
+                self.stop_and_retry('GPP_WAIT: '+str(error));return
+        grid=clearance_grid(grid,getattr(self,'corridor_min_clearance',0.))
+        grid['gates']=tuple(self.gates)
+        invalidation=self.corridor.invalidate_unreachable(grid,start,now,
+            getattr(self,'retained_slope_increase',.2))
+        if invalidation:
+            self.publish_empty_path()
+        retained=None
+        if getattr(self,'retain_safe_path',False) and getattr(self,'failed_since',None) is None:
+            retained=self.corridor.retained_path(grid,start,mission)
+        if retained:
+            target,path=retained
+            from .gpp.base import Result
+            result=Result(path=path,detail='retained safe path')
+            choices=[]
+            diagnostic=dict(state='retained_safe_path')
+        else:
+            with measured(self,"corridor_selection"):
+                choices=self.corridor.candidates(grid,start,mission,now)
+            diagnostic=dict(self.corridor.detail)
+            result=None
+            target=None
+        diagnostic['previous_path_invalidated']=invalidation
+        diagnostic.update(mission=mission,start=start,map_stamp=self.costmap.header.stamp.sec+self.costmap.header.stamp.nanosec*1e-9)
+        view_grid=observed_grid(grid)
+        attempts=[]
+        for candidate in choices[:3]:
+            request=Request(view_grid,start,candidate.point,tuple(self.gates))
+            try:
+                with measured(self,'gpp_corridor_candidate'):
+                    trial=self.strategy.plan(request)
+                    if self.lpp_algorithm=='rpp' and self.algorithm not in ('hybrid_astar','state_lattice'):
+                        trial=self.reference_adapter.adapt(request,trial)
+                valid=(bool(trial.path) and math.dist(trial.path[-1][:2],candidate.point)<=.30
+                       and math.isfinite(Grid(request,self.unknown_penalty).path_cost(trial.path)))
+                length,short=short_path_length(trial.path,candidate.distance,self.corridor.horizon)
+                valid=valid and short
+                reason=trial.detail if short or not trial.path else f'candidate path detour rejected ({length:.2f}m)'
+                if valid and self.observation_guard:
+                    supported,coverage=near_path_support(trial.path,grid,support)
+                    if not supported:
+                        valid=False;reason=f'near path observation insufficient ({coverage:.2f})'
+            except (BudgetExceeded,RuntimeError) as error:
+                valid=False;reason=str(error)
+            attempts.append(dict(target=candidate.point,valid=valid,reason=reason))
+            if valid:
+                result=trial;target=candidate;break
+            self.corridor.reject(candidate.point,now)
+        diagnostic['attempts']=attempts
+        diagnostic['selected']=target.point if target else None
+        self.corridor_pub.publish(String(data=json.dumps(diagnostic,allow_nan=False)))
+        if result is None:
+            self.stop_and_retry('GPP_WAIT: observed corridor: '+(attempts[-1]['reason'] if attempts else diagnostic['state']))
+            return
+        # Do not publish a solution whose inputs expired during bounded search.
+        finished=self.get_clock().now().nanoseconds*1e-9
+        if (finished-now>1. or finished-(self.costmap.header.stamp.sec+self.costmap.header.stamp.nanosec*1e-9)>3. or finished-(self.current_pose.header.stamp.sec+self.current_pose.header.stamp.nanosec*1e-9)>1.):
+            self.stop_and_retry('GPP_WAIT: corridor solution input age exceeded')
+            return
+        self.corridor.accept(target,result.path)
+        if not retained:
+            self.corridor.accepted_slope=self.corridor.path_slope(grid,result.path)
+        stamp=self.get_clock().now().to_msg()
+        goal=PoseStamped();goal.header.frame_id=self.planning_frame;goal.header.stamp=stamp
+        goal.pose.position.x=float(target.point[0]);goal.pose.position.y=float(target.point[1]);goal.pose.orientation.w=1.
+        self.subgoal_pub.publish(goal)
+        msg=Path();msg.header=goal.header
+        for x,y,yaw in result.path:
+            p=PoseStamped();p.header=msg.header;p.pose.position.x=float(x);p.pose.position.y=float(y)
+            p.pose.orientation.z=math.sin(yaw/2);p.pose.orientation.w=math.cos(yaw/2);msg.poses.append(p)
+        self.path_pub.publish(msg)
+        self.retry_pending=False
+        self.report(f'GPP_OK [{self.algorithm} observed_corridor]: target={target.point}, final={target.final}, poses={len(result.path)}, retained={bool(retained)}')
 
 
 def main(args=None):

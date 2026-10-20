@@ -62,7 +62,7 @@ def generate_launch_description():
             DeclareLaunchArgument(
                 "semantic_model",
                 default_value=str(
-                    share("nomad_semantic") / "models/nomad_b0/model.onnx"
+                    share("nomad_semantic") / "models/nomad_b0_map04/model.onnx"
                 ),
             ),
             DeclareLaunchArgument("semantic_backend", default_value="cuda"),

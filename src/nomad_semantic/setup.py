@@ -10,6 +10,7 @@ setup(
         ("share/nomad_semantic", ["package.xml", "README.md"]),
         ("share/nomad_semantic/scripts", ["scripts/run.sh"]),
         ("share/nomad_semantic/models/nomad_b0", glob("models/nomad_b0/*")),
+        ("share/nomad_semantic/models/nomad_b0_map04", glob("models/nomad_b0_map04/*")),
     ],
     install_requires=["setuptools"],
     entry_points={"console_scripts": ["semantic = nomad_semantic.node:main"]},

@@ -165,3 +165,105 @@ route_input에 복사한다. 원본이나 복사본을 변경하면 기존 결�
 가중치는 기존 SR50%/SPL25%/SCT25%를 유지한다. 수동 클릭을 이은 선은 검증된 최단경로나
 최소시간 정답이 아니므로, 독립 기준값이 없는 SPL/SCT/종합점수는 N/A로 둔다.
 이 비교는 시뮬레이션 성능이며 실차 성능의 증명이 아니다. 노션에는 자동 게시하지 않는다.
+
+
+## Map 4 multi-factor optimization
+
+`./scripts/run_experiment.sh optimize map4_multicost_20261019` starts one bounded
+baseline in background. Use the same command with `--stage status`, `--stage stop`
+or `--stage sweep`. The sweep reuses measured feature snapshots; it does not
+create a synthetic map or use route.csv as a ground-truth path. No automatic
+infinite retry. Existing baseline IDs cannot be overwritten. Startup 240 wall s,
+clock stall 20 wall s, stationary 120 wall s, live run 600 sim s / 1800 wall s;
+parent watchdog terminates a blocked child. Only owned process groups are stopped.
+Initial alignment is straight 0.25m/s for at most 3m, stopped immediately on fusion
+READY / other command publisher detection. No automatic goal is sent before
+normal initialization, observed contacts, recording and planning readiness.
+The experiment is isolated in ROS domain 63 and a dedicated Gazebo partition.
+World goal (28,0) uses the verified shared simulator/fusion ENU datum.
+Instantaneous pose-estimation error is never used to transform the target.
+GT is used only for evaluation, not localization.
+All non-image ROS topics are stored in MCAP, feature snapshots every 5 simulated
+seconds plus settings, logs and outcomes. Invalid infrastructure runs are not
+planner failures or optimization successes. No SPL/SCT without verified references.
+
+미관측 비용+관측 영역 실행 제한 시험:
+```bash
+./scripts/run_experiment.sh optimize map4_unknown_guard_20261019 --stage validate --weights 8,0.5,0.5 --unknown-surcharge 9 --trial guarded_01
+./scripts/run_experiment.sh optimize map4_unknown_guard_20261019 --stage status
+./scripts/run_experiment.sh optimize map4_unknown_guard_20261019 --stage stop
+```
+새 이름은 수정 소스 snapshot을 보존한다. trial params.yaml/metadata.json/outcome.json의
+unknown_surcharge가 실제 시험값이며 기존 실험 기본값 4.5와 구분한다.
+정체 120초/시작240초/본주행1800초 wall/600초 sim 제한을 유지한다.
+
+### Cluster-cost comparison
+`optimize NAME --stage optimize --cluster-sweep --mapfile SNAPSHOT --mission MISSION`
+uses the existing bounded runner: 10 frozen-map candidates (baseline C=0 plus
+R={2,4,6}m × C={8,32,128}), followed by one live validation. Other weights are
+O=8,S=T=0.5,U=18. All candidates use a common screening score
+`length + 18*unknown_length + 128*integral(rho_4m ds)`; this is an explicitly
+chosen heuristic preference, not learned ground truth. Density is the fraction
+of observed solid source cells in a full disk. The snapshot is offline input only;
+live mapping starts fresh. `--cluster-weight` and `--cluster-radius` also work
+with `--stage validate --weights 8,0.5,0.5 --unknown-surcharge 18`.
+Compare against C=0 with identical mission/localization/guard. Inspect success,
+collision, progress, unknown exposure and density exposure; lower frozen-map
+score alone is not successful navigation. All non-image bags and snapshots are
+retained. RViz remains opt-in; existing watchdog limits and private domain remain.
+
+`--influence-sweep --mapfiles PRE_ENTRY_1.npz PRE_ENTRY_2.npz PRE_ENTRY_3.npz`
+compares zero cluster, old C=128, and nine influence-area configurations. The
+common diagnostic metric uses influence 1m, assessment disk 4m, saturation .4
+for every candidate. Automatic optimize selection requires successful searches
+on all three snapshots and ranks mean L+18U+16*influence_exposure. It is heuristic
+screening, not an arrival or unseen-forest avoidance guarantee. `--stage sweep`
+allows reviewing all candidates before a separate bounded `validate` run.
+
+`--cluster-priority` compares the previous C=8/U=18 against C={32,64,128}
+× U={2,4.5,9}, holding influence=1.5m, assessment radius=4m and saturation=.4.
+Selection requires solving all three pre-entry snapshots. Lowest mean observed
+cluster exposure is primary; within 2% of that minimum, prefer less unknown
+length, then shorter length. No weighted L+18U score is used for this selection.
+Live GPP still uses additive costs; this is a priority rule for choosing weights,
+not a guarantee that all online paths avoid clusters. Unknown areas may hide
+obstacles. Existing observation guard and hard blocked-cell constraints remain.
+
+Forward broad comparison: `--gpp hybrid_astar --broad-sweep --stage sweep` compares
+48 conditions: proximity {4,8}, cluster {8,16,32,64}, unknown {2,4.5,9}, influence
+{.75,1.5}m; slope/terrain .5, cluster disk 4m, saturation .4. Each measured input
+must contain actual `start_yaw`; no synthetic zero yaw for kinematic comparisons.
+The existing forward Hybrid A* uses rear-axle integration and base_link output,
+wheelbase .72m, max steer .4rad, offset .36m. Behind-start paths are rejected.
+`rank_balanced_forward` requires success on all three snapshots; caps length at
+1.35 times the shortest candidate per snapshot and extra unknown length at .25
+of that reference. Among remaining candidates, minimize observed cluster
+exposure; 5% ties favor less proximity exposure, then unknown length and length.
+These are explicit screening preferences, not a verified optimal reference.
+Compare several shortlisted conditions in fresh, bounded live runs; no defaults
+are promoted from frozen-map scores alone. GUI remains opt-in.
+
+최적화 재주행은 `--lpp rpp`로 LPP만 교체할 수 있다. 기본값은 `rollout`이며 자식 실행·manifest·metadata·outcome에도 선택값을 보존한다.
+
+ROS 실행은 기본→vehicle→실험 설정을 단일 YAML로 병합하여 노드별 조향 여유가 공통 설정에 덮이지 않도록 한다.
+
+`--unknown-direction-weight W`는 근거리 미관측 방향 추가비용을 설정한다. 기본 0, 반경6m/전방30° 면제, live/search와 자식 실행 및 결과 기록에 동일 적용된다.
+
+`--unknown-direction-free-angle DEG`로 비용 시작 각도를 지정한다(기본30°, 이번 비교15°). 센서의 실제 시야각을 뜻하지 않는다.
+
+## Map04 관측 통로 가중치 비교 (2026-10-20)
+
+`corridor_sweep.py`는 기존 `optimization.py`의 관측·기록·제한시간·소유 프로세스 정리를 재사용해 12조건을 순차 실행한다. Hybrid A* + RPP, 아래쪽 출발, 최종 목표 (28,0), 관측 통로 모드, 복구 비활성 조건이다. 고정 조건표는 스크립트의 CONDITIONS에 있고 각 실행의 cNN.json에 실제 명령과 가중치를 남긴다.
+
+```bash
+source .nomad/env.sh
+python3 src/nomad_bringup/experiments/corridor_sweep.py 실험명
+python3 src/nomad_bringup/experiments/corridor_sweep.py 실험명 --status
+python3 src/nomad_bringup/experiments/corridor_sweep.py 실험명 --stop
+```
+
+완료 outcome이 있으면 보존하고 다음 조건으로 이어간다. 명시적 중단 표식 STOP_REQUESTED가 있으면 자동 재개하지 않는다. 재실행은 새 실험명을 권장한다. 실패 조건도 valid 성능 결과이면 계속하며 인프라 평가불가이면 중단한다. 이번 무진행 제한은 45 wall초/0.5m이다.
+
+`optimization.py --planning-overrides YAML`은 허용된 Planning 노드의 ros__parameters만 병합하고 실행 폴더에 사본을 보존한다. `--no-motion-seconds`는 최소 10초이며 기존 기본값은 120초다. corridor.goal_weight/length_weight/narrow_weight/heading_weight/visit_weight/clearance_weight는 통로 후보 선택 비용이며, GPP 자체의 proximity/cluster와 별개다. recovery.enabled=false를 LPP와 recovery supervisor에 모두 지정하면 복구 동작을 끈다. 기존 실행 기본값은 true다.
+
+실행 결과: experiments/map4_weight_trials_20261019/결과.md 및 results.json/csv. 12/12 완료, 목표 도착 0회. 10번은 55.74m 주행하고 목표 18.68m를 남겼다. 성공 가중치로 적용하지 않았다. 관련 변경은 corridor_selector.py, recovery_gpp.py, recovery_supervisor.py, local_planner_node.py, optimization.py, corridor_sweep.py. 실험 전 관련 테스트 243개 및 두 패키지 빌드 통과. 기본 실행으로 복귀하려면 실험 override 없이 기존 스크립트를 사용한다.

@@ -1,12 +1,13 @@
 """Gazebo Harmonic world, bridges and explicit command watchdog; no MVSim node."""
 import os
+import importlib.util
 import shlex
 import tempfile
 import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-from ament_index_python.packages import get_package_share_directory
+from ament_index_python.packages import get_package_share_directory, get_package_prefix
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, RegisterEventHandler
 from launch.event_handlers import OnShutdown
@@ -98,10 +99,17 @@ def launch_nodes(context):
              share/'worlds'/('forest.sdf' if vegetation else 'forest_bare.sdf'))
     configuration_path = Path(LaunchConfiguration('sensor_config').perform(context)).resolve()
     settings = yaml.safe_load(configuration_path.read_text(encoding='utf-8'))
-    # Camera/lidar SDF are generated; GPS is composed into a runtime copy below.
+    # Apply one sensor profile to both embedded and included vehicle models.
+    runtime_directory = tempfile.TemporaryDirectory(prefix='nomad-sensors-')
+    runtime_root = Path(runtime_directory.name)
+    spec = importlib.util.spec_from_file_location('nomad_runtime_vehicle',
+        Path(get_package_prefix('nomad_gazebo')) / 'lib/nomad_gazebo/generate_vehicle.py')
+    generator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(generator)
+    original_world = world
+    world, generated_robot = generator.prepare_sensor_world(world, settings, runtime_root / 'sensors')
     gps_directory = None
     gps_mount = None
-    original_world = world
     if settings.get('gps', {}).get('enabled', False):
         gps_directory = tempfile.TemporaryDirectory(prefix='nomad-gps-')
         world, gps_mount = prepare_gps_world(world, settings['gps'], Path(gps_directory.name))
@@ -130,6 +138,7 @@ def launch_nodes(context):
     handle.close()
     def cleanup_files(context):
         Path(handle.name).unlink(missing_ok=True)
+        runtime_directory.cleanup()
         if gps_directory is not None:
             gps_directory.cleanup()
     cleanup = RegisterEventHandler(OnShutdown(on_shutdown=[OpaqueFunction(function=cleanup_files)]))
@@ -137,7 +146,7 @@ def launch_nodes(context):
     map_root = Path(resource_root).resolve() if resource_root else original_world.parent.parent
     resources = [str(share), str(share/'models'), str(original_world.parent), str(map_root), str(map_root/'models')]
     description = LaunchConfiguration("robot_description_file").perform(context).strip()
-    robot = ET.fromstring((Path(description) if description else share/'urdf/nomad_vehicle.urdf').read_text(encoding='utf-8'))
+    robot = ET.fromstring((Path(description) if description else generated_robot).read_text(encoding='utf-8'))
     if gps_mount is not None:
         ET.SubElement(robot, 'link', name='gps_link')
         joint = ET.SubElement(robot, 'joint', name='gps_mount', type='fixed')

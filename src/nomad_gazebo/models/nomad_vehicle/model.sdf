@@ -47,7 +47,7 @@
         <gz_frame_id>oak_rgb_optical_frame</gz_frame_id>
         <camera>
           <optical_frame_id>oak_rgb_optical_frame</optical_frame_id>
-          <horizontal_fov>1.20427718387609</horizontal_fov>
+          <horizontal_fov>1.91986217719376</horizontal_fov>
           <image>
             <width>640</width>
             <height>480</height>
@@ -66,15 +66,15 @@
           <lens>
             <type>gnomonical</type>
             <intrinsics>
-              <fx>465.602889175182</fx>
-              <fy>471.026521321236</fy>
+              <fx>224.066412227107</fx>
+              <fy>342.755521618108</fy>
               <cx>320</cx>
               <cy>240</cy>
               <s>0</s>
             </intrinsics>
             <projection>
-              <p_fx>465.602889175182</p_fx>
-              <p_fy>471.026521321236</p_fy>
+              <p_fx>224.066412227107</p_fx>
+              <p_fy>342.755521618108</p_fy>
               <p_cx>320</p_cx>
               <p_cy>240</p_cy>
               <tx>0</tx>
@@ -84,7 +84,7 @@
         </camera>
       </sensor>
       <sensor name="oak_left" type="camera">
-        <pose relative_to="base_link">0.46 0.0375 0.29 0 0 0</pose>
+        <pose relative_to="base_link">0.46 0.06 0.29 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>30</update_rate>
         <visualize>false</visualize>
@@ -93,7 +93,7 @@
         <camera>
           <optical_frame_id>oak_left_optical_frame</optical_frame_id>
           <camera_info_topic>/nomad/raw/oak/left/camera_info</camera_info_topic>
-          <horizontal_fov>1.27409035395586</horizontal_fov>
+          <horizontal_fov>1.91986217719376</horizontal_fov>
           <image>
             <width>640</width>
             <height>480</height>
@@ -106,15 +106,15 @@
           <lens>
             <type>gnomonical</type>
             <intrinsics>
-              <fx>432.455180142659</fx>
-              <fy>432.971461265142</fy>
+              <fx>224.066412227107</fx>
+              <fy>342.755521618108</fy>
               <cx>320</cx>
               <cy>240</cy>
               <s>0</s>
             </intrinsics>
             <projection>
-              <p_fx>432.455180142659</p_fx>
-              <p_fy>432.971461265142</p_fy>
+              <p_fx>224.066412227107</p_fx>
+              <p_fy>342.755521618108</p_fy>
               <p_cx>320</p_cx>
               <p_cy>240</p_cy>
               <tx>0</tx>
@@ -124,7 +124,7 @@
         </camera>
       </sensor>
       <sensor name="oak_right" type="camera">
-        <pose relative_to="base_link">0.46 -0.0375 0.29 0 0 0</pose>
+        <pose relative_to="base_link">0.46 -0.06 0.29 0 0 0</pose>
         <always_on>true</always_on>
         <update_rate>30</update_rate>
         <visualize>false</visualize>
@@ -133,7 +133,7 @@
         <camera>
           <optical_frame_id>oak_right_optical_frame</optical_frame_id>
           <camera_info_topic>/nomad/raw/oak/right/camera_info</camera_info_topic>
-          <horizontal_fov>1.27409035395586</horizontal_fov>
+          <horizontal_fov>1.91986217719376</horizontal_fov>
           <image>
             <width>640</width>
             <height>480</height>
@@ -146,18 +146,18 @@
           <lens>
             <type>gnomonical</type>
             <intrinsics>
-              <fx>432.455180142659</fx>
-              <fy>432.971461265142</fy>
+              <fx>224.066412227107</fx>
+              <fy>342.755521618108</fy>
               <cx>320</cx>
               <cy>240</cy>
               <s>0</s>
             </intrinsics>
             <projection>
-              <p_fx>432.455180142659</p_fx>
-              <p_fy>432.971461265142</p_fy>
+              <p_fx>224.066412227107</p_fx>
+              <p_fy>342.755521618108</p_fy>
               <p_cx>320</p_cx>
               <p_cy>240</p_cy>
-              <tx>-32.4341385106994</tx>
+              <tx>-26.8879694672529</tx>
               <ty>0</ty>
             </projection>
           </lens>
@@ -551,10 +551,10 @@
       <pose relative_to="base_link">0.46 0 0.29 -1.5707963267949 0 -1.5707963267949</pose>
     </frame>
     <frame name="oak_left_optical_frame" attached_to="base_link">
-      <pose relative_to="base_link">0.46 0.0375 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      <pose relative_to="base_link">0.46 0.06 0.29 -1.5707963267949 0 -1.5707963267949</pose>
     </frame>
     <frame name="oak_right_optical_frame" attached_to="base_link">
-      <pose relative_to="base_link">0.46 -0.0375 0.29 -1.5707963267949 0 -1.5707963267949</pose>
+      <pose relative_to="base_link">0.46 -0.06 0.29 -1.5707963267949 0 -1.5707963267949</pose>
     </frame>
     <frame name="scan" attached_to="base_link">
       <pose relative_to="base_link">0.15 0 0.38 0 0 0</pose>

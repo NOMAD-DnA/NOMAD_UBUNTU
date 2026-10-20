@@ -70,3 +70,37 @@ def test_invalid_path_quaternion_revokes_reference():
 def test_correct_yaw_does_not_bypass_map_safety(value):
     f=fixture();f['grid']['data']=[value]*len(f['grid']['data'])
     assert not RegulatedPurePursuit(speed=.4).plan(f['start'],f['path'],f['grid'])['success']
+
+
+def test_limit_circle_roundoff_clamped_and_still_collision_checked():
+    from nomad_path_planning.gpp.hybrid_astar import advance
+    start=(0.,0.,0.)
+    path=[advance(start,-math.tan(.4)/.72,i*.075,.36) for i in range(41)]
+    grid=dict(width=100,height=100,resolution=.2,origin_x=-10.,origin_y=-10.,data=[0]*10000)
+    planner=RegulatedPurePursuit(speed=.4,lookahead=1.2)
+    result=planner.plan(start,path,grid)
+    assert result['success'] and result['best']['steer']==-.4
+    point=result['best']['trajectory'][15]
+    cell=planner.world_to_cell(*point[:2],100,100,.2,-10.,-10.)
+    grid['data'][cell[1]*100+cell[0]]=100
+    assert not planner.plan(start,path,grid)['success']
+
+
+def test_real_steering_excess_remains_rejected():
+    from nomad_path_planning.gpp.hybrid_astar import advance
+    path=[advance((0.,0.,0.),-math.tan(.401)/.72,i*.075,.36) for i in range(41)]
+    grid=dict(width=100,height=100,resolution=.2,origin_x=-10.,origin_y=-10.,data=[0]*10000)
+    assert not RegulatedPurePursuit(speed=.4,lookahead=1.2).plan((0.,0.,0.),path,grid)['success']
+
+
+@pytest.mark.parametrize('time,base,alternative',[(205,1.2,.8),(90,.8,1.2)])
+def test_adaptive_lookahead_resolves_saved_failure_without_relaxing_safety(time,base,alternative):
+    f=json.loads((Path(__file__).parent/f'fixtures/rpp_adaptive_{time}.json').read_text())
+    assert not RegulatedPurePursuit(speed=.4,lookahead=base).plan(f['start'],f['path'],f['grid'])['success']
+    assert RegulatedPurePursuit(speed=.4,lookahead=alternative).plan(f['start'],f['path'],f['grid'])['success']
+    p=RegulatedPurePursuit(speed=.4,lookahead=base,adaptive_lookahead=True)
+    r=p.plan(f['start'],f['path'],f['grid']);assert r['success']
+    assert abs(r['best']['steer'])<=.4 and p.horizon==1.5 and p.lookahead==base
+    assert math.isfinite(Grid(Request(f['grid'],f['start'],f['path'][-1][:2])).path_cost(r['best']['trajectory']))
+    f['grid']['data']=[100]*len(f['grid']['data'])
+    assert not p.plan(f['start'],f['path'],f['grid'])['success']

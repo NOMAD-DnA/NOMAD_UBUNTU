@@ -1,0 +1,92 @@
+{
+  "architecture": "SegFormer-B0",
+  "dataset": "NOMAD map04 600 train / 100 same-map validation",
+  "num_classes": 10,
+  "classes": [
+    "Background",
+    "Trees",
+    "Lush Bushes",
+    "Dry Grass",
+    "Dry Bushes",
+    "Ground Clutter",
+    "Logs",
+    "Rocks",
+    "Landscape",
+    "Sky"
+  ],
+  "class_names_verified": true,
+  "palette": [
+    [
+      60,
+      60,
+      60
+    ],
+    [
+      30,
+      130,
+      45
+    ],
+    [
+      80,
+      200,
+      65
+    ],
+    [
+      200,
+      180,
+      75
+    ],
+    [
+      175,
+      130,
+      75
+    ],
+    [
+      210,
+      100,
+      150
+    ],
+    [
+      140,
+      80,
+      35
+    ],
+    [
+      160,
+      160,
+      170
+    ],
+    [
+      175,
+      105,
+      55
+    ],
+    [
+      90,
+      180,
+      255
+    ]
+  ],
+  "input_shape": [
+    1,
+    3,
+    512,
+    512
+  ],
+  "resize_backend": "pil",
+  "output_kind": "logits",
+  "output_name": "logits",
+  "output_shape": [
+    1,
+    10,
+    128,
+    128
+  ],
+  "opset": 17,
+  "preprocessing": "Official PIL bilinear resize. BGR->RGB, /255 and official mean/std embedded in ONNX.",
+  "training_source": "/home/user/nomad_ws/experiments/semantic_map04_20261019/source_b0",
+  "training_scope": "map04-specific; validation used for checkpoint selection",
+  "map_id": "04_vio_flat_loop",
+  "selected_step": 1050,
+  "source_revision": "489d5cd81a0b59fab9b7ea758d3548ebe99677da"
+}

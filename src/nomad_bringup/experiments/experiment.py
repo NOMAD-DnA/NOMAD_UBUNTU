@@ -387,6 +387,9 @@ def main():
 
 
 if __name__=='__main__':
+    if len(sys.argv)>1 and sys.argv[1]=='optimize':
+        from optimization import main as optimize
+        optimize(sys.argv[2:]);sys.exit(0)
     try:sys.exit(main())
     except (ValueError,RuntimeError,FileNotFoundError) as error:
         print(str(error),file=sys.stderr);sys.exit(2)

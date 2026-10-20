@@ -3,26 +3,26 @@
 cam0:
   T_imu_cam:
     - [0.0, 0.0, 1.0, 0.0]
-    - [-1.0, 0.0, 0.0, 0.0375]
+    - [-1.0, 0.0, 0.0, 0.06]
     - [0.0, -1.0, 0.0, 0.0]
     - [0.0, 0.0, 0.0, 1.0]
   cam_overlaps: [1]
   camera_model: pinhole
   distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
   distortion_model: radtan
-  intrinsics: [432.455180142659, 432.971461265142, 320.0, 240.0]
+  intrinsics: [224.06641222710715, 342.75552161810754, 320.0, 240.0]
   resolution: [640, 480]
   rostopic: /oak/left/image_rect
 cam1:
   T_imu_cam:
     - [0.0, 0.0, 1.0, 0.0]
-    - [-1.0, 0.0, 0.0, -0.0375]
+    - [-1.0, 0.0, 0.0, -0.06]
     - [0.0, -1.0, 0.0, 0.0]
     - [0.0, 0.0, 0.0, 1.0]
   cam_overlaps: [0]
   camera_model: pinhole
   distortion_coeffs: [0.0, 0.0, 0.0, 0.0]
   distortion_model: radtan
-  intrinsics: [432.455180142659, 432.971461265142, 320.0, 240.0]
+  intrinsics: [224.06641222710715, 342.75552161810754, 320.0, 240.0]
   resolution: [640, 480]
   rostopic: /oak/right/image_rect

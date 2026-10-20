@@ -97,7 +97,7 @@ class SensorAdapterTests(unittest.TestCase):
             k=[432.46, 0.0, 320.0, 0.0, 432.97, 240.0, 0.0, 0.0, 1.0],
             d=[0.01, -0.02, 0, 0, 0], distortion_model="plumb_bob",
             r=[0.0] * 9, p=[0.0] * 12)
-        right = adapter.camera_info(source, "right")
+        right = adapter.camera_info(source, "right", baseline_m=0.075)
         self.assertEqual(right.k, source.k)
         self.assertEqual(right.d, source.d)
         self.assertEqual(right.header.stamp, source.header.stamp)
@@ -115,7 +115,7 @@ class SensorAdapterTests(unittest.TestCase):
         self.assertEqual(rgb[2:3], [320.0])
         self.assertEqual(rgb[5], 240.0)
         mono = adapter.fallback_intrinsics({}, "left", 640, 480)
-        self.assertLess(mono[0], rgb[0])
+        self.assertEqual(mono, rgb)  # ZED 2 simulation uses matching RGB/stereo FOV.
         explicit = dict(rgb_fx=500, rgb_fy=510, cx=319, cy=241, width=640, height=480)
         small = adapter.fallback_intrinsics(explicit, "rgb", 320, 240)
         self.assertEqual(small, [250.0, 0.0, 159.5, 0.0, 255.0, 120.5, 0.0, 0.0, 1.0])

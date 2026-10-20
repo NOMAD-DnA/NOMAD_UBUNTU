@@ -2,7 +2,8 @@
 
 from nomad_logging import CsvLog
 
-import json, time
+import json, time, os
+from .map_diagnostics import MapDiagnostics
 from array import array
 from pathlib import Path
 import numpy as np
@@ -56,6 +57,44 @@ PALETTE = [
 from .terrain_layers import Layers
 
 
+def project_capture(pair, transform, stride, min_confidence):
+    depth = pair["depth"]
+    xyz, ids = project_semantic_points(
+        depth,
+        pair["labels"],
+        pair["depth_info"],
+        pair["labels_info"],
+        stride=stride,
+        pixel_center_offset_px=0.5,
+    )
+    z = image_pixels(depth)[
+        :: stride,
+        :: stride,
+    ]
+    z = z.astype(float) * (0.001 if depth.encoding == "16UC1" else 1.0)
+    valid = np.isfinite(z) & (z >= 0.4) & (z <= 8.0)
+    if (
+        pair["confidence"].encoding != "32FC1"
+        or pair["confidence"].header.frame_id != pair["labels"].header.frame_id
+    ):
+        raise ValueError("Confidence encoding/frame must match semantic image")
+    if np.any(ids >= 10):
+        raise ValueError("Expected SegFormer 10-class labels")
+    confidence = image_pixels(pair["confidence"])[
+        :: stride,
+        :: stride,
+    ][valid]
+    keep = (
+        (ids > 0)
+        & (ids < 9)
+        & np.isfinite(confidence)
+        & (confidence >= min_confidence)
+    )
+    xyz = transform_points(xyz[keep], transform)
+    ids = ids[keep]
+    return xyz, ids
+
+
 class LiveTerrain(Node):
     def __init__(self):
         super().__init__("live_terrain")
@@ -69,13 +108,18 @@ class LiveTerrain(Node):
             ("ground_ids", [8]),
             ("directory", ""),
             ("record_results", True),
+            ("diagnostics_directory", os.environ.get("NOMAD_MAP_DIAGNOSTICS_DIR", "")),
         ]:
             self.declare_parameter(k, v)
+        self.diagnostics = MapDiagnostics(self.get_parameter("diagnostics_directory").value)
+        if self.diagnostics.path:
+            self.get_logger().info(f"Map diagnostics: {self.diagnostics.path}")
         self.layers = self.create_layers()
         self.sync = ExactCaptureSynchronizer(
             streams=("depth", "labels", "confidence", "depth_info", "labels_info"),
             max_pending=90,
             max_age_wall_sec=3.0,
+            on_event=self.trace,
         )
         self.pending = None
         self.estimates = {}
@@ -127,9 +171,31 @@ class LiveTerrain(Node):
             self.get_parameter("ground_ids").value,
         )
 
+    def trace(self, event, **fields):
+        recorder = getattr(self, "diagnostics", None)
+        if recorder is not None and recorder.path is not None:
+            recorder.emit(event, sim_ns=self.get_clock().now().nanoseconds, **fields)
+
+    def destroy_node(self):
+        recorder = getattr(self, "diagnostics", None)
+        if recorder is not None:
+            if self.pending is not None:
+                self.trace("pending_at_shutdown", stamp_ns=stamp_ns(self.pending[0]["depth"]))
+            self.sync.close()
+            recorder.close()
+            if recorder.error or recorder.dropped:
+                self.get_logger().warning(f"Diagnostics incomplete: dropped={recorder.dropped}, error={recorder.error}")
+        return super().destroy_node()
+
     def receive(self, k, m):
+        self.trace("input_received", stream=k, stamp_ns=stamp_ns(m))
         pair = self.sync.add(k, m)
         if pair:
+            self.trace("sync_complete", stamp_ns=stamp_ns(pair["depth"]))
+            if self.pending is not None:
+                self.trace("pending_overwritten", stamp_ns=stamp_ns(self.pending[0]["depth"]),
+                           replacement_stamp_ns=stamp_ns(pair["depth"]),
+                           wait_wall_s=time.monotonic()-self.pending[1])
             self.pending = (pair, time.monotonic())
 
     def process(self):
@@ -139,54 +205,35 @@ class LiveTerrain(Node):
         depth = pair["depth"]
         stamp = stamp_ns(depth) * 1e-9
         if time.monotonic() - arrived > 3:
+            self.trace("pending_expired", stamp_ns=stamp_ns(depth), wait_wall_s=time.monotonic()-arrived)
             self.pending = None
             return
         try:
             t = self.buffer.lookup_transform(
                 "odom", depth.header.frame_id, Time.from_msg(depth.header.stamp)
             )
-        except TransformException:
+        except TransformException as error:
+            self.trace("tf_wait", stage="camera", stamp_ns=stamp_ns(depth),
+                       wait_wall_s=time.monotonic()-arrived, reason=str(error))
             return
+        self.trace("tf_ready", stage="camera", stamp_ns=stamp_ns(depth), wait_wall_s=time.monotonic()-arrived)
         self.pending = None
+        self.trace("compute_start", stamp_ns=stamp_ns(depth))
         began = time.perf_counter()
         try:
-            xyz, ids = project_semantic_points(
-                depth,
-                pair["labels"],
-                pair["depth_info"],
-                pair["labels_info"],
-                stride=self.get_parameter("stride").value,
-                pixel_center_offset_px=0.5,
-            )
-            z = image_pixels(depth)[
-                :: self.get_parameter("stride").value,
-                :: self.get_parameter("stride").value,
-            ]
-            z = z.astype(float) * (0.001 if depth.encoding == "16UC1" else 1.0)
-            valid = np.isfinite(z) & (z >= 0.4) & (z <= 8.0)
-            if (
-                pair["confidence"].encoding != "32FC1"
-                or pair["confidence"].header.frame_id != pair["labels"].header.frame_id
-            ):
-                raise ValueError("Confidence encoding/frame must match semantic image")
-            if np.any(ids >= 10):
-                raise ValueError("Expected SegFormer 10-class labels")
-            confidence = image_pixels(pair["confidence"])[
-                :: self.get_parameter("stride").value,
-                :: self.get_parameter("stride").value,
-            ][valid]
-            keep = (
-                (ids > 0)
-                & (ids < 9)
-                & np.isfinite(confidence)
-                & (confidence >= self.get_parameter("min_confidence").value)
-            )
-            xyz = transform_points(xyz[keep], t.transform)
-            ids = ids[keep]
+            xyz, ids = project_capture(pair, t.transform,
+                                       self.get_parameter("stride").value,
+                                       self.get_parameter("min_confidence").value)
+            self.trace("projection_complete", stamp_ns=stamp_ns(depth), elapsed_ms=(time.perf_counter()-began)*1000)
+            stage_start = time.perf_counter()
             self.estimates = self.layers.ingest(xyz, ids, stamp)
+            self.trace("ingest_complete", stamp_ns=stamp_ns(depth), elapsed_ms=(time.perf_counter()-stage_start)*1000)
+            stage_start = time.perf_counter()
             self.count += 1
             arrays = self.layers.arrays(self.estimates)
+            self.trace("arrays_complete", stamp_ns=stamp_ns(depth), elapsed_ms=(time.perf_counter()-stage_start)*1000)
             self.publish(depth.header.stamp, arrays)
+            self.trace("compute_complete", stamp_ns=stamp_ns(depth), elapsed_ms=(time.perf_counter()-began)*1000)
             report = {
                 "frames": self.count,
                 "capture_stamp": stamp,
@@ -226,12 +273,13 @@ class LiveTerrain(Node):
             if time.monotonic() - self.last_save > 5:
                 self.save(arrays, report)
         except (ValueError, IndexError) as e:
+            self.trace("compute_error", stamp_ns=stamp_ns(depth), reason=str(e))
             key = str(e)
             self.errors[key] = self.errors.get(key, 0) + 1
             self.get_logger().warning(key)
 
-    def publish(self, stamp, arrays):
-        g = self.layers.views.grid
+    def publish(self, stamp, arrays, grid=None):
+        g = self.layers.views.grid if grid is None else grid
         grid = OccupancyGrid()
         grid.header.frame_id = "odom"
         grid.header.stamp = stamp

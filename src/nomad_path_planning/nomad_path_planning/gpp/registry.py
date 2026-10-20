@@ -22,11 +22,11 @@ class DStarStrategy:
         start,goal=grid.cell(*request.start[:2]),grid.cell(*request.goal[:2])
         signature=(d['width'],d['height'],grid.r,d['origin_x'],d['origin_y'],goal,request.gates)
         if self.graph is None or signature!=self.signature:
-            self.graph=DStarLite(d['width'],d['height'],d['data'],start,goal,unknown_penalty=self.unknown_penalty)
+            self.graph=DStarLite(d['width'],d['height'],d['data'],start,goal,unknown_penalty=self.unknown_penalty, proximity=d.get('proximity'),cell_weights=d.get('cell_weights'))
             self.signature=signature
         graph=self.graph
         graph.edge_filter=lambda a,b: not any(g.blocks(grid.world(a),grid.world(b)) for g in request.gates)
-        graph.move_start(start); graph.update_costmap(d['data'])
+        graph.move_start(start); graph.update_costmap(d['data'], d.get('proximity'), d.get('cell_weights'))
         budget=Budget(self.seconds,self.expansions)
         original=graph.pop
         def bounded_pop():

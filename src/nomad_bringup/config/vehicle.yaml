@@ -6,5 +6,5 @@
     wheelbase: 0.72
     reference_offset: 0.36
     max_steer: 0.4
-    max_speed: 0.4
+    max_speed: 0.5
     recovery.gate_half_width: 2.0

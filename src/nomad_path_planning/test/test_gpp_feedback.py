@@ -42,6 +42,7 @@ def test_lpp_failure_rebuilds_once_then_uses_incremental_updates(monkeypatch):
         stop_and_retry=lambda reason: None,
     )
     node.feedback_due = MethodType(RecoveryGPP.feedback_due, node)
+    node.proximity_for_map = MethodType(RecoveryGPP.proximity_for_map, node)
     stops = []
 
     def stop_and_retry(reason):

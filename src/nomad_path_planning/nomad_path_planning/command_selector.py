@@ -4,6 +4,7 @@ from nomad_path_planning.history_recovery import segment_free
 
 import math
 import time
+from nomad_path_planning.observed_guard import observed_distance, speed_limit
 
 from geometry_msgs.msg import PoseStamped
 from nomad_interfaces.msg import DriveCommand, VehicleState, ModuleStatus, PlannedMotion
@@ -37,12 +38,28 @@ class PlanningCommandNode(Node):
         self.local_motion = self.recovery_motion = None
         self.allow_unknown = self.declare_parameter('allow_unknown', False).value
         self.max_speed = self.declare_parameter('max_speed', 0.4).value
+        self.observed_guard = self.declare_parameter('observed_guard.enabled', True).value
+        self.guard_half_length = self.declare_parameter('observed_guard.half_length', .52).value
+        self.guard_half_width = self.declare_parameter('observed_guard.half_width', .40).value
+        self.guard_deceleration = self.declare_parameter('observed_guard.deceleration', .4).value
+        self.guard_latency = self.declare_parameter('observed_guard.latency', .3).value
+        self.guard_margin = self.declare_parameter('observed_guard.margin', .1).value
+        self.guard_wheelbase = self.declare_parameter('wheelbase', .72).value
+        self.guard_offset = self.declare_parameter('reference_offset', .36).value
+        if (not all(math.isfinite(v) for v in (self.guard_half_length,self.guard_half_width,self.guard_deceleration,
+                self.guard_latency,self.guard_margin,self.guard_wheelbase,self.guard_offset))
+                or min(self.guard_half_length,self.guard_half_width,self.guard_deceleration,self.guard_wheelbase)<=0
+                or min(self.guard_latency,self.guard_margin,self.guard_offset)<0):
+            raise ValueError('Invalid observed-space guard parameters')
+
         self.health_label = self.declare_parameter('health_label', 'odom/scan/TF').value
         self.sync_ok = False
         self.sync_received_at = 0.0
         self.costmap = None
         self.pose = None
         self.goal = None
+        self.navigation_target = None
+        self.goal_mode = self.declare_parameter('navigation.goal_mode','direct').value
         self.recovery_active = False
         self.recovery_path = None
         self.recovery_received_at = -math.inf
@@ -61,6 +78,8 @@ class PlanningCommandNode(Node):
         self.create_subscription(PoseStamped, '/nomad/current_pose', self.on_pose, 10)
         latched = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(PoseStamped, '/nomad/goal', self.on_goal, latched)
+        if self.goal_mode=='observed_corridor':
+            self.create_subscription(PoseStamped,'/nomad/navigation_target',self.on_navigation_target,latched)
         self.create_subscription(Path, '/nomad/global_path', self.on_global_path, latched)
         self.create_subscription(PlannedMotion, '/nomad/planning/local_motion', self.on_local_motion, 10)
         self.create_subscription(PlannedMotion, '/nomad/planning/recovery_motion', self.on_recovery_motion, 10)
@@ -142,6 +161,7 @@ class PlanningCommandNode(Node):
             msg.pose.position.y-self.goal.pose.position.y) < 1e-6:
             return
         self.goal = msg
+        self.navigation_target = None
         self.goal_epoch = self.get_clock().now().nanoseconds*1e-9
         self.recovery_active = False
         self.recovery_path = None
@@ -157,6 +177,17 @@ class PlanningCommandNode(Node):
         if self.pending_global is not None:
             self.on_global_path(self.pending_global)
 
+    def on_navigation_target(self,msg):
+        if (self.goal is None or msg.header.frame_id!=self.planning_frame or not valid_pose(msg.pose)
+                or (msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9)<self.goal_epoch):
+            return
+        old=self.navigation_target
+        self.navigation_target=msg
+        if old is None or math.hypot(old.pose.position.x-msg.pose.position.x,old.pose.position.y-msg.pose.position.y)>1e-6:
+            self.global_path=self.local_path=None
+            if not self.recovery_active:self.stop()
+        if self.pending_global is not None:self.on_global_path(self.pending_global)
+
     def on_global_path(self, msg):
         if msg.header.frame_id!=self.planning_frame or not all(valid_pose(p.pose) for p in msg.poses):
             self.global_path = self.local_path = None
@@ -168,7 +199,10 @@ class PlanningCommandNode(Node):
             self.local_path = None
             return
         endpoint = msg.poses[-1].pose.position
-        target = self.goal.pose.position
+        associated=getattr(self,'navigation_target',None) if getattr(self,'goal_mode','direct')=='observed_corridor' else self.goal
+        if associated is None:return
+        if msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9 < self.goal_epoch:return
+        target = associated.pose.position
         if math.hypot(endpoint.x - target.x, endpoint.y - target.y) > 0.35:
             return  # Path for the previous goal.
         self.global_path = msg
@@ -229,7 +263,7 @@ class PlanningCommandNode(Node):
         status.header.frame_id = self.planning_frame
         status.header.stamp = self.get_clock().now().to_msg()
         status.valid_for.nanosec = 600_000_000
-        status.state = ModuleStatus.READY if message in ('DRIVING','REVERSING TO RECOVER','ARRIVED') else ModuleStatus.STOPPED
+        status.state = ModuleStatus.READY if message in ('DRIVING','DRIVING: observation-limited','REVERSING TO RECOVER','ARRIVED') else ModuleStatus.STOPPED
         status.detail = message
         self.module_pub.publish(status)
         if message != self.last_status:
@@ -319,8 +353,25 @@ class PlanningCommandNode(Node):
             return
         speed = math.copysign(min(abs(sampled_speed),
             self.max_speed if recovering else max(.10,distance*.5)),sampled_speed)
+        limited = False
+        if getattr(self, 'observed_guard', False):
+            info=self.costmap.info
+            grid=dict(width=info.width,height=info.height,resolution=info.resolution,
+                      origin_x=info.origin.position.x,origin_y=info.origin.position.y,data=self.costmap.data)
+            stamp=self.costmap.header.stamp.sec+self.costmap.header.stamp.nanosec*1e-9
+            known=observed_distance(grid,(position.x,position.y,yaw_of(self.pose.pose.orientation)),
+                motion.target_steering_angle,math.copysign(1.,speed),self.guard_wheelbase,
+                self.guard_offset,self.guard_half_length,self.guard_half_width)
+            cap=speed_limit(known,self.guard_latency+max(0.,now-stamp),self.guard_deceleration,self.guard_margin)
+            if cap < .02 or abs(vehicle.speed)>cap+1e-3:
+                self.stop()
+                self.report(f'STOP: observation boundary; known={known:.2f}m cap={cap:.3f}m/s')
+                return
+            limited=abs(speed)>cap
+            speed=math.copysign(min(abs(speed),cap),speed)
         self.cmd_pub.publish(self.command_message(speed,motion.target_steering_angle))
-        self.report('REVERSING TO RECOVER' if speed < 0 else 'DRIVING')
+        self.report('DRIVING: observation-limited' if limited and speed>0 else
+                    'REVERSING TO RECOVER' if speed < 0 else 'DRIVING')
 
 
 def main(args=None):

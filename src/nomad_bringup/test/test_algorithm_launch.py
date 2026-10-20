@@ -28,6 +28,7 @@ def test_selection_overrides_yaml_on_planner_nodes_only(monkeypatch,tmp_path,gpp
     monkeypatch.setattr(launching,'open',lambda *a: (tmp_path/'lock').open('a'),raising=False)
     monkeypatch.setattr(launching.fcntl,'flock',lambda *a:None)
     monkeypatch.setattr(launching,'Node',lambda **kw:kw)
+    monkeypatch.setattr(launching,'merged_parameter_file',lambda files, overrides: dict(files=files, overrides=overrides))
     monkeypatch.setattr(launching,'_locks',[])
     try:
         nodes=launching.start(context(gpp,lpp),'planning')
@@ -35,10 +36,10 @@ def test_selection_overrides_yaml_on_planner_nodes_only(monkeypatch,tmp_path,gpp
             params=node['parameters']
             selected=node['executable'] in ('dstar_lite_gpp','ackermann_lpp')
             if selected and gpp:
-                assert params[-1]==dict(gpp_algorithm=gpp,lpp_algorithm=lpp)
-                assert params[-2]=='/tmp/custom-planning.yaml'
+                assert params[-1]['overrides']==dict(gpp_algorithm=gpp,lpp_algorithm=lpp)
+                assert params[-1]['files'][-1]=='/tmp/custom-planning.yaml'
             else:
-                assert params[-1]=='/tmp/custom-planning.yaml'
+                assert params[-1]['files'][-1]=='/tmp/custom-planning.yaml'
     finally:
         for lock in launching._locks: lock.close()
 

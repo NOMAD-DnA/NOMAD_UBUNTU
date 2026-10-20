@@ -19,7 +19,7 @@ class AStar:
         start,goal = grid.cell(*request.start[:2]),grid.cell(*request.goal[:2])
         g = request.grid
         graph = DStarLite(g['width'],g['height'],g['data'],start,goal,
-                          unknown_penalty=self.unknown_penalty)
+                          unknown_penalty=self.unknown_penalty, proximity=g.get('proximity'))
         if request.gates:
             graph.edge_filter = lambda a,b: not any(g.blocks(grid.world(a),grid.world(b)) for g in request.gates)
         guidance = CostToGoal(grid, request.goal, budget)

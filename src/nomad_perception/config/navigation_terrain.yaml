@@ -8,9 +8,10 @@ live_terrain:
     stride: 4
     min_confidence: 0.5
     ground_ids: [8]
-    slope_limit_deg: 20.0  # Initial configurable limit, not a measured vehicle guarantee.
+    slope_limit_deg: 10.0  # Initial configurable limit, not a measured vehicle guarantee.
     local_max_age: 30.0   # Static-world return/reverse observation memory.
-    bootstrap_radius: 3.0 # Fixed initial forward area; not a moving free bubble.
-    bootstrap_override: true # Start-area clear assumption wins until the vehicle leaves it.
+    bootstrap_radius: 0.0 # Disabled: unknown space requires sensor evidence.
+    bootstrap_override: false # Never overwrite measured obstacles by default.
     obstacle_cost_radius: 1.2 # Quadratic falloff: 100*(1-(distance/radius)^2), zero at 120cm.
     passable_semantic_ids: [3] # Dry Grass: >=60% recent semantic votes veto foliage/solid block confirmation.
+    worker_timeout_wall_sec: 30.0 # A stuck/dead computation worker faults; freshness limits are unchanged.

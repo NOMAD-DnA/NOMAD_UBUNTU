@@ -137,3 +137,29 @@ ros2 interface show nomad_interfaces/msg/ModuleStatus
 NavSatFix와 동일한 측정 stamp/안테나 frame으로 위치와 연결한다. solution_type은 UNKNOWN/NO_FIX/SINGLE/DGNSS/RTK_FLOAT/RTK_FIXED. satellites_used는 사용 위성 수, pdop는 무차원, correction_age_s는 수신기 보고 보정 나이(로컬 RTCM 수신 나이가 아님). valid_fields에 해당 비트가 없는 값은 사용하지 않는다. 미제공 pdop/보정 나이는 NaN, 위성수는 유효비트로 구분한다. 위치 공분산은 NavSatFix ENU m²에 둔다.
 
 F9P 실물에서는 NAV-PVT의 fixType/gnssFixOK/diffSoln/carrSoln, numSV/pDOP 및 NMEA GGA/GNS diffAge를 정규화한다. 제품 펌웨어·드라이버 지원과 출력 활성화 확인이 필요하다. 시뮬레이션 품질은 설정한 시험값이며 위성/RTK 계산 결과가 아니다. 실제 주입 오차나 이벤트 이름은 품질 메시지에 넣지 않는다.
+
+
+## Opt-in multi-factor GPP experiment (2026-10-19)
+
+`/nomad/planning_cost_layers` (`nomad_interfaces/msg/PlanningCostLayers`) is an
+atomic global snapshot: the embedded OccupancyGrid provides frame, timestamp,
+resolution, origin and hard blocking (>=80). Row-major float arrays contain
+`slope_cost=min(slope_deg/20,1)^2` and semantic vote-weighted `terrain_cost/79`.
+Both are normalized [0,1]; NaN means not measured. Values use global observation
+memory. A laser free ray or bootstrap assumption does not invent terrain/slope.
+QoS: reliable, transient-local, depth 1. Bundled geometry avoids cross-topic races.
+
+`gpp.cost_mode=multi` uses `sum ds*(1+wO*pO+wS*pS+wT*pT)` and ignores the old
+blended soft occupancy costs, retaining >=80 blocking. The proximity feature is
+`max(0,1-d/r)^2`, from confirmed 100-cell centres, not body clearance. Missing
+features use configurable prior 1; unknown occupancy additionally costs a fixed
+4.5 surcharge. These priors are assumptions, not observations. Default remains
+`legacy`. The experiment freezes radius 2 m, length weight 1 and these priors;
+searches obstacle/slope/terrain weights. There is no density/cluster cost.
+
+Multi-mode D* uses the existing bounded strategy adapter; it does not use the
+legacy node's A* fallback. This execution difference must be reported separately
+from cost improvements. LPP, vehicle limits and perception blocking are unchanged.
+
+### Camera observation support (opt-in planning consumer)
+`/nomad/camera_observation_support`: nav_msgs/OccupancyGrid, odom, identical geometry/capture stamp to PlanningCostLayers, transient-local depth1. Values0..100 describe recent repeated direct RGBD cell sampling, NOT occupancy/free-volume probability; zero means no sufficient recent support. Computed over2sim seconds with3capture/.5sec span saturation and2sec age decay. Planning requires matching snapshots when enabled; original occupancy remains authoritative.

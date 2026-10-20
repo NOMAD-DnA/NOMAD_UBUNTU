@@ -7,6 +7,11 @@ source /opt/ros/jazzy/setup.bash
 export ROS_DOMAIN_ID="${NOMAD_ROS_DOMAIN_ID:-42}"
 export ROS_AUTOMATIC_DISCOVERY_RANGE="${NOMAD_DISCOVERY_RANGE:-LOCALHOST}"
 export ROS_LOG_DIR="$NOMAD_WS_ROOT/log/ros"
+# Fast DDS: retain UDP discovery and allow large local image messages via 16 MiB SHM.
+# Preserve an explicitly supplied middleware profile.
+if [[ -z "${FASTRTPS_DEFAULT_PROFILES_FILE:-}" && -z "${FASTDDS_DEFAULT_PROFILES_FILE:-}" ]]; then
+    export FASTRTPS_DEFAULT_PROFILES_FILE="$NOMAD_WS_ROOT/.nomad/fastdds.xml"
+fi
 # Every entry point, including the integrated GUI launch, isolates local simulation.
 export GZ_PARTITION="${NOMAD_GZ_PARTITION:-nomad_gazebo_$(hostname)_${ROS_DOMAIN_ID}}"
 export GZ_IP="${GZ_IP:-127.0.0.1}"

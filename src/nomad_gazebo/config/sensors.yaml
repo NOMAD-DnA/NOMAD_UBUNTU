@@ -1,14 +1,15 @@
 # Provisional operating settings, NOT the team's measured calibration.
 camera:
-  model_reference: OAK-D Lite FF
+  model_reference: ZED 2 (ideal Gazebo approximation)
   width: 640
   height: 480
   fps: 30.0
-  # Full-field pinhole approximations from Luxonis specifications.
-  rgb_hfov_deg: 69.0
-  rgb_vfov_deg: 54.0
-  mono_hfov_deg: 73.0
-  mono_vfov_deg: 58.0
+  # ZED 2 maximum 110H/70V FOV; resampled 640x480 pinhole approximation.
+  # Not a native ZED mode, device calibration, distortion or SDK depth model.
+  rgb_hfov_deg: 110.0
+  rgb_vfov_deg: 70.0
+  mono_hfov_deg: 110.0
+  mono_vfov_deg: 70.0
   # Set measured intrinsics here later, otherwise compute from FOV and size.
   rgb_fx: null
   rgb_fy: null
@@ -16,7 +17,7 @@ camera:
   mono_fy: null
   cx: null
   cy: null
-  baseline_m: 0.075
+  baseline_m: 0.12
   depth_min_m: 0.4
   depth_max_m: 8.0
   # Ideal geometry first; this is not a calibrated stereo disparity model.
@@ -51,8 +52,7 @@ lidar:
   # Single scan plane, intersected with the actual 3D terrain and obstacles.
   raytrace_3d: true
 imu:
-  # OAK-D Lite's BMI270 is 6-axis on non-Kickstarter units. Location and
-  # orientation are provisional until the team's actual device is checked.
+  # Simulation operating rate retained; not the ZED 2 maximum IMU rate.
   hz: 200.0
 
 gps:

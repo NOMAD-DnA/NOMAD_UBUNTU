@@ -15,6 +15,8 @@ class DStarLite:
         goal,
         obstacle_threshold=80,
         unknown_penalty=2.5,
+        proximity=None,
+        cell_weights=None,
     ):
         self.edge_filter = None
         self.width = width
@@ -27,7 +29,12 @@ class DStarLite:
 
         self.obstacle_threshold = obstacle_threshold
         self.unknown_penalty = unknown_penalty
-        self.penalties = [self.cost_for_value(value) for value in self.data]
+        self.proximity = self.valid_proximity(proximity, len(self.data))
+        self.penalties = [self.cost_for_value(v) + (p if 0 <= v < obstacle_threshold else 0.)
+                          for v, p in zip(self.data, self.proximity)]
+        if cell_weights is not None:
+            from .multicost import validate_weights
+            self.penalties = validate_weights(self.data,cell_weights)
         self.blocked = [value >= obstacle_threshold for value in self.data]
         self.neighbor_cache = {}
 
@@ -317,28 +324,42 @@ class DStarLite:
         self.start = new_start
         self.last = new_start
 
-    def update_costmap(self, new_data):
+    @staticmethod
+    def valid_proximity(values, size):
+        values = [0.] * size if values is None else list(values)
+        if len(values) != size or any(not math.isfinite(v) or v < 0 for v in values):
+            raise ValueError('Invalid GPP proximity costs')
+        return values
+
+    def update_costmap(self, new_data, proximity=None, cell_weights=None):
         new_data = list(new_data)
 
         if len(new_data) != len(self.data):
             raise ValueError('Costmap size changed')
 
+        new_proximity = self.valid_proximity(proximity, len(new_data))
+        if cell_weights is None:
+            penalties = [self.cost_for_value(v)+(p if 0<=v<self.obstacle_threshold else 0.) for v,p in zip(new_data,new_proximity)]
+        else:
+            from .multicost import validate_weights
+            penalties = validate_weights(new_data,cell_weights)
         changed_indices = []
 
         for i, (old, new) in enumerate(
             zip(self.data, new_data)
         ):
-            if old != new:
+            if old != new or self.proximity[i] != new_proximity[i] or self.penalties[i] != penalties[i]:
                 changed_indices.append(i)
 
         if not changed_indices:
             return []
 
         self.data = new_data
+        self.proximity = new_proximity
 
         for index in changed_indices:
             value = new_data[index]
-            self.penalties[index] = self.cost_for_value(value)
+            self.penalties[index] = penalties[index]
             self.blocked[index] = value >= self.obstacle_threshold
 
         affected = set()

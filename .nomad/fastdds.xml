@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>nomad_udp</transport_id>
+      <type>UDPv4</type>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>nomad_shm</transport_id>
+      <type>SHM</type>
+      <!-- 16 MiB per participant; RGB/confidence images exceed the 512 KiB default. -->
+      <segment_size>16777216</segment_size>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="nomad_default_participant" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>nomad_udp</transport_id>
+        <transport_id>nomad_shm</transport_id>
+      </userTransports>
+      <!-- Replace builtin transports so the default small SHM transport is not retained. -->
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>
