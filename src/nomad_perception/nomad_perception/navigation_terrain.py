@@ -73,7 +73,13 @@ class NavigationTerrain(LiveTerrain):
         self.output_grid = None
         self.last_clock_ns = self.get_clock().now().nanoseconds
         self.declare_parameter("worker_timeout_wall_sec", 30.0)
+        support_hold=float(self.declare_parameter("observation_support_hold_seconds",10.).value)
+        support_expire=float(self.declare_parameter("observation_support_expire_seconds",30.).value)
+        if not (np.isfinite(support_hold) and np.isfinite(support_expire) and 0<=support_hold<support_expire):
+            raise ValueError("invalid observation support memory durations")
         self.worker = TerrainWorker({
+            'support_hold_seconds':support_hold,
+            'support_expire_seconds':support_expire,
             'layers':dict(resolution=self.get_parameter('resolution').value,
                           size=self.get_parameter('size').value, max_size=self.get_parameter('max_size').value,
                           ground_ids=self.get_parameter('ground_ids').value,

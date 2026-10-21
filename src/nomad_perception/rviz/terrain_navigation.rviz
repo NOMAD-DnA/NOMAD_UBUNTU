@@ -8,6 +8,38 @@ Visualization Manager:
     Background Color: 35; 35; 35
     Frame Rate: 20
   Displays:
+  - Class: rviz_default_plugins/Pose
+    Name: Final goal - MAGENTA
+    Enabled: true
+    Topic:
+      Value: /nomad/goal
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Depth: 1
+    Shape: Arrow
+    Color: 255; 0; 255
+    Alpha: 1
+    Shaft Length: 1.2
+    Shaft Radius: 0.09
+    Head Length: 0.35
+    Head Radius: 0.2
+  - Class: rviz_default_plugins/Pose
+    Name: Intermediate waypoint - ORANGE
+    Enabled: true
+    Topic:
+      Value: /nomad/navigation_target
+      Durability Policy: Transient Local
+      Reliability Policy: Reliable
+      History Policy: Keep Last
+      Depth: 1
+    Shape: Arrow
+    Color: 255; 145; 0
+    Alpha: 1
+    Shaft Length: 0.7
+    Shaft Radius: 0.09
+    Head Length: 0.35
+    Head Radius: 0.2
   - Class: rviz_default_plugins/RobotModel
     Name: Vehicle
     Enabled: true
@@ -67,7 +99,8 @@ Visualization Manager:
     Topic:
       Value: /nomad/global_path
     Color: 0; 180; 255
-    Line Width: 0.07
+    Line Width: 0.12
+    Line Style: Billboards
   - Class: rviz_default_plugins/Path
     Name: LPP and reverse
     Enabled: true
@@ -82,6 +115,115 @@ Visualization Manager:
       Value: /scan
       Reliability Policy: Best Effort
     Size (m): 0.04
+  - Class: rviz_common/Group
+    Name: GPP COST COLORS - Green LOW / Red HIGH
+    Enabled: false
+    Displays:
+    - Class: rviz_default_plugins/PointCloud2
+      Name: total (0-160; green=low, red=high)
+      Enabled: true
+      Topic:
+        Value: /nomad/gpp_cost/total_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: slope (0-10; green=low, red=high)
+      Enabled: false
+      Topic:
+        Value: /nomad/gpp_cost/slope_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: proximity (0-32; green=low, red=high)
+      Enabled: false
+      Topic:
+        Value: /nomad/gpp_cost/proximity_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: cluster (0-64; green=low, red=high)
+      Enabled: false
+      Topic:
+        Value: /nomad/gpp_cost/cluster_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: observation (0-80; green=low, red=high)
+      Enabled: false
+      Topic:
+        Value: /nomad/gpp_cost/observation_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: terrain (0-1; green=low, red=high)
+      Enabled: false
+      Topic:
+        Value: /nomad/gpp_cost/terrain_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/PointCloud2
+      Name: unknown_direction (0-8; green=low, red=high)
+      Enabled: false
+      Topic:
+        Value: /nomad/gpp_cost/unknown_direction_color
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
+      Alpha: 1.0
+      Style: Flat Squares
+      Size (m): 0.2
+      Color Transformer: RGB8
+      Position Transformer: XYZ
+      Queue Size: 1
+      Decay Time: 0.0
+    - Class: rviz_default_plugins/Image
+      Name: Cost color legend
+      Enabled: true
+      Topic:
+        Value: /nomad/gpp_cost/legend
+        Durability Policy: Transient Local
+        Reliability Policy: Reliable
   Tools:
   - Class: rviz_default_plugins/Interact
   - Class: rviz_default_plugins/MoveCamera

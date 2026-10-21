@@ -27,6 +27,9 @@ weight_index=args.index('--weights')+1
 weights=args[weight_index].split(',')
 weights[1]=str(speed_config['dstar_lite_gpp']['ros__parameters']['gpp.slope_weight'])
 args[weight_index]=','.join(weights)
+cluster_weight=float(speed_config['dstar_lite_gpp']['ros__parameters']['gpp.cluster_weight'])
+args[args.index('--cluster-weight')+1]=str(cluster_weight)
+override.setdefault('dstar_lite_gpp',{}).setdefault('ros__parameters',{})['gpp.cluster_weight']=cluster_weight
 override.setdefault('dstar_lite_gpp',{}).setdefault('ros__parameters',{})['gpp.slope_weight']=float(weights[1])
 runtime_settings=tempfile.TemporaryDirectory(prefix='nomad-selected-settings-')
 args[idx]=str(Path(runtime_settings.name)/'planning.yaml')

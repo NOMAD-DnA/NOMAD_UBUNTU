@@ -1,5 +1,18 @@
 dstar_lite_gpp:
   ros__parameters:
+    # Optional LPP status; no publisher => unchanged legacy behavior.
+    cooperation.enabled: true
+    cooperation.status_timeout: 0.5 # ROS seconds
+    cooperation.wall_timeout: 1.0 # monotonic receipt seconds
+    cooperation.max_duration: 30.0 # ROS seconds per avoidance episode
+    cooperation.max_wall_duration: 120.0
+    cooperation.no_progress_timeout: 5.0 # ROS seconds, toward fixed rejoin point
+    cooperation.progress_distance: 0.15 # metres
+    cooperation.max_deviation: 3.0 # metres from reference samples
+    cooperation.max_speed: 0.5 # m/s; cooperation admission, not speed command
+    gpp.debug_costs.enabled: true
+    gpp.debug_costs.max_hz: 1.0
+    gpp.debug_costs.display_max: 160.0
     navigation.goal_mode: direct # observed_corridor opts into sensor-only subgoals
     corridor.final_approach_radius: 3.0 # metres; latch final goal, stop/retry on failure (0: legacy)
     gpp_algorithm: dstar_lite

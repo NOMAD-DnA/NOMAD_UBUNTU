@@ -71,3 +71,15 @@ def test_newer_scan_deferred_then_integrated_without_future_free_cells():
  assert b['scans_integrated']==1 and b['scans_deferred']==1
  assert g.seen[y,x]==1.2
  assert scan_free_memory(e.layers,1.5)[0][y,x]
+
+def test_remembered_support_never_overwrites_new_blocked_cells():
+ e=TerrainEngine(CONFIG)
+ for stamp in [1_000_000_000,1_800_000_000,2_600_000_000]:
+  j=job(stamp);j['bootstrap']=None
+  j['ids'][:]=1;j['xyz'][:,2]=.6  # Raised solid returns above body_z=.3.
+  result=e.compute(j)
+ blocked=result['maps'][0]==100
+ assert blocked.any()
+ assert np.any(result['camera_support'][blocked]>0)
+ # A cell can have strong observation support AND remain strictly blocked.
+ assert np.all(result['maps'][0][blocked]==100)

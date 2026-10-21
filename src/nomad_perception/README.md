@@ -100,3 +100,9 @@ With record_results enabled, terrain/obstacle_diagnostics.jsonl records each sav
 
 ## 반복 확정 조건 개선 (2026-10-20, 위 절보다 우선)
 경사/고형물 공통 확정은 최근3sim초 내3회·최소.5초·75%동의로 변경. 해제는4회·최소1초·최근1초 초과증거 없음 유지(증거 창은3초). 경사는 이번 촬영 지면점이 있는 셀이고 slope_reused가 아닌 경우만 새 초과 증거로 인정. 오래된 경사만 있을 때에는 확정/해제 투표를 추가하지 않는다. GUI 경사 임계각은 유지. 실제 지면점 누락 시 확정 지연은 여전히 가능하며 1.58초는0.79초 간격의 유효 관측3회가 이어질 때의 계산값이다. 기록: experiments/slope_confirmation_3hits_20261020/README.md.
+
+## 카메라 관측 기억 (2026-10-21)
+
+카메라 관측지원 점수는 마지막 직접 촬영 후 10sim초 감쇠 없이 유지하고, 10~30sim초 선형 감쇠 후 0이 된다. 관측지원은 통행 허가가 아니며 새로 확정된 장애물·차단 경사를 덮어쓰지 않는다. 장애물 확정의 최근3초 증거 창과 별도이다.
+
+`navigation_terrain.yaml`의 `observation_support_hold_seconds: 10.0`, `observation_support_expire_seconds: 30.0`으로 설정한다. 점수 품질은 마지막 관측 시점의 증거로 계산하며, 새 관측 없이 강해지거나 유효기간이 연장되지 않는다. OccupancyGrid의 미관측/장애물 값이나 local/global 지도 보존 정책을 변경하지 않는다. 재시작한 인지 노드부터 적용된다.

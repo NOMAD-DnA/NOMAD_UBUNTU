@@ -13,10 +13,15 @@ dstar_lite_gpp:
   ros__parameters:
     corridor.bearing_weight: 1.0
     corridor.clearance_weight: 1.0
+    corridor.observed_goal_lock: true
     corridor.final_approach_radius: 3.0
     corridor.goal_weight: 1.0
     corridor.heading_weight: 1.0
     corridor.incremental_selection: true
+    corridor.reselect_new_blocked: true
+    corridor.reselect_half_width: 1.5
+    corridor.reselect_lookahead: 3.0
+    corridor.continuation_distance: 3.0 # Confirmed dead-end veto beyond local target.
     corridor.retain_safe_path: true
     corridor.retained_slope_increase: 0.2
     corridor.length_weight: 0.15
@@ -29,12 +34,12 @@ dstar_lite_gpp:
     gpp.cluster_influence: 0.75
     gpp.cluster_radius: 4.0
     gpp.cluster_saturation: 0.4
-    gpp.cluster_weight: 64.0
+    gpp.cluster_weight: 32.0
     gpp.cost_mode: multi
     gpp.max_expansions: 200000
     gpp.proximity_radius: 4.0
     gpp.proximity_weight: 16.0
-    gpp.slope_weight: 10.0
+    gpp.slope_weight: 5.0
     gpp.terrain_weight: 0.5
     gpp.time_budget: 20.0
     gpp.unknown_direction_free_angle_deg: 15.0

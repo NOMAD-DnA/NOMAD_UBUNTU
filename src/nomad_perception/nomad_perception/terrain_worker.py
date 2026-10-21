@@ -58,7 +58,10 @@ class TerrainEngine:
                              'arrays_complete':arrays_ms, 'costmap_complete':costmap_ms},
                     processing_ms=(time.perf_counter()-started)*1000)
         from .observation_support import support_grid
-        result['camera_support'] = support_grid(layers.block_evidence.history, g, stamp)
+        result['camera_support'] = support_grid(layers.block_evidence.history, g, stamp,
+            hold_seconds=self.config.get('support_hold_seconds',10.),
+            expire_seconds=self.config.get('support_expire_seconds',30.),
+            evidence_window=layers.block_evidence.window)
         result['obstacle_diagnostics'] = layers.obstacle_diagnostics
         result['scans_integrated'] = len(ready)
         result['scans_deferred'] = len(self.pending_scans)

@@ -7,7 +7,9 @@ import time
 
 import rclpy
 from std_msgs.msg import Bool
-from nomad_interfaces.msg import PlanningCostLayers
+from nomad_interfaces.msg import PlanningCostLayers, LppProgress
+from .lpp_cooperation import Cooperation, Progress
+from .route_guard import yaw
 from nomad_path_planning.gpp.multicost import compose
 from geometry_msgs.msg import PoseArray
 from rclpy.qos import QoSProfile, DurabilityPolicy
@@ -61,6 +63,11 @@ class RecoveryGPP(DStarLiteNode):
             raise ValueError('invalid navigation.goal_mode')
         from .corridor_selector import CorridorSelector
         self.corridor = CorridorSelector(
+            observed_goal_lock=self.declare_parameter("corridor.observed_goal_lock",False).value,
+            reselect_new_blocked=self.declare_parameter("corridor.reselect_new_blocked",False).value,
+            reselect_half_width=self.declare_parameter("corridor.reselect_half_width",1.5).value,
+            reselect_lookahead=self.declare_parameter("corridor.reselect_lookahead",3.).value,
+            continuation_distance=self.declare_parameter("corridor.continuation_distance",0.).value,
             final_approach_radius=self.declare_parameter('corridor.final_approach_radius',3.).value,
             incremental=self.declare_parameter("corridor.incremental_selection",False).value,
             horizon=self.declare_parameter('corridor.horizon',8.).value,
@@ -110,6 +117,9 @@ class RecoveryGPP(DStarLiteNode):
         from .gpp.unknown_direction import unknown_direction_cost
         unknown_direction_cost(dict(width=1,height=1,resolution=1.,origin_x=0.,origin_y=0.,data=[0]), (0.,0.,0.), self.unknown_direction_weight, self.unknown_direction_radius, self.unknown_direction_angle)
         self.feature_bundle = None
+        from .cost_debug import CostDebugPublisher
+        self.cost_debug = CostDebugPublisher(self)
+        self.multi_components = {}
         if self.cost_mode == 'multi':
             self.destroy_subscription(self.costmap_sub)
             self.costmap_sub = self.create_subscription(PlanningCostLayers,
@@ -135,8 +145,70 @@ class RecoveryGPP(DStarLiteNode):
         self.reference_adapter = ReferenceAdapter(**options)
         self.strategy_key = None
         self.get_logger().info(f'Selected GPP={self.algorithm}, LPP={self.lpp_algorithm}')
+        self.cooperation_enabled = self.declare_parameter('cooperation.enabled', True).value
+        self.cooperation = Cooperation(**{
+            name: float(self.declare_parameter('cooperation.'+name, default).value)
+            for name, default in dict(status_timeout=.5, wall_timeout=1.,
+                max_duration=30., max_wall_duration=120., no_progress_timeout=5.,
+                progress_distance=.15, max_deviation=3., max_speed=.5).items()},
+            wheelbase=options['wheelbase'], max_steer=options['max_steer'],
+            reference_offset=options['reference_offset'])
+        self.cooperation_reference = None
+        self.create_subscription(LppProgress, '/nomad/planning/lpp_progress', self.on_lpp_progress, 1)
         self.create_subscription(Bool, '/nomad/lpp_failed', self.on_lpp, 10)
         self.create_timer(0.2, self.try_plan)
+
+    def on_lpp_progress(self, msg):
+        # Only the current observed-corridor protocol grants a reference lease.
+        if not self.cooperation_enabled or self.goal_mode != 'observed_corridor':
+            return
+        stamp = lambda t: t.sec+t.nanosec*1e-9
+        motion = msg.motion
+        valid = (motion.path.header.frame_id == self.planning_frame
+                 and all(valid_pose(p.pose) for p in motion.path.poses))
+        points = tuple((p.pose.position.x, p.pose.position.y, yaw(p.pose.orientation))
+                       for p in motion.path.poses) if valid else ()
+        progress = Progress(stamp(msg.header.stamp),
+            (msg.reference_stamp.sec,msg.reference_stamp.nanosec), msg.state,
+            msg.request_replan, msg.rejoin_index, stamp(motion.path.header.stamp),
+            points, motion.target_speed, motion.target_steering_angle, msg.header.frame_id)
+        self.cooperation.receive(progress, time.monotonic())
+
+    def publish_empty_path(self):
+        if hasattr(self, 'cooperation'):
+            self.cooperation.reset()
+            self.cooperation_reference = None
+        super().publish_empty_path()
+
+    def cooperative_hold(self, grid, start, now):
+        reference = getattr(self, 'cooperation_reference', None)
+        if not getattr(self, 'cooperation_enabled', False) or reference is None:
+            return False
+        stamp = reference.header.stamp
+        points = [(p.pose.position.x,p.pose.position.y,yaw(p.pose.orientation))
+                  for p in reference.poses]
+        decision = self.cooperation.evaluate(reference_id=(stamp.sec,stamp.nanosec),
+            reference=points, start=start, grid=grid, frame=self.planning_frame,
+            now=now, wall=time.monotonic(), legacy_failed=self.failed_since is not None)
+        if decision == 'legacy':
+            return False
+        from std_msgs.msg import String
+        self.corridor_pub.publish(String(data=json.dumps(dict(
+            state='lpp_avoidance_hold' if decision == 'hold' else 'lpp_avoidance_replan',
+            reason=self.cooperation.reason, reference_stamp=[stamp.sec,stamp.nanosec],
+            reference_is_guidance_only=True))))
+        if decision == 'hold':
+            # Do not restamp/re-publish the blocked prefix as a new safe solution.
+            # Command selection still validates the actual local motion separately.
+            self.report('GPP_LOCAL_AVOIDANCE: retain reference; local execution checks remain active')
+            return True
+        reason = self.cooperation.reason
+        self.corridor.active = self.corridor.active_path = None
+        self.corridor.accepted_slope = None
+        self.publish_empty_path()
+        self.retry_pending = True
+        self.report('GPP_LPP_REPLAN: '+reason)
+        return False
 
     def on_camera_support(self,msg):
         self.camera_support=msg
@@ -147,13 +219,14 @@ class RecoveryGPP(DStarLiteNode):
                 raise ValueError('invalid layer geometry')
             i=msg.grid.info
             d=dict(width=i.width,height=i.height,resolution=i.resolution,data=msg.grid.data)
-            weights=compose(d,msg.slope_cost,msg.terrain_cost,**self.multi_options)
+            weights,components=compose(d,msg.slope_cost,msg.terrain_cost,return_components=True,**self.multi_options)
         except ValueError as error:
             self.costmap=None
             self.stop_and_retry(f'GPP_WAIT: invalid cost layers: {error}')
             return
         self.feature_bundle=msg
         self.multi_weights=weights
+        self.multi_components=components
         self.costmap_callback(msg.grid)
 
     def proximity_for_map(self):
@@ -179,6 +252,9 @@ class RecoveryGPP(DStarLiteNode):
         self.goal_pose = msg
         if old is None or (old.pose.position.x, old.pose.position.y) != (
                 msg.pose.position.x, msg.pose.position.y):
+            if hasattr(self, 'cooperation'):
+                self.cooperation.reset()
+                self.cooperation_reference = None
             if hasattr(self,'corridor'):
                 self.corridor.reset()
                 self.corridor_last_goal=None
@@ -323,15 +399,21 @@ class RecoveryGPP(DStarLiteNode):
         goal=(self.goal_pose.pose.position.x,self.goal_pose.pose.position.y)
         request=Request(grid,start,goal,tuple(self.gates))
         view=Grid(request,self.unknown_penalty)
+        debug_components=dict(getattr(self,'multi_components',{}))
         if self.unknown_direction_weight:
             from .gpp.unknown_direction import unknown_direction_cost
             extra=unknown_direction_cost(grid,start,self.unknown_direction_weight,
                                          self.unknown_direction_radius,self.unknown_direction_angle)
+            debug_components['unknown_direction']=extra
             grid['cell_weights']=[v+float(e) for v,e in zip(view.weights,extra)]
             view=Grid(request,self.unknown_penalty)
+        grid['debug_components']=debug_components
         if getattr(self,'goal_mode','direct') == 'observed_corridor':
             self.plan_corridor(grid,start,goal)
             return
+        debug=getattr(self,'cost_debug',None)
+        if debug is not None:
+            debug.publish(self.costmap,grid,debug_components,start)
         if not all(math.isfinite(view.value(*xy)) for xy in (start[:2],goal)):
             self.stop_and_retry('GPP_WAIT: endpoint outside map or blocked')
             return
@@ -387,17 +469,29 @@ class RecoveryGPP(DStarLiteNode):
             if m is None or signature(m)!=signature(self.costmap):
                 self.stop_and_retry('GPP_WAIT: matching camera observation support unavailable');return
             support=list(m.data)
-            try:grid=turn_weights(grid,support,start,self.observation_weight)
+            try:
+                import numpy as np
+                previous=np.asarray(grid['cell_weights'])
+                grid=turn_weights(grid,support,start,self.observation_weight)
+                added=np.zeros_like(previous)
+                np.subtract(np.asarray(grid['cell_weights']),previous,out=added,where=np.isfinite(previous))
+                grid.setdefault('debug_components',{})['observation']=added
             except ValueError as error:
                 self.stop_and_retry('GPP_WAIT: '+str(error));return
         grid=clearance_grid(grid,getattr(self,'corridor_min_clearance',0.))
+        debug=getattr(self,'cost_debug',None)
+        if debug is not None:
+            debug.publish(self.costmap, observed_grid(grid), grid.get('debug_components',{}), start)
         grid['gates']=tuple(self.gates)
+        if getattr(self, "cooperation_enabled", False) and self.cooperative_hold(grid,start,now):
+            return
         invalidation=self.corridor.invalidate_unreachable(grid,start,now,
-            getattr(self,'retained_slope_increase',.2))
+            getattr(self,'retained_slope_increase',.2),goal=mission)
         if invalidation:
             self.publish_empty_path()
+        goal_probe=self.corridor.observed_goal_candidate(grid,start,mission,now)
         retained=None
-        if getattr(self,'retain_safe_path',False) and getattr(self,'failed_since',None) is None:
+        if goal_probe is None and getattr(self,'retain_safe_path',False) and getattr(self,'failed_since',None) is None:
             retained=self.corridor.retained_path(grid,start,mission)
         if retained:
             target,path=retained
@@ -409,6 +503,9 @@ class RecoveryGPP(DStarLiteNode):
             with measured(self,"corridor_selection"):
                 choices=self.corridor.candidates(grid,start,mission,now)
             diagnostic=dict(self.corridor.detail)
+            if goal_probe is not None:
+                choices=[goal_probe]+[c for c in choices if c.point!=goal_probe.point]
+                diagnostic["observed_goal_probe"]=True
             result=None
             target=None
         diagnostic['previous_path_invalidated']=invalidation
@@ -424,7 +521,8 @@ class RecoveryGPP(DStarLiteNode):
                         trial=self.reference_adapter.adapt(request,trial)
                 valid=(bool(trial.path) and math.dist(trial.path[-1][:2],candidate.point)<=.30
                        and math.isfinite(Grid(request,self.unknown_penalty).path_cost(trial.path)))
-                length,short=short_path_length(trial.path,candidate.distance,self.corridor.horizon)
+                length,short=short_path_length(trial.path,candidate.distance,
+                    max(self.corridor.horizon,candidate.distance) if candidate.final else self.corridor.horizon)
                 valid=valid and short
                 reason=trial.detail if short or not trial.path else f'candidate path detour rejected ({length:.2f}m)'
                 if valid and self.observation_guard:
@@ -436,7 +534,8 @@ class RecoveryGPP(DStarLiteNode):
             attempts.append(dict(target=candidate.point,valid=valid,reason=reason))
             if valid:
                 result=trial;target=candidate;break
-            self.corridor.reject(candidate.point,now)
+            if not (goal_probe is not None and candidate.point==goal_probe.point):
+                self.corridor.reject(candidate.point,now)
         diagnostic['attempts']=attempts
         diagnostic['selected']=target.point if target else None
         self.corridor_pub.publish(String(data=json.dumps(diagnostic,allow_nan=False)))
@@ -460,6 +559,9 @@ class RecoveryGPP(DStarLiteNode):
             p=PoseStamped();p.header=msg.header;p.pose.position.x=float(x);p.pose.position.y=float(y)
             p.pose.orientation.z=math.sin(yaw/2);p.pose.orientation.w=math.cos(yaw/2);msg.poses.append(p)
         self.path_pub.publish(msg)
+        if hasattr(self, 'cooperation'):
+            self.cooperation.reset()
+            self.cooperation_reference = msg
         self.retry_pending=False
         self.report(f'GPP_OK [{self.algorithm} observed_corridor]: target={target.point}, final={target.final}, poses={len(result.path)}, retained={bool(retained)}')
 

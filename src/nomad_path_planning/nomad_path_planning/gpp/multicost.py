@@ -34,7 +34,8 @@ def cluster_density(grid, radius=4., influence_radius=0., saturation=1.):
 
 def compose(grid, slope, terrain, *, obstacle_weight=4., slope_weight=1.,
             terrain_weight=1., radius=2., missing_cost=1., unknown_surcharge=4.5,
-            cluster_weight=0., cluster_radius=4., cluster_influence=0., cluster_saturation=1.):
+            cluster_weight=0., cluster_radius=4., cluster_influence=0., cluster_saturation=1.,
+            return_components=False):
     if not math.isfinite(cluster_weight) or cluster_weight<0 or not math.isfinite(cluster_radius) or cluster_radius<=0:
         raise ValueError('Invalid cluster parameters')
     if not math.isfinite(cluster_influence) or cluster_influence<0 or not math.isfinite(cluster_saturation) or not 0<cluster_saturation<=1:
@@ -50,14 +51,18 @@ def compose(grid, slope, terrain, *, obstacle_weight=4., slope_weight=1.,
         if np.any(np.isinf(a)) or np.any(np.isfinite(a)&((a<0)|(a>1))):
             raise ValueError('Feature must be [0,1] or NaN')
     prox=np.asarray(proximity_costs(data,grid['width'],grid['height'],grid['resolution'],radius,1.))
-    cost=1.+obstacle_weight*prox+slope_weight*np.where(np.isnan(s),missing_cost,s)+terrain_weight*np.where(np.isnan(t),missing_cost,t)
+    components=dict(distance=np.ones(n), proximity=obstacle_weight*prox,
+                    slope=slope_weight*np.where(np.isnan(s),missing_cost,s),
+                    terrain=terrain_weight*np.where(np.isnan(t),missing_cost,t))
+    cost=components["distance"]+components["proximity"]+components["slope"]+components["terrain"]
     # Unknown is neither a measured flat surface nor a free shortcut. Keep a
     # fixed surcharge, held constant across weight trials and reported separately.
     cost[data<0]=1.+(slope_weight+terrain_weight)*missing_cost+unknown_surcharge
-    if cluster_weight:
-        cost+=cluster_weight*cluster_density(grid,cluster_radius,cluster_influence,cluster_saturation)
+    components["cluster"] = (cluster_weight*cluster_density(grid,cluster_radius,cluster_influence,cluster_saturation)
+                             if cluster_weight else np.zeros(n))
+    cost+=components["cluster"]
     cost[data>=80]=np.inf
-    return cost.tolist()
+    return (cost.tolist(), components) if return_components else cost.tolist()
 
 def validate_weights(data, values):
     weights=list(values)

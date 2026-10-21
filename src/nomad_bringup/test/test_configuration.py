@@ -14,6 +14,7 @@ def test_renamed_topics_follow_each_role_and_select_external_modules(tmp_path):
     target=tmp_path/'topics.yaml'
     target.write_text(yaml.safe_dump(data))
     topics=load_topics(target)
+    assert dict(remappings(topics,'gpp'))['/nomad/planning/lpp_progress']=='/team/planning/lpp_progress'
     assert dict(remappings(topics,'gpp'))['/nomad/costmap']=='/team/perception/global_costmap'
     for role in ('lpp','command'):
         assert dict(remappings(topics,role))['/nomad/costmap']=='/team/perception/local_costmap'
@@ -42,3 +43,11 @@ def test_external_vio_requires_single_tf_owner(tmp_path):
     target=tmp_path/'modules.yaml'
     target.write_text('perception: builtin\nvio: external\ncontrol: builtin\ntf_owner: gazebo\n')
     with pytest.raises(ValueError,match='tf_owner=vio'): load_modules(target)
+
+
+def test_older_topics_file_can_omit_optional_lpp_progress(tmp_path):
+    data=yaml.safe_load((CONFIG/'topics.yaml').read_text())
+    del data['topics']['planning']['lpp_progress']
+    target=tmp_path/'topics.yaml';target.write_text(yaml.safe_dump(data))
+    topics=load_topics(target)
+    assert topics['planning.lpp_progress']=='/nomad/planning/lpp_progress'

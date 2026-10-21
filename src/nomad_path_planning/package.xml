@@ -12,7 +12,7 @@
   <depend>nomad_interfaces</depend>
   <test_depend>nomad_perception</test_depend>
   <test_depend>nomad_control</test_depend>
-  <test_depend>sensor_msgs</test_depend>
+  <depend>sensor_msgs</depend>
   <test_depend>tf2_ros</test_depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
