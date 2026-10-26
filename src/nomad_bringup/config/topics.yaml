@@ -36,7 +36,6 @@ topics:
     recovery_gates: /nomad/recovery_gates
     local_motion: /nomad/planning/local_motion
     recovery_motion: /nomad/planning/recovery_motion
-    lpp_progress: /nomad/planning/lpp_progress
     lpp_failed: /nomad/lpp_failed
     drive_command: /nomad/planning/drive_command
     status: /nomad/planning/status

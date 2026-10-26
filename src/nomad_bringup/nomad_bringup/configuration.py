@@ -18,8 +18,6 @@ def load_topics(filename):
     except (TypeError,AttributeError) as exc:
         raise ValueError('Invalid topic sections') from exc
     expected = flatten(DEFAULT_TOPICS)
-    # Additive optional contract: old user topic files remain loadable.
-    topics.setdefault('planning.lpp_progress', expected['planning.lpp_progress'])
     if set(topics) != set(expected):
         raise ValueError(f'Topic keys differ: missing={set(expected)-set(topics)}, extra={set(topics)-set(expected)}')
     for key,value in topics.items():

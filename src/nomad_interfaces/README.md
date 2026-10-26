@@ -163,13 +163,3 @@ from cost improvements. LPP, vehicle limits and perception blocking are unchange
 
 ### Camera observation support (opt-in planning consumer)
 `/nomad/camera_observation_support`: nav_msgs/OccupancyGrid, odom, identical geometry/capture stamp to PlanningCostLayers, transient-local depth1. Values0..100 describe recent repeated direct RGBD cell sampling, NOT occupancy/free-volume probability; zero means no sufficient recent support. Computed over2sim seconds with3capture/.5sec span saturation and2sec age decay. Planning requires matching snapshots when enabled; original occupancy remains authoritative.
-
-## LppProgress.msg — 선택적 LPP → GPP 우회 협력 (2026-10-21)
-`/nomad/planning/lpp_progress`, Reliable/Volatile/depth1, 권장10Hz.
-`header`는 상태 ROS시각/planning_frame, `reference_stamp`는 참조 전역 Path의 원본stamp,
-`state`는 TRACKING=0/AVOIDING=1/BLOCKED=2, `request_replan`은 재계획 요청,
-`rejoin_index`는 고정된 전방 합류 인덱스, `motion`은 local_motion에도 보내는 동일한 PlannedMotion이다.
-기존 타입은 변경하지 않으며 Control은 이 메시지를 구독하지 않는다.
-0.5 ROS초/1 wall초 상태 lease, 입력 검증 실패 시 GPP 유지 불가. 같은 stamp 재전송은 lease 갱신 불가.
-현재 observed_corridor GPP만 소비하며 새 LPP의 상태 발행이 있어야 동작한다.
-자세한 계약: `nomad_path_planning/docs/LPP_GPP_우회협력.md`.

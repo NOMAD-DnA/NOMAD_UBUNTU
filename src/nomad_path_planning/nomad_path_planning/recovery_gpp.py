@@ -7,9 +7,7 @@ import time
 
 import rclpy
 from std_msgs.msg import Bool
-from nomad_interfaces.msg import PlanningCostLayers, LppProgress
-from .lpp_cooperation import Cooperation, Progress
-from .route_guard import yaw
+from nomad_interfaces.msg import PlanningCostLayers
 from nomad_path_planning.gpp.multicost import compose
 from geometry_msgs.msg import PoseArray
 from rclpy.qos import QoSProfile, DurabilityPolicy
@@ -145,70 +143,8 @@ class RecoveryGPP(DStarLiteNode):
         self.reference_adapter = ReferenceAdapter(**options)
         self.strategy_key = None
         self.get_logger().info(f'Selected GPP={self.algorithm}, LPP={self.lpp_algorithm}')
-        self.cooperation_enabled = self.declare_parameter('cooperation.enabled', True).value
-        self.cooperation = Cooperation(**{
-            name: float(self.declare_parameter('cooperation.'+name, default).value)
-            for name, default in dict(status_timeout=.5, wall_timeout=1.,
-                max_duration=30., max_wall_duration=120., no_progress_timeout=5.,
-                progress_distance=.15, max_deviation=3., max_speed=.5).items()},
-            wheelbase=options['wheelbase'], max_steer=options['max_steer'],
-            reference_offset=options['reference_offset'])
-        self.cooperation_reference = None
-        self.create_subscription(LppProgress, '/nomad/planning/lpp_progress', self.on_lpp_progress, 1)
         self.create_subscription(Bool, '/nomad/lpp_failed', self.on_lpp, 10)
         self.create_timer(0.2, self.try_plan)
-
-    def on_lpp_progress(self, msg):
-        # Only the current observed-corridor protocol grants a reference lease.
-        if not self.cooperation_enabled or self.goal_mode != 'observed_corridor':
-            return
-        stamp = lambda t: t.sec+t.nanosec*1e-9
-        motion = msg.motion
-        valid = (motion.path.header.frame_id == self.planning_frame
-                 and all(valid_pose(p.pose) for p in motion.path.poses))
-        points = tuple((p.pose.position.x, p.pose.position.y, yaw(p.pose.orientation))
-                       for p in motion.path.poses) if valid else ()
-        progress = Progress(stamp(msg.header.stamp),
-            (msg.reference_stamp.sec,msg.reference_stamp.nanosec), msg.state,
-            msg.request_replan, msg.rejoin_index, stamp(motion.path.header.stamp),
-            points, motion.target_speed, motion.target_steering_angle, msg.header.frame_id)
-        self.cooperation.receive(progress, time.monotonic())
-
-    def publish_empty_path(self):
-        if hasattr(self, 'cooperation'):
-            self.cooperation.reset()
-            self.cooperation_reference = None
-        super().publish_empty_path()
-
-    def cooperative_hold(self, grid, start, now):
-        reference = getattr(self, 'cooperation_reference', None)
-        if not getattr(self, 'cooperation_enabled', False) or reference is None:
-            return False
-        stamp = reference.header.stamp
-        points = [(p.pose.position.x,p.pose.position.y,yaw(p.pose.orientation))
-                  for p in reference.poses]
-        decision = self.cooperation.evaluate(reference_id=(stamp.sec,stamp.nanosec),
-            reference=points, start=start, grid=grid, frame=self.planning_frame,
-            now=now, wall=time.monotonic(), legacy_failed=self.failed_since is not None)
-        if decision == 'legacy':
-            return False
-        from std_msgs.msg import String
-        self.corridor_pub.publish(String(data=json.dumps(dict(
-            state='lpp_avoidance_hold' if decision == 'hold' else 'lpp_avoidance_replan',
-            reason=self.cooperation.reason, reference_stamp=[stamp.sec,stamp.nanosec],
-            reference_is_guidance_only=True))))
-        if decision == 'hold':
-            # Do not restamp/re-publish the blocked prefix as a new safe solution.
-            # Command selection still validates the actual local motion separately.
-            self.report('GPP_LOCAL_AVOIDANCE: retain reference; local execution checks remain active')
-            return True
-        reason = self.cooperation.reason
-        self.corridor.active = self.corridor.active_path = None
-        self.corridor.accepted_slope = None
-        self.publish_empty_path()
-        self.retry_pending = True
-        self.report('GPP_LPP_REPLAN: '+reason)
-        return False
 
     def on_camera_support(self,msg):
         self.camera_support=msg
@@ -252,9 +188,6 @@ class RecoveryGPP(DStarLiteNode):
         self.goal_pose = msg
         if old is None or (old.pose.position.x, old.pose.position.y) != (
                 msg.pose.position.x, msg.pose.position.y):
-            if hasattr(self, 'cooperation'):
-                self.cooperation.reset()
-                self.cooperation_reference = None
             if hasattr(self,'corridor'):
                 self.corridor.reset()
                 self.corridor_last_goal=None
@@ -483,8 +416,6 @@ class RecoveryGPP(DStarLiteNode):
         if debug is not None:
             debug.publish(self.costmap, observed_grid(grid), grid.get('debug_components',{}), start)
         grid['gates']=tuple(self.gates)
-        if getattr(self, "cooperation_enabled", False) and self.cooperative_hold(grid,start,now):
-            return
         invalidation=self.corridor.invalidate_unreachable(grid,start,now,
             getattr(self,'retained_slope_increase',.2),goal=mission)
         if invalidation:
@@ -559,9 +490,6 @@ class RecoveryGPP(DStarLiteNode):
             p=PoseStamped();p.header=msg.header;p.pose.position.x=float(x);p.pose.position.y=float(y)
             p.pose.orientation.z=math.sin(yaw/2);p.pose.orientation.w=math.cos(yaw/2);msg.poses.append(p)
         self.path_pub.publish(msg)
-        if hasattr(self, 'cooperation'):
-            self.cooperation.reset()
-            self.cooperation_reference = msg
         self.retry_pending=False
         self.report(f'GPP_OK [{self.algorithm} observed_corridor]: target={target.point}, final={target.final}, poses={len(result.path)}, retained={bool(retained)}')
 
