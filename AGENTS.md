@@ -52,3 +52,13 @@
 ## 2026-10-20 기본 플래닝 프로파일
 - 사용자 요청으로 일반 sensor-based 실행은 메뉴1번 Hybrid A* + RPP, terrain_planning.yaml의 observed_corridor·증분 경유점·다중 비용·관측 회전 검사 설정을 기본 적용한다. 최종목표3m 진입 후 목표를 유지하고 실패 시 정지·재계획하며 후진복구는 비활성이다. 맵·출발·목표는 사용자 선택을 유지한다.
 - 설정 승격은 완주 보장이나 지그재그 해결을 뜻하지 않는다. 검증·백업·복구 기록: experiments/default_profile_20261020/README.md.
+
+## 2026-10-26 GPP 정상 경로 재발행 생략 결정
+- 사용자 합의: GPP는 주행 중 기존 경로의 유효성을 검사하되 정상일 때 global_path와 동일 중간 목표를 재발행하지 않는다. LPP는 마지막 유효 경로로 계속 추종한다. 목표/경로 변경 또는 무효화 시에만 필요한 발행을 수행한다.
+- HTML 시연에는 이 정책을 적용한다. 정상 검사를 GPP 발행 단계나 LPP와의 역할 이관처럼 표시하지 않고 별도 관리 상태·내부 로그로 표시한다.
+- 2026-10-27 실제 ROS의 observed_corridor + retain_safe_path에도 적용했다. 정상 검사는 corridor_status만 발행하며, 빈 경로 이후에는 유효 경로를 다시 발행한다. 명령 선택기는 목표 발행 시각과 토픽 수신 순서에 대응한다. 지역 명령 freshness/정지 계약은 유지한다. direct·retain_safe_path=false까지 같은 정책이라고 설명하지 않는다.
+
+## 2026-10-27 플래닝 시나리오 실험실
+- 사용자 선택: 첫 검증은 실제 Gazebo 물리 + GT 위치·관측 지도 + 실제 Hybrid A*/RPP/Control. B0/VIO 통합 시험과 구분한다.
+- 실행은 scripts/run_scenario_lab.sh, 기본 domain142. 시나리오 입력/생성기는 nomad_bringup/nomad_bringup/scenario_lab, 생성 맵·명시적 시험 결과는 sessions/planning_lab. 기존 maps1–8과 개인 ABCD 백업은 보존한다.
+- 큐의 명시적 시험 실행은 metrics/trajectory/events/진단 로그 저장을 허용한다. 일반 GUI의 기본 로그 기록 비활성 정책은 유지한다. 5번 안전 정지·6번 전진 불가를 목표 완주로 집계하지 않는다. 3번 합성 비용과 추가한 물리 곡면의 차이는 docs/플래닝_시나리오_실험실.md 참조.

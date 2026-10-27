@@ -60,19 +60,20 @@ def test_node_retains_with_zero_recent_support_but_stops_for_stale_input():
     support=OccupancyGrid();support.header=m.header;support.info=m.info;support.data=[0]*10000
     pose=PoseStamped();pose.header=m.header;pose.pose.orientation.w=1.
     node=SimpleNamespace(costmap=m,current_pose=pose,observation_weight=0.,observation_guard=True,
-        camera_support=support,retain_safe_path=True,failed_since=None,corridor=s,gates=[],
+        camera_support=support,retain_safe_path=True,retry_pending=False,failed_since=None,corridor=s,gates=[],
         unknown_penalty=1.,lpp_algorithm='rpp',algorithm='hybrid_astar',strategy=Mock(),
         get_clock=lambda:SimpleNamespace(now=lambda:Time(seconds=10)),corridor_pub=Mock(),
         subgoal_pub=Mock(),path_pub=Mock(),publish_empty_path=Mock(),report=Mock(),planning_frame='odom')
     node.stop_and_retry=MethodType(RecoveryGPP.stop_and_retry,node)
     RecoveryGPP.plan_corridor(node,g,(3.,5.,0.),(18.,5.))
     node.strategy.plan.assert_not_called()
-    assert node.path_pub.publish.call_count==1
-    assert 'retained_safe_path' in node.corridor_pub.publish.call_args.args[0].data
+    node.path_pub.publish.assert_not_called()
+    node.subgoal_pub.publish.assert_not_called()
+    assert 'validated_safe_path' in node.corridor_pub.publish.call_args.args[0].data
     node.get_clock=lambda:SimpleNamespace(now=lambda:Time(seconds=15))
     RecoveryGPP.plan_corridor(node,g,(3.,5.,0.),(18.,5.))
     node.publish_empty_path.assert_called_once()
-    assert node.path_pub.publish.call_count==1
+    node.path_pub.publish.assert_not_called()
 
 
 def test_target_blocked_even_when_accepted_path_ends_short():

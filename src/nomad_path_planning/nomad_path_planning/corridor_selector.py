@@ -226,21 +226,25 @@ class CorridorSelector:
         LPP remains responsible for the actual connecting motion and swept checks.
         """
         from .gpp.base import Grid, Request
+        self.retention_reason = None
+        def decline(reason):
+            self.retention_reason = reason
+            return None
         path=self.active_path
-        if self.active is None or not path or len(path)<2:return None
-        if self.continuation_blocked(grid,start,self.active,goal):return None
+        if self.active is None or not path or len(path)<2:return decline('no_reference')
+        if self.continuation_blocked(grid,start,self.active,goal):return decline('target_continuation_blocked')
         final=math.dist(self.active,goal)<1e-6
-        if self.final_approach_goal is not None and not final:return None
-        if self.final_approach_radius>0 and math.dist(start[:2],goal)<=self.final_approach_radius and not final:return None
-        if not final and math.dist(start[:2],self.active)<self.arrival:return None
+        if self.final_approach_goal is not None and not final:return decline('final_target_transition')
+        if self.final_approach_radius>0 and math.dist(start[:2],goal)<=self.final_approach_radius and not final:return decline('final_target_transition')
+        if not final and math.dist(start[:2],self.active)<self.arrival:return decline('waypoint_reached')
         index=min(range(len(path)),key=lambda i:math.dist(start[:2],path[i][:2]))
         delta=abs(math.atan2(math.sin(path[index][2]-start[2]),math.cos(path[index][2]-start[2])))
-        if math.dist(start[:2],path[index][:2])>.25 or delta>math.radians(15):return None
+        if math.dist(start[:2],path[index][:2])>.25 or delta>math.radians(15):return decline('pose_alignment_exceeded')
         remaining=path[index:]
-        if len(remaining)<2:return None
+        if len(remaining)<2:return decline('reference_exhausted')
         view=Grid(Request(observed_grid(grid),start,self.active,tuple(grid.get('gates',()))))
-        if not math.isfinite(view.value(*self.active)):return None
-        if not math.isfinite(view.path_cost([start]+remaining)):return None
+        if not math.isfinite(view.value(*self.active)):return decline('target_blocked_or_unknown')
+        if not math.isfinite(view.path_cost([start]+remaining)):return decline('remaining_path_blocked_or_unknown')
         length=sum(math.dist(a[:2],b[:2]) for a,b in zip(remaining,remaining[1:]))
         return Candidate(self.active,0.,length,0.,delta,final),remaining
 

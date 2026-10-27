@@ -118,6 +118,22 @@ RPP는 보간 수치 오차만 최대 1e-5 rad 허용하고 조향을 차량 한
 
 최종 목표 `/nomad/goal`은 보존한다. 새 `/nomad/navigation_target`(PoseStamped, transient-local depth1)은 GPP가 검증한 임시 끝점이며 `/nomad/global_path`는 그 끝점까지다. `/nomad/corridor_status`(String JSON)는 후보/점수/실패를 제공한다. 두 토픽은 bringup의 topics.yaml에 등록되어 있다. 명령 선택은 최종 도착 판정을 유지하고 복구는 임시 목표 변경 시 주행 이력을 지우지 않는다.
 
+2026-10-27: `corridor.retain_safe_path=true`에서는 정상 검사가 성공해도 경로를 재발행하지 않는다.
+`corridor_status`의 `state=validated_safe_path`, `publication=none`으로 검사 사실을 알리고,
+LPP/명령 선택기는 마지막 유효 전역 경로를 보관한다. 전역 경로 stamp는 참조 생성 시각이며 주기적 heartbeat가 아니다.
+현재 지역 주행 명령·지도·위치·제어 피드백의 freshness 검사는 유지한다. 빈 경로가 수신되면 참조를 무효화하며,
+다시 유효한 경로를 발행할 때까지 정상 추종을 재개하지 않는다. 동일 좌표의 중간 목표는 경로만 바뀌면 재발행하지 않는다.
+
+명령 선택기는 timestamp가 있는 최종 목표의 **발행 시각**을 mission 경계로 사용한다.
+서로 다른 토픽의 도착 순서가 달라도 경로·중간 목표를 일시 보관해 처리하며, 이전 mission의 메시지는 경계 시각으로 거른다.
+stamp=0인 기존 목표의 호환 처리는 수신 시각을 사용하므로 새 목표 발행자는 ROS clock stamp를 반드시 제공한다.
+토픽 타입·좌표계·QoS와 지역 명령 TTL은 변경하지 않았다.
+
+`corridor_status`는 `publication`(`none`/`new_path`), `validation_reason`, `replanned_after_invalidity`를 추가한다.
+지도 차단 외에 기존 유지 조건(25cm·15도) 초과나 LPP 실패 피드백도 재계획 원인이 될 수 있다.
+정상 경유점 도달/최종 목표 전환과 최초 발행은 무효 후 재계획 수에서 제외한다.
+실험 GUI와 지표 정의는 [플래닝 시나리오 실험실](../../docs/플래닝_시나리오_실험실.md)을 참고한다.
+
 선택기는 관측된 셀(0..79)만 연결하며 8m 범위·끝점 여유 .7m·접근 1m로 갱신한다. 미관측 공간을 가짜 free로 만들지 않는다. 점수는 폭·거리·진행 방향·재방문을 반영하며 최초값이지 학습된 최적값은 아니다. 선택 .35초/20,000 확장, 후보별 GPP 2초/30,000 확장·최대3후보, 실패 후보3 simulation 초 후 재검사. 시간 제한은 엄격한 실시간 보장이 아니다. 센서 최신성/기존 실행 안전 검사를 유지하고 후보 부재 시 정지한다.
 
 제한시간 실험은 기존 실행기 `src/nomad_bringup/experiments/optimization.py`에 `--goal-mode observed_corridor`를 추가한다. `--goal-mode direct`로 복귀한다. 전체 조건/재현 명령/결과: `experiments/map4_observed_corridor_20261019/구현_검증.md`. 이 기능은 관측되지 않은 장애물 뒤편을 알지 못하며 완주·기준 경로 재현·실차 안전을 보장하지 않는다.

@@ -79,6 +79,7 @@ class RecoveryGPP(DStarLiteNode):
         self.corridor_min_clearance=float(self.declare_parameter('corridor.min_clearance',0.).value)
         if not math.isfinite(self.corridor_min_clearance) or self.corridor_min_clearance<0:raise ValueError('invalid planning clearance')
         self.corridor_last_goal=None
+        self.corridor_invalidity_pending=False
         self.observation_weight=float(self.declare_parameter("corridor.observation_turn_weight",0.).value)
         self.observation_guard=bool(self.declare_parameter("corridor.observation_guard",False).value)
         self.retain_safe_path=self.declare_parameter("corridor.retain_safe_path",False).value
@@ -191,6 +192,8 @@ class RecoveryGPP(DStarLiteNode):
             if hasattr(self,'corridor'):
                 self.corridor.reset()
                 self.corridor_last_goal=None
+                self.corridor_invalidity_pending=False
+                self.published_navigation_target=None
             # The retry throttle for the previous goal must not delay a new one.
             self.last_attempt = -math.inf
             self.failed_since = None
@@ -419,11 +422,20 @@ class RecoveryGPP(DStarLiteNode):
         invalidation=self.corridor.invalidate_unreachable(grid,start,now,
             getattr(self,'retained_slope_increase',.2),goal=mission)
         if invalidation:
+            self.corridor_invalidity_pending=True
             self.publish_empty_path()
         goal_probe=self.corridor.observed_goal_candidate(grid,start,mission,now)
         retained=None
-        if goal_probe is None and getattr(self,'retain_safe_path',False) and getattr(self,'failed_since',None) is None:
+        validation_reason=invalidation
+        if (goal_probe is None and getattr(self,'retain_safe_path',False)
+                and not self.retry_pending and getattr(self,'failed_since',None) is None):
             retained=self.corridor.retained_path(grid,start,mission)
+            validation_reason=validation_reason or getattr(self.corridor,'retention_reason',None)
+        if getattr(self,'failed_since',None) is not None and self.corridor.active_path:
+            validation_reason=validation_reason or 'lpp_failure_feedback'
+        if validation_reason in ('pose_alignment_exceeded','target_continuation_blocked',
+                'target_blocked_or_unknown','remaining_path_blocked_or_unknown','lpp_failure_feedback'):
+            self.corridor_invalidity_pending=True
         if retained:
             target,path=retained
             from .gpp.base import Result
@@ -440,6 +452,7 @@ class RecoveryGPP(DStarLiteNode):
             result=None
             target=None
         diagnostic['previous_path_invalidated']=invalidation
+        diagnostic['validation_reason']=validation_reason
         diagnostic.update(mission=mission,start=start,map_stamp=self.costmap.header.stamp.sec+self.costmap.header.stamp.nanosec*1e-9)
         view_grid=observed_grid(grid)
         attempts=[]
@@ -468,9 +481,11 @@ class RecoveryGPP(DStarLiteNode):
             if not (goal_probe is not None and candidate.point==goal_probe.point):
                 self.corridor.reject(candidate.point,now)
         diagnostic['attempts']=attempts
+        diagnostic['publication']='none'
+        diagnostic['replanned_after_invalidity']=False
         diagnostic['selected']=target.point if target else None
-        self.corridor_pub.publish(String(data=json.dumps(diagnostic,allow_nan=False)))
         if result is None:
+            self.corridor_pub.publish(String(data=json.dumps(diagnostic,allow_nan=False)))
             self.stop_and_retry('GPP_WAIT: observed corridor: '+(attempts[-1]['reason'] if attempts else diagnostic['state']))
             return
         # Do not publish a solution whose inputs expired during bounded search.
@@ -478,18 +493,31 @@ class RecoveryGPP(DStarLiteNode):
         if (finished-now>1. or finished-(self.costmap.header.stamp.sec+self.costmap.header.stamp.nanosec*1e-9)>3. or finished-(self.current_pose.header.stamp.sec+self.current_pose.header.stamp.nanosec*1e-9)>1.):
             self.stop_and_retry('GPP_WAIT: corridor solution input age exceeded')
             return
+        if retained:
+            # Validation is not a new reference. Preserve the accepted path/target
+            # and their timestamps; LPP continues against its cached reference.
+            diagnostic['state']='validated_safe_path'
+            self.corridor_pub.publish(String(data=json.dumps(diagnostic,allow_nan=False)))
+            self.report('GPP_VALID: existing path valid; no path/target publication')
+            return
+        diagnostic['publication']='new_path'
+        diagnostic['replanned_after_invalidity']=getattr(self,'corridor_invalidity_pending',False)
         self.corridor.accept(target,result.path)
         if not retained:
             self.corridor.accepted_slope=self.corridor.path_slope(grid,result.path)
         stamp=self.get_clock().now().to_msg()
         goal=PoseStamped();goal.header.frame_id=self.planning_frame;goal.header.stamp=stamp
         goal.pose.position.x=float(target.point[0]);goal.pose.position.y=float(target.point[1]);goal.pose.orientation.w=1.
-        self.subgoal_pub.publish(goal)
+        if getattr(self,'published_navigation_target',None)!=tuple(target.point):
+            self.subgoal_pub.publish(goal)
+            self.published_navigation_target=tuple(target.point)
         msg=Path();msg.header=goal.header
         for x,y,yaw in result.path:
             p=PoseStamped();p.header=msg.header;p.pose.position.x=float(x);p.pose.position.y=float(y)
             p.pose.orientation.z=math.sin(yaw/2);p.pose.orientation.w=math.cos(yaw/2);msg.poses.append(p)
         self.path_pub.publish(msg)
+        self.corridor_pub.publish(String(data=json.dumps(diagnostic,allow_nan=False)))
+        self.corridor_invalidity_pending=False
         self.retry_pending=False
         self.report(f'GPP_OK [{self.algorithm} observed_corridor]: target={target.point}, final={target.final}, poses={len(result.path)}, retained={bool(retained)}')
 

@@ -12,6 +12,13 @@
   <exec_depend>python3-pyqt5</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
   <exec_depend>python3-matplotlib</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>nav_msgs</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>rosgraph_msgs</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>nomad_gazebo</exec_depend>
   <depend>python3-yaml</depend>
   <depend>nomad_interfaces</depend>
   <depend>nomad_perception</depend>
@@ -19,8 +26,6 @@
   <depend>nomad_control</depend>
   <depend>nomad_path_planning</depend>
   <test_depend>python3-pytest</test_depend>
-  <test_depend>rclpy</test_depend>
-  <test_depend>rosgraph_msgs</test_depend>
   <test_depend>sensor_msgs</test_depend>
   <export><build_type>ament_python</build_type></export>
 </package>

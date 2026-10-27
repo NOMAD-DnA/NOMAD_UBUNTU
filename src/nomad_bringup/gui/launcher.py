@@ -97,6 +97,10 @@ class Launcher(LogActions, QMainWindow):
                 "기존 스크립트를 선택해서 실행합니다. 창을 열어도 시뮬레이션은 시작되지 않습니다."
             )
         )
+        lab_button = QPushButton("플래닝 시나리오 실험실 열기 (6개 맵 · 실행 큐 · 결과)")
+        lab_button.clicked.connect(lambda: QProcess.startDetached(
+            str(ROOT / 'scripts/run_scenario_lab.sh'), [], str(ROOT)))
+        layout.addWidget(lab_button)
         split = QSplitter()
         layout.addWidget(split, 1)
         left = QWidget()

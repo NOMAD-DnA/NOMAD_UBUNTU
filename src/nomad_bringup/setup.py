@@ -2,6 +2,7 @@ from glob import glob
 from setuptools import find_packages, setup
 name = 'nomad_bringup'
 setup(name=name, version='0.2.0', packages=find_packages(exclude=['test']),
+      package_data={'nomad_bringup.scenario_lab': ['authoring.json', 'config.yaml']},
       data_files=[('share/ament_index/resource_index/packages', ['resource/'+name]),
                   ('share/'+name, ['package.xml', 'README.md']),
                   ('share/'+name+'/config', glob('config/*')),

@@ -67,6 +67,7 @@ class PlanningCommandNode(Node):
         self.planning_frame = self.declare_parameter('planning_frame', 'odom').value
         self.global_path = None
         self.pending_global = None
+        self.pending_navigation_target = None
         self.local_path = None
         self.pose_received_at = 0.0
         self.local_received_at = 0.0
@@ -162,23 +163,27 @@ class PlanningCommandNode(Node):
             return
         self.goal = msg
         self.navigation_target = None
-        self.goal_epoch = self.get_clock().now().nanoseconds*1e-9
+        # Use the mission's source time: a GPP response may be published before
+        # this subscriber receives the goal. Reception time rejected that single
+        # response permanently when valid routes stopped being republished.
+        stamp = msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9
+        self.goal_epoch = stamp if stamp > 0 else self.get_clock().now().nanoseconds*1e-9
         self.recovery_active = False
         self.recovery_path = None
-        # A fast GPP can deliver the new path before this goal callback.
-        if self.global_path is not None and self.global_path.poses:
-            endpoint = self.global_path.poses[-1].pose.position
-            if math.hypot(endpoint.x-msg.pose.position.x, endpoint.y-msg.pose.position.y) < 0.35:
-                return
         self.global_path = None
         self.local_path = None
         self.stop()
         self.get_logger().info('Goal changed; waiting for a new GPP and LPP path')
+        if self.pending_navigation_target is not None:
+            self.on_navigation_target(self.pending_navigation_target)
         if self.pending_global is not None:
             self.on_global_path(self.pending_global)
 
     def on_navigation_target(self,msg):
-        if (self.goal is None or msg.header.frame_id!=self.planning_frame or not valid_pose(msg.pose)
+        if msg.header.frame_id!=self.planning_frame or not valid_pose(msg.pose):
+            return
+        self.pending_navigation_target = msg
+        if (self.goal is None
                 or (msg.header.stamp.sec+msg.header.stamp.nanosec*1e-9)<self.goal_epoch):
             return
         old=self.navigation_target
