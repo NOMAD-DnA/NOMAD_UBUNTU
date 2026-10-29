@@ -123,7 +123,7 @@ class Worker(Node):
         if self.done:return
         self.done=True;self.health_pub.publish(Bool(data=False));self.stream.flush();self.events.flush()
         outcome=summarize(self.samples,result,self.spec,self.global_count,self.invalid_replans,self.cpu,self.started_at)
-        outcome.update(duration_wall_s=time.monotonic()-self.start_wall,gpp_empty_publications=self.empty_count,valid_checks=self.valid_checks,last_status=self.status,last_gpp_status=self.gpp_status,cpu_definition='whole GPP/LPP process CPU delta (user+system), core-seconds; wall time distinct')
+        outcome.update(algorithm=self.manifest['algorithm'],duration_wall_s=time.monotonic()-self.start_wall,gpp_empty_publications=self.empty_count,valid_checks=self.valid_checks,last_status=self.status,last_gpp_status=self.gpp_status,cpu_definition='whole GPP/LPP process CPU delta (user+system), core-seconds; wall time distinct')
         save(self.directory/'outcome.json',outcome);save(self.directory/'live.json',dict(state='finished',result=result))
 
 

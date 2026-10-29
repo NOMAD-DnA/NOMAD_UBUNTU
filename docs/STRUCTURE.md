@@ -34,3 +34,6 @@ GT 관측 입력·6개 맵 생성·실행 큐·결과 GUI를 묶고 기존 GPP/L
 생성 맵과 결과는 `sessions/planning_lab/`, 상세 안내는 [플래닝 시나리오 실험실](플래닝_시나리오_실험실.md).
 
 현재 전륜 구동·후륜 조향은 [차량 실행 안내](후륜조향_시뮬레이션.md) 참조. Planning·Control·맵/GUI가 같은 기하를 사용한다.
+
+
+알고리즘 5조합 × 6시나리오 비교는 `scripts/run_algorithm_comparison.sh` → `알고리즘_비교실험/`. 기존 scenario_lab 맵·물리·runner를 공유하고 결과는 해당 폴더의 `results/`에 분리한다.

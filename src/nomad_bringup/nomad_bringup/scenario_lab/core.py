@@ -130,3 +130,18 @@ def summarize(samples, result, spec, gpp_count, invalid_replans, cpu, started_at
                 invalidity_replans=invalid_replans,cpu=cpu,
                 metric_definition='p05: 10Hz sim-time samples; XY .52m/.42m rectangular envelope to GT obstacle rectangles. Zero means envelope overlap, not measured contact force.',
                 input_mode='Gazebo physics + ground-truth pose and synthetic accumulated LOS map; no B0/VIO')
+
+
+def strategy_timings(directory):
+    """Per-call wall latency, distinct from whole-process CPU core-seconds."""
+    import csv
+    values={'gpp_strategy':[], 'lpp_strategy':[]}
+    for path in (Path(directory)/'timing').glob('*.csv'):
+        with path.open() as stream:
+            for row in csv.DictReader(stream):
+                if row.get('stage') not in values:continue
+                try:value=float(row['elapsed_wall_ns'])/1e6
+                except (KeyError,ValueError,TypeError):continue
+                if math.isfinite(value) and value>=0:values[row['stage']].append(value)
+    return {name:dict(samples=len(v),p95_ms=float(np.percentile(v,95)) if v else None)
+            for name,v in values.items()}

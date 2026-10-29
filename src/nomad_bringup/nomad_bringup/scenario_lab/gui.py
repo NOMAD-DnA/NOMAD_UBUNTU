@@ -24,20 +24,21 @@ rcParams['axes.unicode_minus']=False
 
 
 class Lab(QMainWindow):
-    def __init__(self,root):
-        super().__init__();self.root=Path(root).resolve();self.root.mkdir(parents=True,exist_ok=True)
+    def __init__(self,root,algorithms=None,title='플래닝 시나리오 실험실'):
+        super().__init__();self.algorithms=algorithms or {ALGORITHM:'Hybrid A* + RPP'};self.root=Path(root).resolve();self.root.mkdir(parents=True,exist_ok=True)
         self.lock=(self.root/'gui.lock').open('a');fcntl.flock(self.lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         self.jobs=read(self.root/'queue.json',[]);self.process=None;self.client=None;self.current=None;self.running=False;self.closing=False;self.log=None;self.stopping=False
         # Never silently rerun a partly completed experiment after a GUI crash.
         for job in self.jobs:
             if job['state']=='running':job['state']='interrupted';job['reason']='GUI reopened; inspect saved result/ownership before retry'
-        self.setWindowTitle('NOMAD · 플래닝 시나리오 실험실');self.resize(1260,850)
+        self.setWindowTitle('NOMAD · '+title);self.resize(1260,850)
         body=QWidget();layout=QVBoxLayout(body);self.setCentralWidget(body)
-        title=QLabel('플래닝 시나리오 실험실');title.setStyleSheet('font-size:24px;font-weight:700;color:#264958');layout.addWidget(title)
-        label=QLabel('Hybrid A* + RPP · PC CPU · Gazebo 실제 물리 / 정답 위치·관측 지도\n기록은 큐에서 실행한 시험에만 저장합니다. p05는 차량 외곽과 장애물의 XY 여유 거리입니다.');layout.addWidget(label)
-        tabs=QTabWidget();layout.addWidget(tabs)
+        title=QLabel(title);title.setStyleSheet('font-size:24px;font-weight:700;color:#264958');layout.addWidget(title)
+        label=QLabel(' / '.join(self.algorithms.values())+' · PC CPU · Gazebo 실제 물리 / 정답 위치·관측 지도\n기록은 큐에서 실행한 시험에만 저장합니다. p05는 차량 외곽과 장애물의 XY 여유 거리입니다.');label.setWordWrap(True);layout.addWidget(label)
+        tabs=QTabWidget();self.tabs=tabs;layout.addWidget(tabs)
         queue=QWidget();ql=QVBoxLayout(queue);tabs.addTab(queue,'실행 큐')
-        row=QHBoxLayout();self.algorithm=QComboBox();self.algorithm.addItem('Hybrid A* + RPP',ALGORITHM);row.addWidget(self.algorithm)
+        row=QHBoxLayout();self.algorithm=QComboBox();row.addWidget(self.algorithm)
+        for key,label in self.algorithms.items():self.algorithm.addItem(label,key)
         self.select=QComboBox()
         for s in catalog()['scenarios']:self.select.addItem(f"{s['id']}. {s['name']}",s['id'])
         row.addWidget(self.select,1);self.repeat=QSpinBox();self.repeat.setRange(1,30);self.repeat.setSuffix(' 회');row.addWidget(self.repeat)
@@ -50,7 +51,7 @@ class Lab(QMainWindow):
         row=QHBoxLayout();self.result_select=QComboBox()
         for s in catalog()['scenarios']:self.result_select.addItem(f"{s['id']}. {s['name']}",s['id'])
         self.result_select.currentIndexChanged.connect(self.refresh_results);row.addWidget(self.result_select,1);self.button(row,'결과 새로고침',self.refresh_results);self.button(row,'기록 폴더 열기',lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.root))));rl.addLayout(row)
-        self.results=QTableWidget(0,10);self.results.setHorizontalHeaderLabels(['시작 시각','결과','목표 도착','기대 결과','여유 p05(m)','주행(sim s)','GPP CPU(core·s)','LPP CPU(core·s)','GPP 발행','무효 후 재계획']);self.results.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents);self.results.setMaximumHeight(230);self.results.setSelectionBehavior(QTableWidget.SelectRows);self.results.setEditTriggers(QTableWidget.NoEditTriggers);self.results.itemSelectionChanged.connect(self.draw_result);rl.addWidget(self.results)
+        self.results=QTableWidget(0,11);self.results.setHorizontalHeaderLabels(['알고리즘','시작 시각','결과','목표 도착','기대 결과','여유 p05(m)','주행(sim s)','GPP CPU(core·s)','LPP CPU(core·s)','GPP 발행','무효 후 재계획']);self.results.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents);self.results.setMaximumHeight(230);self.results.setSelectionBehavior(QTableWidget.SelectRows);self.results.setEditTriggers(QTableWidget.NoEditTriggers);self.results.itemSelectionChanged.connect(self.draw_result);rl.addWidget(self.results)
         self.figure=Figure(figsize=(11,5),tight_layout=True);self.canvas=FigureCanvasQTAgg(self.figure);rl.addWidget(self.canvas)
         self.result_note=QLabel('완주와 기대 결과 충족을 구분합니다. 5번=벽 앞 안전 정지, 6번=전진 경로 부재 확인. 결측 지표는 —로 표시합니다.');self.result_note.setWordWrap(True);rl.addWidget(self.result_note)
         self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(500);self.refresh_queue();self.refresh_results()
@@ -60,7 +61,7 @@ class Lab(QMainWindow):
         b=QPushButton(label);b.clicked.connect(action);row.addWidget(b);return b
     def persist(self):save(self.root/'queue.json',self.jobs)
     def append(self,number):
-        for _ in range(self.repeat.value()):self.jobs.append(dict(id=datetime.now().strftime('%Y%m%d_%H%M%S_%f'),scenario=number,algorithm=ALGORITHM,state='queued',timeout=self.timeout.value(),directory=''))
+        for _ in range(self.repeat.value()):self.jobs.append(dict(id=datetime.now().strftime('%Y%m%d_%H%M%S_%f'),scenario=number,algorithm=self.algorithm.currentData(),state='queued',timeout=self.timeout.value(),directory=''))
     def add(self):self.append(self.select.currentData());self.refresh_queue()
     def add_all(self):
         for i in range(1,7):self.append(i)
@@ -71,7 +72,7 @@ class Lab(QMainWindow):
     def refresh_queue(self):
         self.persist();self.queue.setRowCount(len(self.jobs))
         for i,j in enumerate(self.jobs):
-            for k,v in enumerate([i+1,scenario(j['scenario'])['name'],'Hybrid A* + RPP',j['state'],j['directory']]):self.queue.setItem(i,k,QTableWidgetItem(str(v)))
+            for k,v in enumerate([i+1,scenario(j['scenario'])['name'],self.algorithms.get(j['algorithm'],j['algorithm']),j['state'],j['directory']]):self.queue.setItem(i,k,QTableWidgetItem(str(v)))
     def start(self):self.running=True;self.launch_next()
     def launch_next(self):
         if self.process or not self.running:return
@@ -80,7 +81,7 @@ class Lab(QMainWindow):
         job=self.current;folder=self.root/'runs'/job['id'];folder.parent.mkdir(parents=True,exist_ok=True);job.update(state='running',directory=str(folder))
         self.stopping=False
         self.log=(self.root/(job['id']+'.runner.log')).open('w')
-        self.process=subprocess.Popen([sys.executable,'-m','nomad_bringup.scenario_lab.runner','--scenario',str(job['scenario']),'--output',str(folder),'--timeout',str(job['timeout'])],stdout=self.log,stderr=subprocess.STDOUT,start_new_session=True)
+        self.process=subprocess.Popen([sys.executable,'-m','nomad_bringup.scenario_lab.runner','--scenario',str(job['scenario']),'--output',str(folder),'--timeout',str(job['timeout']),'--algorithm',job['algorithm']],stdout=self.log,stderr=subprocess.STDOUT,start_new_session=True)
         self.refresh_queue()
     def stop(self):
         self.running=False
@@ -130,7 +131,7 @@ class Lab(QMainWindow):
             if started:
                 try:started=datetime.fromisoformat(started).astimezone().strftime('%m-%d %H:%M:%S %Z')
                 except ValueError:pass
-            values=[started,d.get('result'),'예' if d.get('completed') else '아니오','충족' if d.get('expected_result_met') else '미충족',d.get('clearance_p05_m'),d.get('elapsed_sim_s'),d.get('cpu',{}).get('gpp'),d.get('cpu',{}).get('lpp'),d.get('gpp_path_publications'),d.get('invalidity_replans')]
+            values=[self.algorithms.get(d.get('algorithm',ALGORITHM),d.get('algorithm',ALGORITHM)),started,d.get('result'),'예' if d.get('completed') else '아니오','충족' if d.get('expected_result_met') else '미충족',d.get('clearance_p05_m'),d.get('elapsed_sim_s'),d.get('cpu',{}).get('gpp'),d.get('cpu',{}).get('lpp'),d.get('gpp_path_publications'),d.get('invalidity_replans')]
             for j,v in enumerate(values):
                 item=QTableWidgetItem(fmt(v));item.setToolTip(str(folder));self.results.setItem(i,j,item)
         if self.records:self.results.selectRow(len(self.records)-1)

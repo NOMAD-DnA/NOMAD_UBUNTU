@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_prefix
-from .core import PACKAGE, scenario, save, read, summarize, ALGORITHM, workspace, resolved_config
+from .core import PACKAGE, scenario, save, read, summarize, ALGORITHM, workspace, resolved_config, strategy_timings
 from .worlds import build, viewer_config
 
 
@@ -62,7 +62,20 @@ def check_conflicts(domain,partition):
 def executable(package,name):return str(Path(get_package_prefix(package))/'lib'/package/name)
 
 
-def run(number,directory,timeout=180):
+def algorithm_config(algorithm):
+    from nomad_path_planning.gpp.registry import NAMES as GPP_NAMES
+    from nomad_path_planning.lpp.registry import NAMES as LPP_NAMES
+    parts=algorithm.split('+')
+    if len(parts)!=2 or parts[0] not in GPP_NAMES or parts[1] not in LPP_NAMES:
+        raise ValueError(f'Unsupported algorithm combination: {algorithm}')
+    config=resolved_config()
+    for node in ('dstar_lite_gpp','ackermann_rollout_lpp'):
+        config[node]['ros__parameters'].update(gpp_algorithm=parts[0],lpp_algorithm=parts[1])
+    return config
+
+
+def run(number,directory,timeout=180,algorithm=ALGORITHM):
+    config=algorithm_config(algorithm)
     directory=Path(directory).resolve();directory.mkdir(parents=True,exist_ok=False)
     domain=int(os.environ.get('ROS_DOMAIN_ID','142'));partition=os.environ['GZ_PARTITION']
     lock=open(f'/tmp/nomad-planning-lab-{os.getuid()}-domain-{domain}.lock','a')
@@ -75,8 +88,8 @@ def run(number,directory,timeout=180):
         for package in ('nomad_path_planning', 'nomad_control'):
             source_files.extend((workspace()/'src'/package).rglob('*.py'))
         source_hashes={str(p.relative_to(workspace())):hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
-        (directory/'config.yaml').write_text(yaml.safe_dump(resolved_config()))
-        save(directory/'manifest.json',dict(schema_version=1,scenario=spec,algorithm=ALGORITHM,timeout_sim_s=timeout,ros_domain=domain,gz_partition=partition,world=str(world),input_mode='GT observation; no perception/localization nodes',source_sha256=source_hashes))
+        (directory/'config.yaml').write_text(yaml.safe_dump(config,sort_keys=False))
+        save(directory/'manifest.json',dict(schema_version=1,scenario=spec,algorithm=algorithm,timeout_sim_s=timeout,ros_domain=domain,gz_partition=partition,world=str(world),input_mode='GT observation; no perception/localization nodes',source_sha256=source_hashes))
         env=dict(os.environ);env.pop('NOMAD_RUN_LOG_DIR',None);env['NOMAD_EXPERIMENT_TIMING_DIR']=str(directory/'timing')
         env['ROS_LOG_DIR']=str(directory/'ros_logs')
         env['GZ_SIM_RESOURCE_PATH']=str(world.parent)+':'+env.get('GZ_SIM_RESOURCE_PATH','')
@@ -121,6 +134,8 @@ def run(number,directory,timeout=180):
         outcome=read(directory/'outcome.json')
         if outcome is None:outcome=summarize([],reason or 'worker_missing_result',scenario(number),0,0,{},None)
         if reason and outcome.get('result') not in ('cancelled',):outcome.update(result=reason,completed=False,expected_result_met=False)
+        outcome['algorithm']=algorithm
+        outcome['strategy_timing']=strategy_timings(directory)
         outcome['cleanup_ok']=not remaining;outcome['remaining_owned_processes']=remaining
         if remaining:outcome.update(result='cleanup_failed',expected_result_met=False)
         save(directory/'outcome.json',outcome);save(directory/'runner.json',dict(state='finished' if not remaining else 'cleanup_failed'))
@@ -129,10 +144,10 @@ def run(number,directory,timeout=180):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--scenario',type=int,choices=range(1,7),required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--timeout',type=float,default=180);a=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--scenario',type=int,choices=range(1,7),required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--timeout',type=float,default=180);parser.add_argument('--algorithm',default=ALGORITHM);a=parser.parse_args()
     if a.timeout<=0:parser.error('timeout must be positive')
     def interrupted(*_):raise KeyboardInterrupt
     signal.signal(signal.SIGTERM,interrupted)
-    result=run(a.scenario,a.output,a.timeout);print(json.dumps(result,ensure_ascii=False));return 0 if result.get('cleanup_ok') else 2
+    result=run(a.scenario,a.output,a.timeout,a.algorithm);print(json.dumps(result,ensure_ascii=False));return 0 if result.get('cleanup_ok') else 2
 
 if __name__=='__main__':sys.exit(main())
