@@ -31,3 +31,6 @@ RGB → nomad_semantic → 라벨 ─┐                    │
 플래닝 단독 검증은 `scripts/run_scenario_lab.sh` → `nomad_bringup/nomad_bringup/scenario_lab/`.
 GT 관측 입력·6개 맵 생성·실행 큐·결과 GUI를 묶고 기존 GPP/LPP/Control을 사용한다.
 생성 맵과 결과는 `sessions/planning_lab/`, 상세 안내는 [플래닝 시나리오 실험실](플래닝_시나리오_실험실.md).
+
+
+알고리즘 5조합 × 6시나리오 비교는 `scripts/run_algorithm_comparison.sh` → `알고리즘_비교실험/`. 기존 scenario_lab 맵·물리·runner를 공유하고 결과는 해당 폴더의 `results/`에 분리한다.
