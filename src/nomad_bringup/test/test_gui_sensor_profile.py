@@ -52,7 +52,10 @@ def test_runtime_world_keeps_vehicle_physics(tmp_path, map_id):
     config['camera']['fps'] = 12.
     world, resource, robot = module.runtime_world(ROOT, config, {'map': selected['id']}, tmp_path)
     model = ET.parse(tmp_path / 'vehicle.sdf')
-    assert [ET.tostring(x) for x in source.findall('.//inertial')] == [ET.tostring(x) for x in model.findall('.//inertial')]
+    # Mechanical layout intentionally changes; total mass and sensor geometry do not.
+    assert sum(float(x.text) for x in source.findall('.//inertial/mass')) == pytest.approx(sum(float(x.text) for x in model.findall('.//inertial/mass')))
+    assert model.find(".//joint[@name='rear_left_steering_joint']") is not None
+    assert not any('AckermannSteering' in p.get('name','') for p in model.findall('.//plugin'))
     assert model.find('.//sensor/update_rate').text == '12'
     assert original.read_bytes() == before
     assert resource == original.parent.parent and robot.is_file() and world.is_file()

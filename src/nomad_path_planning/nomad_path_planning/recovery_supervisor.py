@@ -45,7 +45,7 @@ class RecoverySupervisor(Node):
         self.speed = float(p('recovery.speed', .2))
         self.wheelbase = float(p('wheelbase', .72))
         self.max_steer = float(p('max_steer', .4))
-        self.offset = float(p('reference_offset', .36))
+        self.offset = float(p('reference_offset', -.36))
         self.exit_speed = float(p('recovery.exit_speed', .3))
         self.exit_horizon = float(p('recovery.exit_horizon', 3.0))
         self.exit_separation = float(p('recovery.exit_separation', 1.0))

@@ -25,7 +25,9 @@ def test_world_preserves_grid_obstacles_and_vehicle_physics(number, tmp_path):
     original = ET.parse(workspace()/'src/nomad_gazebo/models/nomad_vehicle/model.sdf')
     actual = tree.find(".//model[@name='nomad_vehicle']")
     assert actual is not None
-    assert [ET.tostring(x) for x in original.findall('.//inertial')] == [ET.tostring(x) for x in actual.findall('.//inertial')]
+    assert sum(float(x.text) for x in original.findall('.//inertial/mass')) == pytest.approx(sum(float(x.text) for x in actual.findall('.//inertial/mass')))
+    assert actual.find("joint[@name='rear_left_steering_joint']") is not None
+    assert actual.find("joint[@name='front_left_steering_joint']") is None
     assert len(actual.findall('joint')) == len(original.findall('.//joint'))
     assert not actual.findall('.//sensor')
     assert len(tree.findall(".//model[@name='scenario_ground']")) == 1
@@ -49,7 +51,7 @@ def test_gt_observation_does_not_see_through_wall():
 
 def test_clearance_uses_rotated_vehicle_envelope():
     assert polygon_clearance((0, 0, 0), [(2, -2, 3, 2)]) == pytest.approx(1.48)
-    assert polygon_clearance((0, 0, math.pi/2), [(2, -2, 3, 2)]) == pytest.approx(1.6)
+    assert polygon_clearance((0, 0, math.pi/2), [(2, -2, 3, 2)]) == pytest.approx(1.58)
     assert polygon_clearance((2.1, 0, 0), [(2, -2, 3, 2)]) == 0
     assert polygon_clearance((0, 0, 0), []) is None
 

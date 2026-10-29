@@ -178,17 +178,22 @@ def cylinder_inertia(mass: float, radius: float, length: float) -> tuple[float, 
     return (transverse, mass * radius * radius / 2.0, transverse)
 
 
-def physical_model() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+def physical_model(drive_layout="rear_drive_front_steer", geometry=None) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if drive_layout not in ("rear_drive_front_steer", "front_drive_rear_steer"):
+        raise ValueError('Unknown drive layout')
+    wheelbase,track,radius,limit = ((geometry.wheelbase,geometry.track,geometry.radius,geometry.joint_limit)
+                                     if geometry else (WHEELBASE,TRACK,WHEEL_RADIUS,STEERING_LIMIT))
+    steering_end = "rear" if drive_layout == "front_drive_rear_steer" else "front"
     links = [{"name": "base_link", "pose": (0.0, 0.0, 0.0), "mass": BODY_MASS,
               "inertia": box_inertia(BODY_MASS, BODY_SIZE),
               "inertial_xyz": (0.0, 0.0, BODY_CENTER_Z), "geometry": "body"}]
     joints = []
-    for end, x in (("front", WHEELBASE / 2.0), ("rear", -WHEELBASE / 2.0)):
-        for side, y in (("left", TRACK / 2.0), ("right", -TRACK / 2.0)):
+    for end, x in (("front", wheelbase / 2.0), ("rear", -wheelbase / 2.0)):
+        for side, y in (("left", track / 2.0), ("right", -track / 2.0)):
             wheel = f"{end}_{side}_wheel"
             parent = "base_link"
-            wheel_origin = (x, y, WHEEL_RADIUS)
-            if end == "front":
+            wheel_origin = (x, y, radius)
+            if end == steering_end:
                 parent = f"{end}_{side}_steering_link"
                 transverse, axial, _ = cylinder_inertia(
                     KNUCKLE_MASS, KNUCKLE_RADIUS, KNUCKLE_HEIGHT)
@@ -197,12 +202,12 @@ def physical_model() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
                               "inertial_xyz": (0.0, 0.0, 0.0), "geometry": "knuckle"})
                 joints.append({"name": f"{end}_{side}_steering_joint", "parent": "base_link",
                                "child": parent, "origin": wheel_origin, "axis": (0.0, 0.0, 1.0),
-                               "type": "revolute", "lower": -STEERING_LIMIT,
-                               "upper": STEERING_LIMIT, "effort": 12.0, "velocity": 2.0})
+                               "type": "revolute", "lower": -limit,
+                               "upper": limit, "effort": 12.0, "velocity": 2.0})
                 wheel_origin = (0.0, 0.0, 0.0)
-            links.append({"name": wheel, "pose": (x, y, WHEEL_RADIUS), "mass": WHEEL_MASS,
-                          "inertia": cylinder_inertia(WHEEL_MASS, WHEEL_RADIUS, WHEEL_WIDTH),
-                          "inertial_xyz": (0.0, 0.0, 0.0), "geometry": "wheel"})
+            links.append({"name": wheel, "pose": (x, y, radius), "mass": WHEEL_MASS,
+                          "inertia": cylinder_inertia(WHEEL_MASS, radius, WHEEL_WIDTH),
+                          "inertial_xyz": (0.0, 0.0, 0.0), "geometry": "wheel", "radius": radius})
             joints.append({"name": f"{wheel}_joint", "parent": parent, "child": wheel,
                            "origin": wheel_origin, "axis": (0.0, 1.0, 0.0),
                            "type": "continuous", "lower": -1e16, "upper": 1e16,
@@ -237,13 +242,13 @@ def sdf_inertial(link: ET.Element, info: dict[str, Any]) -> None:
         element(inertia, name, 0.0)
 
 
-def sdf_geometry(parent: ET.Element, kind: str) -> None:
+def sdf_geometry(parent: ET.Element, kind: str, radius=WHEEL_RADIUS) -> None:
     geometry = element(parent, "geometry")
     if kind == "body":
         element(element(geometry, "box"), "size", vector(BODY_SIZE))
     else:
         cylinder = element(geometry, "cylinder")
-        element(cylinder, "radius", WHEEL_RADIUS if kind == "wheel" else KNUCKLE_RADIUS)
+        element(cylinder, "radius", radius if kind == "wheel" else KNUCKLE_RADIUS)
         element(cylinder, "length", WHEEL_WIDTH if kind == "wheel" else KNUCKLE_HEIGHT)
 
 
@@ -331,7 +336,8 @@ def imu_sensor(base: ET.Element, p: dict[str, Any]) -> None:
 
 
 def make_sdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
-             frames: list[dict[str, Any]], p: dict[str, Any], with_sensors: bool) -> ET.Element:
+             frames: list[dict[str, Any]], p: dict[str, Any], with_sensors: bool,
+             drive_layout="rear_drive_front_steer", geometry=None) -> ET.Element:
     sdf = ET.Element("sdf", {"version": "1.10"})
     model = element(sdf, "model", name=MODEL, canonical_link="base_link")
     model.append(ET.Comment("PROVISIONAL dimensions/masses, no suspension; NOT calibrated motor output."))
@@ -346,7 +352,7 @@ def make_sdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
             (0.0, 0.0, 0.0, math.pi / 2.0 if kind == "wheel" else 0.0, 0.0, 0.0)
         visual = element(link, "visual", name=f"{info['name']}_visual")
         element(visual, "pose", vector(local_pose))
-        sdf_geometry(visual, kind)
+        sdf_geometry(visual, kind, info.get("radius",WHEEL_RADIUS))
         material = element(visual, "material")
         color = "0.15 0.38 0.18 1" if kind == "body" else "0.12 0.12 0.12 1"
         element(material, "ambient", color)
@@ -354,7 +360,7 @@ def make_sdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
         if kind != "knuckle":
             collision = element(link, "collision", name=f"{info['name']}_collision")
             element(collision, "pose", vector(local_pose))
-            sdf_geometry(collision, kind)
+            sdf_geometry(collision, kind, info.get("radius",WHEEL_RADIUS))
             if kind == "wheel":
                 ode = element(element(element(collision, "surface"), "friction"), "ode")
                 element(ode, "mu", 1.0)
@@ -378,21 +384,10 @@ def make_sdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
     for frame in frames:
         node = element(model, "frame", name=frame["name"], attached_to=frame["parent"])
         element(node, "pose", vector((*frame["xyz"], *frame["rpy"])), relative_to=frame["parent"])
-    controller = element(model, "plugin", filename="gz-sim-ackermann-steering-system",
-                         name="gz::sim::systems::AckermannSteering")
-    for key, value in (("left_joint", "rear_left_wheel_joint"),
-                       ("right_joint", "rear_right_wheel_joint"),
-                       ("left_steering_joint", "front_left_steering_joint"),
-                       ("right_steering_joint", "front_right_steering_joint"),
-                       ("wheel_base", WHEELBASE), ("wheel_separation", TRACK),
-                       ("kingpin_width", TRACK), ("wheel_radius", WHEEL_RADIUS),
-                       ("steering_limit", STEERING_LIMIT), ("min_velocity", -1.0),
-                       ("max_velocity", 1.0), ("min_acceleration", -0.6),
-                       ("max_acceleration", 0.6), ("topic", TOPICS["cmd_vel"]),
-                       ("odom_topic", TOPICS["wheel_odom"]), ("tf_topic", TOPICS["wheel_tf"]),
-                       ("frame_id", "odom"), ("child_frame_id", "base_link"),
-                       ("odom_publish_frequency", 50.0)):
-        element(controller, key, value)
+    if drive_layout == "front_drive_rear_steer":
+        add_rear_steering_controllers(model)
+    else:
+        add_ackermann_controller(model, geometry)
     odometry = element(model, "plugin", filename="gz-sim-odometry-publisher-system",
                        name="gz::sim::systems::OdometryPublisher")
     for key, value in (("dimensions", 3), ("odom_frame", "odom"),
@@ -407,6 +402,43 @@ def make_sdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
     for joint in joints:
         element(publisher, "joint_name", joint["name"])
     return sdf
+
+
+def add_rear_steering_controllers(model):
+    for side in ('left', 'right'):
+        wheel = element(model, 'plugin', filename='gz-sim-joint-controller-system',
+                        name='gz::sim::systems::JointController')
+        element(wheel, 'joint_name', f'front_{side}_wheel_joint')
+        element(wheel, 'topic', f'/nomad/rear_steer/actuators/front_{side}_velocity')
+        steering = element(model, 'plugin', filename='gz-sim-joint-position-controller-system',
+                           name='gz::sim::systems::JointPositionController')
+        element(steering, 'joint_name', f'rear_{side}_steering_joint')
+        element(steering, 'topic', f'/nomad/rear_steer/actuators/rear_{side}_position')
+        # Velocity-based position servo retains a bounded steering response.
+        element(steering, 'use_velocity_commands', 'true')
+        element(steering, 'p_gain', 8.0)
+        element(steering, 'cmd_max', 1.0)
+        element(steering, 'cmd_min', -1.0)
+
+
+def add_ackermann_controller(model, geometry=None):
+    wheelbase,track,radius,limit = ((geometry.wheelbase,geometry.track,geometry.radius,geometry.joint_limit)
+                                     if geometry else (WHEELBASE,TRACK,WHEEL_RADIUS,STEERING_LIMIT))
+    controller = element(model, "plugin", filename="gz-sim-ackermann-steering-system",
+                         name="gz::sim::systems::AckermannSteering")
+    for key, value in (("left_joint", "rear_left_wheel_joint"),
+                       ("right_joint", "rear_right_wheel_joint"),
+                       ("left_steering_joint", "front_left_steering_joint"),
+                       ("right_steering_joint", "front_right_steering_joint"),
+                       ("wheel_base", wheelbase), ("wheel_separation", track),
+                       ("kingpin_width", track), ("wheel_radius", radius),
+                       ("steering_limit", limit), ("min_velocity", -1.0),
+                       ("max_velocity", 1.0), ("min_acceleration", -0.6),
+                       ("max_acceleration", 0.6), ("topic", TOPICS["cmd_vel"]),
+                       ("odom_topic", TOPICS["wheel_odom"]), ("tf_topic", TOPICS["wheel_tf"]),
+                       ("frame_id", "odom"), ("child_frame_id", "base_link"),
+                       ("odom_publish_frequency", 50.0)):
+        element(controller, key, value)
 
 
 def make_urdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
@@ -432,7 +464,7 @@ def make_urdf(links: list[dict[str, Any]], joints: list[dict[str, Any]],
             if kind == "body":
                 element(geometry, "box", size=vector(BODY_SIZE))
             else:
-                element(geometry, "cylinder", radius=number(WHEEL_RADIUS if kind == "wheel" else KNUCKLE_RADIUS),
+                element(geometry, "cylinder", radius=number(info.get("radius",WHEEL_RADIUS) if kind == "wheel" else KNUCKLE_RADIUS),
                         length=number(WHEEL_WIDTH if kind == "wheel" else KNUCKLE_HEIGHT))
             if tag == "visual":
                 color = "0.15 0.38 0.18 1" if kind == "body" else "0.12 0.12 0.12 1"
@@ -466,13 +498,18 @@ def write_xml(path: Path, root: ET.Element) -> None:
 
 
 def generate_vehicle(output_dir: Path, sensor_config: Path | dict[str, Any], *,
-                     with_sensors: bool = True) -> dict[str, Any]:
+                     with_sensors: bool = True,
+                     drive_layout="rear_drive_front_steer", vehicle_config=None) -> dict[str, Any]:
     config = load_sensors(sensor_config) if isinstance(sensor_config, Path) else sensor_config
     p = sensor_parameters(config)
-    links, joints = physical_model()
+    from nomad_vehicle_model import Geometry, profile
+    geometry=profile(vehicle_config) if vehicle_config is not None else Geometry(steering_axle='rear' if drive_layout=='front_drive_rear_steer' else 'front')
+    if vehicle_config is not None:
+        drive_layout=vehicle_config.get('drive_layout',drive_layout)
+    links, joints = physical_model(drive_layout,geometry)
     frames = fixed_frames(p)
     output_dir = Path(output_dir)
-    write_xml(output_dir / "models" / MODEL / "model.sdf", make_sdf(links, joints, frames, p, with_sensors))
+    write_xml(output_dir / "models" / MODEL / "model.sdf", make_sdf(links, joints, frames, p, with_sensors,drive_layout,geometry))
     write_xml(output_dir / "urdf" / f"{MODEL}.urdf", make_urdf(links, joints, frames))
     model_config = ET.Element("model")
     element(model_config, "name", MODEL)
@@ -491,8 +528,8 @@ def generate_vehicle(output_dir: Path, sensor_config: Path | dict[str, Any], *,
         "body_size_m": BODY_SIZE, "body_center_z_m": BODY_CENTER_Z,
         "body_mass_kg": BODY_MASS, "wheel_mass_kg": WHEEL_MASS,
         "knuckle_mass_kg": KNUCKLE_MASS, "total_mass_kg": sum(link["mass"] for link in links),
-        "wheelbase_m": WHEELBASE, "track_m": TRACK, "wheel_radius_m": WHEEL_RADIUS,
-        "wheel_width_m": WHEEL_WIDTH, "steering_limit_rad": STEERING_LIMIT,
+        "wheelbase_m": geometry.wheelbase, "track_m": geometry.track, "wheel_radius_m": geometry.radius,
+        "wheel_width_m": WHEEL_WIDTH, "steering_limit_rad": geometry.joint_limit,
         "max_speed_mps": 1.0, "max_acceleration_mps2": 0.6,
         "driven_joints": ["rear_left_wheel_joint", "rear_right_wheel_joint"],
         "physical_links": [link["name"] for link in links],
@@ -505,12 +542,27 @@ def generate_vehicle(output_dir: Path, sensor_config: Path | dict[str, Any], *,
         "imu_source": config["imu"],
     }
     metadata_path = output_dir / "config" / "vehicle.json"
+    if drive_layout == "front_drive_rear_steer":
+        metadata['drive_layout'] = drive_layout
+        metadata['reference_offset_m'] = geometry.reference_offset
+        metadata['equivalent_steering_limit_rad'] = geometry.equivalent_limit
+        metadata['max_speed_mps'] = float((vehicle_config or {}).get('max_speed',.5))
+        metadata['driven_joints'] = ['front_left_wheel_joint','front_right_wheel_joint']
+        metadata['notes'][1] = 'Front-wheel velocity drive, rear joint steering; no suspension or physical differential model.'
+        metadata['notes'][3] = 'Rear-steering profile publishes body ground truth only; no wheel-odometry estimate.'
+        metadata['native_topics'] = {key:value for key,value in TOPICS.items()
+                                    if key not in ('cmd_vel','wheel_odom','wheel_tf')}
+        metadata['steered_joints'] = ['rear_left_steering_joint','rear_right_steering_joint']
+        metadata['actuator_topics'] = {name:f'/nomad/rear_steer/actuators/{name}' for name in
+            ('front_left_velocity','front_right_velocity','rear_left_position','rear_right_position')}
+        metadata['reference_axle'] = 'front'
+        metadata['command_topic'] = '/nomad/rear_steer/drive_command'
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(json.dumps(metadata, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
     return metadata
 
 
-def prepare_sensor_world(world_path: Path, config: dict, directory: Path):
+def prepare_sensor_world(world_path: Path, config: dict, directory: Path, vehicle_config=None):
     """Apply configured sensors to a disposable world, retaining physics/contacts."""
     from copy import deepcopy
     directory.mkdir(parents=True, exist_ok=True)
@@ -538,8 +590,37 @@ def prepare_sensor_world(world_path: Path, config: dict, directory: Path):
     else:
         model = inline[0]
     generated = directory / 'generated'
-    generate_vehicle(generated, config)
+    generate_vehicle(generated, config, vehicle_config=vehicle_config)
     fresh = ET.parse(generated / 'models/nomad_vehicle/model.sdf').find('model')
+    if vehicle_config is not None:
+        # Replace generated mechanical links/joints/controllers; preserve map pose,
+        # per-map contact sensors and non-drivetrain plugins. Never change terrain.
+        old=model
+        generated_names={e.get('name') for e in fresh.findall('link')+fresh.findall('joint')+fresh.findall('frame')}
+        mechanical_names={f'{end}_{side}_{part}' for end in ('front','rear') for side in ('left','right')
+                          for part in ('wheel','wheel_joint','steering_link','steering_joint')}
+        for child in list(old):
+            if child.tag in ('pose','placement_frame','enable_wind'):
+                existing=fresh.find(child.tag)
+                if existing is not None:fresh.remove(existing)
+                fresh.append(deepcopy(child))
+            elif child.tag in ('link','joint','frame') and child.get('name') not in generated_names | mechanical_names:
+                fresh.append(deepcopy(child))
+            elif child.tag=='plugin' and not any(k in child.get('name','') for k in
+                    ('AckermannSteering','JointController','JointPositionController','OdometryPublisher','JointStatePublisher')):
+                fresh.append(deepcopy(child))
+        fresh.set('name',old.get('name',MODEL))
+        for oldlink in old.findall('link'):
+            targetlink=fresh.find("link[@name='%s']"%oldlink.get('name'))
+            if targetlink is not None:
+                present={e.get('name') for e in targetlink.findall('sensor')}
+                for sensor in oldlink.findall('sensor'):
+                    if sensor.get('name') not in present:targetlink.append(deepcopy(sensor))
+        if vehicle is not None:
+            vehicle.getroot().remove(old);vehicle.getroot().append(fresh)
+        else:
+            world.remove(old);world.append(fresh)
+        model=fresh
     base = model.find("link[@name='base_link']")
     if base is None:
         raise ValueError('Sensor profile requires base_link')
@@ -568,8 +649,20 @@ def main() -> None:
     parser.add_argument("--sensor-config", type=Path,
                         default=Path(__file__).resolve().parents[2] / "nomad_sim" / "config" / "sensors.yaml")
     parser.add_argument("--no-sensors", action="store_true", help="omit rendering sensors, retain fixed ROS frames")
+    parser.add_argument('--drive-layout', choices=('rear_drive_front_steer','front_drive_rear_steer'),
+                        default=None)
+    parser.add_argument('--vehicle-config',type=Path,help='Common ROS vehicle.yaml; default installed NOMAD profile')
     args = parser.parse_args()
-    metadata = generate_vehicle(args.output_dir, args.sensor_config, with_sensors=not args.no_sensors)
+    from nomad_vehicle_model import load_profile
+    if args.vehicle_config is not None:
+        values=load_profile(args.vehicle_config)
+    elif args.drive_layout is None:
+        from ament_index_python.packages import get_package_share_directory
+        values=load_profile(Path(get_package_share_directory('nomad_bringup'))/'config/vehicle.yaml')
+    else:
+        values=None
+    metadata = generate_vehicle(args.output_dir, args.sensor_config, with_sensors=not args.no_sensors,
+                                drive_layout=args.drive_layout or "front_drive_rear_steer",vehicle_config=values)
     print(json.dumps({"model": MODEL, "physical_links": len(metadata["physical_links"]),
                       "dynamic_joints": len(metadata["dynamic_joints"]),
                       "total_mass_kg": metadata["total_mass_kg"], "sensors_enabled": metadata["sensors_enabled"]}))

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory, get_package_prefix
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, RegisterEventHandler
+from launch.actions import DeclareLaunchArgument, Shutdown, IncludeLaunchDescription, OpaqueFunction, SetEnvironmentVariable, RegisterEventHandler
 from launch.event_handlers import OnShutdown
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
@@ -106,8 +106,12 @@ def launch_nodes(context):
         Path(get_package_prefix('nomad_gazebo')) / 'lib/nomad_gazebo/generate_vehicle.py')
     generator = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(generator)
+    from nomad_vehicle_model import load_profile,profile
+    vehicle_values=load_profile(LaunchConfiguration('vehicle_file').perform(context))
+    geometry=profile(vehicle_values)
+    rear=geometry.steering_axle=='rear'
     original_world = world
-    world, generated_robot = generator.prepare_sensor_world(world, settings, runtime_root / 'sensors')
+    world, generated_robot = generator.prepare_sensor_world(world, settings, runtime_root / 'sensors',vehicle_values)
     gps_directory = None
     gps_mount = None
     if settings.get('gps', {}).get('enabled', False):
@@ -127,6 +131,18 @@ def launch_nodes(context):
         raise ValueError('ros_remappings must be a topic-name mapping')
     remaps = list(remap_dict.items())
     bridge_entries = yaml.safe_load((share/'config/bridge.yaml').read_text())
+    actuator_nodes=[]
+    if rear:
+        bridge_entries=[e for e in bridge_entries if e['ros_topic_name']!='/nomad/vehicle/cmd_vel']
+        for name in ('front_left_velocity','front_right_velocity','rear_left_position','rear_right_position'):
+            topic='/nomad/rear_steer/actuators/'+name
+            bridge_entries.append(dict(ros_topic_name=topic,gz_topic_name=topic,
+                ros_type_name='std_msgs/msg/Float64',gz_type_name='gz.msgs.Double',direction='ROS_TO_GZ'))
+        actuator_nodes=[Node(package='nomad_gazebo',executable='rear_steering_mixer.py',
+            parameters=[{'use_sim_time':True,'input_mode':'twist','wheelbase':geometry.wheelbase,
+                'track':geometry.track,'wheel_radius':geometry.radius,'joint_limit':geometry.joint_limit,
+                'max_speed':float(vehicle_values.get('max_speed',.5))}],output='screen',remappings=remaps,
+            on_exit=Shutdown(reason='Rear steering backend exited'))]
     if gps_mount is None:
         bridge_entries = [entry for entry in bridge_entries if entry['ros_topic_name'] != '/gps/fix']
     tf_enabled = LaunchConfiguration('publish_ground_truth_tf').perform(context).lower() in ('true','1','yes')
@@ -146,7 +162,14 @@ def launch_nodes(context):
     map_root = Path(resource_root).resolve() if resource_root else original_world.parent.parent
     resources = [str(share), str(share/'models'), str(original_world.parent), str(map_root), str(map_root/'models')]
     description = LaunchConfiguration("robot_description_file").perform(context).strip()
-    robot = ET.fromstring((Path(description) if description else generated_robot).read_text(encoding='utf-8'))
+    # Same regenerated mechanics and sensor frames are used on every entry point.
+    robot = ET.fromstring(generated_robot.read_text(encoding='utf-8'))
+    if description:
+        supplied=ET.parse(description).getroot()
+        actual={e.get('name'):ET.tostring(e,encoding='unicode').strip() for e in robot.findall('joint')}
+        given={e.get('name'):ET.tostring(e,encoding='unicode').strip() for e in supplied.findall('joint')}
+        if actual!=given:
+            raise ValueError('robot_description_file disagrees with vehicle_file/sensor_config; regenerate the GUI profile')
     if gps_mount is not None:
         ET.SubElement(robot, 'link', name='gps_link')
         joint = ET.SubElement(robot, 'joint', name='gps_mount', type='fixed')
@@ -164,11 +187,12 @@ def launch_nodes(context):
                                        'origin_longitude_deg': float(datum.findtext('longitude_deg')),
                                        'origin_elevation_m': float(datum.findtext('elevation'))}],
                           output='screen', remappings=remaps)]
-    return gps_nodes + [SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.pathsep.join(resources)),
+    return gps_nodes + actuator_nodes + [SetEnvironmentVariable('GZ_SIM_RESOURCE_PATH', os.pathsep.join(resources)),
             SetEnvironmentVariable('SDF_PATH', str(original_world.parent)+os.pathsep+os.environ.get('SDF_PATH', '')),
             cleanup, gz,
             Node(package='ros_gz_bridge', executable='parameter_bridge', name='nomad_gz_bridge',
-                 parameters=[{'config_file': handle.name, 'use_sim_time': True}], output='screen', remappings=remaps),
+                 parameters=[{'config_file': handle.name, 'use_sim_time': True}], output='screen', remappings=remaps,
+                 on_exit=Shutdown(reason='Gazebo ROS bridge exited')),
             Node(package='robot_state_publisher', executable='robot_state_publisher',
                  name='nomad_robot_state_publisher',
                  parameters=[{'robot_description': ET.tostring(robot, encoding='unicode'),
@@ -184,6 +208,7 @@ def launch_nodes(context):
 def generate_launch_description():
     share = get_package_share_directory('nomad_gazebo')
     return LaunchDescription([
+        DeclareLaunchArgument('vehicle_file',default_value=str(Path(get_package_share_directory('nomad_bringup'))/'config/vehicle.yaml')),
         DeclareLaunchArgument('world_resource_root', default_value=''),
         DeclareLaunchArgument('robot_description_file', default_value=''),
         DeclareLaunchArgument('publish_ground_truth_tf', default_value='true'),

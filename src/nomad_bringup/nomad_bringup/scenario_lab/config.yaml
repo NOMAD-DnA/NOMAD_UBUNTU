@@ -4,8 +4,13 @@
     use_sim_time: true
     planning_frame: odom
     base_frame: base_link
+    drive_layout: front_drive_rear_steer
+    steering_axle: rear
+    track: 0.6
+    wheel_radius: 0.15
+    joint_limit: 0.55
     wheelbase: 0.72
-    reference_offset: 0.36
+    reference_offset: -0.36
     max_steer: 0.4
     max_speed: 0.5
 dstar_lite_gpp:

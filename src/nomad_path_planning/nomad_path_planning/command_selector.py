@@ -40,16 +40,17 @@ class PlanningCommandNode(Node):
         self.max_speed = self.declare_parameter('max_speed', 0.4).value
         self.observed_guard = self.declare_parameter('observed_guard.enabled', True).value
         self.guard_half_length = self.declare_parameter('observed_guard.half_length', .52).value
-        self.guard_half_width = self.declare_parameter('observed_guard.half_width', .40).value
+        self.guard_half_width = self.declare_parameter('observed_guard.half_width', .42).value
         self.guard_deceleration = self.declare_parameter('observed_guard.deceleration', .4).value
         self.guard_latency = self.declare_parameter('observed_guard.latency', .3).value
         self.guard_margin = self.declare_parameter('observed_guard.margin', .1).value
         self.guard_wheelbase = self.declare_parameter('wheelbase', .72).value
-        self.guard_offset = self.declare_parameter('reference_offset', .36).value
+        self.guard_offset = self.declare_parameter('reference_offset', -.36).value
         if (not all(math.isfinite(v) for v in (self.guard_half_length,self.guard_half_width,self.guard_deceleration,
                 self.guard_latency,self.guard_margin,self.guard_wheelbase,self.guard_offset))
                 or min(self.guard_half_length,self.guard_half_width,self.guard_deceleration,self.guard_wheelbase)<=0
-                or min(self.guard_latency,self.guard_margin,self.guard_offset)<0):
+                or min(self.guard_latency,self.guard_margin)<0
+                or abs(self.guard_offset)>self.guard_wheelbase):
             raise ValueError('Invalid observed-space guard parameters')
 
         self.health_label = self.declare_parameter('health_label', 'odom/scan/TF').value
@@ -303,6 +304,12 @@ class PlanningCommandNode(Node):
             reason = 'WAIT: choose a goal'
         elif self.pose is None or now-self.pose_received_at > 1.0:
             reason = 'STOP: odometry unavailable'
+        elif (not recovering and math.hypot(self.goal.pose.position.x-self.pose.pose.position.x,
+                                           self.goal.pose.position.y-self.pose.pose.position.y)<.35):
+            # Arrival commands a stop and does not require a remaining motion path.
+            self.report('ARRIVED')
+            self.cmd_pub.publish(command)
+            return
         elif not recovering and self.global_path is None:
             reason = 'STOP: waiting for GPP recovery'
         elif (path is None or now-received > 0.5
@@ -314,14 +321,9 @@ class PlanningCommandNode(Node):
             self.cmd_pub.publish(command)
             return
 
-        position = self.pose.pose.position
-        target = self.goal.pose.position
-        distance = math.hypot(target.x - position.x, target.y - position.y)
-        if not recovering and distance < 0.35:
-            self.report('ARRIVED')
-            self.cmd_pub.publish(command)
-            return
-
+        position=self.pose.pose.position
+        target=self.goal.pose.position
+        distance=math.hypot(target.x-position.x,target.y-position.y)
         first = path.poses[0].pose
         second = path.poses[1].pose
         if math.hypot(first.position.x - position.x, first.position.y - position.y) > 0.45:

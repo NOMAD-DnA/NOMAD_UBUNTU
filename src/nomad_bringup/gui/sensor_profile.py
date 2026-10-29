@@ -76,7 +76,7 @@ def runtime_world(root, sensors, simulation, directory):
     maps = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(maps)
     original = maps.choose(maps.discover(root / 'src/nomad_gazebo/maps'), simulation['map'], False)['world']
-    world, robot = generator(root).prepare_sensor_world(original, sensors, directory)
+    world, robot = generator(root).prepare_sensor_world(original, sensors, directory, yaml.safe_load((root/'src/nomad_bringup/config/vehicle.yaml').read_text())['/**']['ros__parameters'])
     return world, original.parent.parent, robot
 
 

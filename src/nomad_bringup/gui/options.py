@@ -63,6 +63,8 @@ LOCKED = {
     "gpp_algorithm",
     "lpp_algorithm",
     "track",
+    "wheelbase",
+    "reference_offset",
 }
 LABELS = {
     'worker_timeout_wall_sec': '지도 계산 응답 제한 (초)',
@@ -285,6 +287,11 @@ def defaults():
                 merged.setdefault(node, {"ros__parameters": {}})[
                     "ros__parameters"
                 ].update(block["ros__parameters"])
+        if section in ('planning','control'):
+            vehicle=yaml.safe_load((ROOT/'src/nomad_bringup/config/vehicle.yaml').read_text())['/**']['ros__parameters']
+            for block in merged.values():
+                for key in set(block['ros__parameters']) & set(vehicle):
+                    block['ros__parameters'][key]=vehicle[key]
         result["configs"][section] = merged
     return result
 

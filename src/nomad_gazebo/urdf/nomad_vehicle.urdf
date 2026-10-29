@@ -23,22 +23,6 @@
       </geometry>
     </collision>
   </link>
-  <link name="front_left_steering_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <mass value="0.3" />
-      <inertia ixx="8.6875e-05" iyy="8.6875e-05" izz="9.375e-05" ixy="0" ixz="0" iyz="0" />
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <cylinder radius="0.025" length="0.04" />
-      </geometry>
-      <material name="front_left_steering_link_material">
-        <color rgba="0.12 0.12 0.12 1" />
-      </material>
-    </visual>
-  </link>
   <link name="front_left_wheel">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -60,22 +44,6 @@
         <cylinder radius="0.15" length="0.08" />
       </geometry>
     </collision>
-  </link>
-  <link name="front_right_steering_link">
-    <inertial>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <mass value="0.3" />
-      <inertia ixx="8.6875e-05" iyy="8.6875e-05" izz="9.375e-05" ixy="0" ixz="0" iyz="0" />
-    </inertial>
-    <visual>
-      <origin xyz="0 0 0" rpy="0 0 0" />
-      <geometry>
-        <cylinder radius="0.025" length="0.04" />
-      </geometry>
-      <material name="front_right_steering_link_material">
-        <color rgba="0.12 0.12 0.12 1" />
-      </material>
-    </visual>
   </link>
   <link name="front_right_wheel">
     <inertial>
@@ -99,6 +67,22 @@
       </geometry>
     </collision>
   </link>
+  <link name="rear_left_steering_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.3" />
+      <inertia ixx="8.6875e-05" iyy="8.6875e-05" izz="9.375e-05" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.025" length="0.04" />
+      </geometry>
+      <material name="rear_left_steering_link_material">
+        <color rgba="0.12 0.12 0.12 1" />
+      </material>
+    </visual>
+  </link>
   <link name="rear_left_wheel">
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0" />
@@ -120,6 +104,22 @@
         <cylinder radius="0.15" length="0.08" />
       </geometry>
     </collision>
+  </link>
+  <link name="rear_right_steering_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.3" />
+      <inertia ixx="8.6875e-05" iyy="8.6875e-05" izz="9.375e-05" ixy="0" ixz="0" iyz="0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.025" length="0.04" />
+      </geometry>
+      <material name="rear_right_steering_link_material">
+        <color rgba="0.12 0.12 0.12 1" />
+      </material>
+    </visual>
   </link>
   <link name="rear_right_wheel">
     <inertial>
@@ -143,50 +143,50 @@
       </geometry>
     </collision>
   </link>
-  <joint name="front_left_steering_joint" type="revolute">
-    <parent link="base_link" />
-    <child link="front_left_steering_link" />
-    <origin xyz="0.36 0.3 0.15" rpy="0 0 0" />
-    <axis xyz="0 0 1" />
-    <limit effort="12" velocity="2" lower="-0.55" upper="0.55" />
-    <dynamics damping="0.02" friction="0" />
-  </joint>
   <joint name="front_left_wheel_joint" type="continuous">
-    <parent link="front_left_steering_link" />
+    <parent link="base_link" />
     <child link="front_left_wheel" />
-    <origin xyz="0 0 0" rpy="0 0 0" />
+    <origin xyz="0.36 0.3 0.15" rpy="0 0 0" />
     <axis xyz="0 1 0" />
     <limit effort="20" velocity="20" />
-    <dynamics damping="0.02" friction="0" />
-  </joint>
-  <joint name="front_right_steering_joint" type="revolute">
-    <parent link="base_link" />
-    <child link="front_right_steering_link" />
-    <origin xyz="0.36 -0.3 0.15" rpy="0 0 0" />
-    <axis xyz="0 0 1" />
-    <limit effort="12" velocity="2" lower="-0.55" upper="0.55" />
     <dynamics damping="0.02" friction="0" />
   </joint>
   <joint name="front_right_wheel_joint" type="continuous">
-    <parent link="front_right_steering_link" />
+    <parent link="base_link" />
     <child link="front_right_wheel" />
+    <origin xyz="0.36 -0.3 0.15" rpy="0 0 0" />
+    <axis xyz="0 1 0" />
+    <limit effort="20" velocity="20" />
+    <dynamics damping="0.02" friction="0" />
+  </joint>
+  <joint name="rear_left_steering_joint" type="revolute">
+    <parent link="base_link" />
+    <child link="rear_left_steering_link" />
+    <origin xyz="-0.36 0.3 0.15" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit effort="12" velocity="2" lower="-0.55" upper="0.55" />
+    <dynamics damping="0.02" friction="0" />
+  </joint>
+  <joint name="rear_left_wheel_joint" type="continuous">
+    <parent link="rear_left_steering_link" />
+    <child link="rear_left_wheel" />
     <origin xyz="0 0 0" rpy="0 0 0" />
     <axis xyz="0 1 0" />
     <limit effort="20" velocity="20" />
     <dynamics damping="0.02" friction="0" />
   </joint>
-  <joint name="rear_left_wheel_joint" type="continuous">
+  <joint name="rear_right_steering_joint" type="revolute">
     <parent link="base_link" />
-    <child link="rear_left_wheel" />
-    <origin xyz="-0.36 0.3 0.15" rpy="0 0 0" />
-    <axis xyz="0 1 0" />
-    <limit effort="20" velocity="20" />
+    <child link="rear_right_steering_link" />
+    <origin xyz="-0.36 -0.3 0.15" rpy="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit effort="12" velocity="2" lower="-0.55" upper="0.55" />
     <dynamics damping="0.02" friction="0" />
   </joint>
   <joint name="rear_right_wheel_joint" type="continuous">
-    <parent link="base_link" />
+    <parent link="rear_right_steering_link" />
     <child link="rear_right_wheel" />
-    <origin xyz="-0.36 -0.3 0.15" rpy="0 0 0" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
     <axis xyz="0 1 0" />
     <limit effort="20" velocity="20" />
     <dynamics damping="0.02" friction="0" />

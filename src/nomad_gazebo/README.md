@@ -24,3 +24,8 @@ ROS센서: `/oak/{rgb,depth,left,right}/...`, `/oak/imu`, `/scan`, `/gps/fix`.
 기본은 ZED 2 최대 화각의 이상적 핀홀 근사: 가로110°·세로70°, 양안 간격12cm. 640×480/30Hz는 리샘플링 운용 설정이며 네이티브 ZED 모드나 실물 보정이 아니다. 깊이0.4–8m/IMU200Hz는 기존 시뮬레이션 운용값을 유지한다. `/oak` 토픽·프레임명은 호환 인터페이스다.
 
 `forest.launch.py`는 `config/sensors.yaml`로 원본 맵의 실행용 복사본에 센서를 적용하고 동일 입력에서 정적TF를 생성한다. 원본 맵, 차량 물리 및 추가 실험용 contact 센서는 보존한다. GUI도 같은 생성 함수를 사용한다. 기본 Basalt/OpenVINS 보정은 해당 기본 프로파일과 일치한다. 다른 `sensor_config`로 실행할 때 VIO 보정도 함께 제공해야 한다. GUI의 센서 설정은 일치하는 VIO 보정을 자동 생성한다. 이전 OAK 입력은 `config/sensors_oak_d_lite.yaml`에 보존했다.
+
+## 현재 차량 · 전륜 구동·후륜 조향
+
+`./scripts/run_rear_steering_sim.sh` (격리 domain152). [실행·입력 안내](../../docs/후륜조향_시뮬레이션.md).
+GUI/전체 실행/각 맵은 공통 `nomad_bringup/config/vehicle.yaml`로 후륜 조향 차량을 생성한다. 단독 평지 시험도 같은 기하를 사용한다. 이전 차량은 `vehicle_legacy.yaml`로 재현한다.

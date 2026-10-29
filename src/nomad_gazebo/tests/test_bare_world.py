@@ -18,7 +18,7 @@ PACKAGE = Path(__file__).resolve().parents[1]
 
 def is_vegetation_model(model):
     name = model.attrib.get("name", "")
-    return name in {"forest_far", "forest_grass"} or name.startswith("tree_")
+    return name in {"forest_far", "forest_grass", "path_grass", "meadow_grass"} or name.startswith("tree_")
 
 
 def canonical_tree(node):
@@ -45,7 +45,7 @@ class BareWorldTests(unittest.TestCase):
         self.assertIn("forest_grass", self.forest_models)
         self.assertTrue(any(name.startswith("tree_") for name in self.forest_models))
         self.assertFalse(any(is_vegetation_model(node) for node in self.bare.findall(".//model")))
-        expected = {"terrain", "dead_end_wall", *(f"rock_{index:04d}" for index in range(4))}
+        expected = {"terrain", "roadside_details"}
         self.assertEqual(set(self.bare_models), expected)
         for uri in self.bare.findall(".//uri"):
             for asset_name in ("forest_far.obj", "grass.obj", "pine_tree.obj", "grass_clump.obj", "shrub.obj"):
@@ -66,7 +66,8 @@ class BareWorldTests(unittest.TestCase):
                 self.assertEqual(canonical_tree(node), canonical_tree(self.forest_models[name]))
                 self.assertEqual(node.findtext("static"), "true")
                 self.assertTrue(node.findall(".//visual"))
-                self.assertTrue(node.findall(".//collision"))
+                if name=='terrain':self.assertTrue(node.findall('.//collision'))
+                else:self.assertFalse(node.findall('.//collision'), 'Roadside decoration must remain visual-only')
         for world in (self.forest, self.bare):
             includes = world.findall("include")
             self.assertEqual(len(includes), 1)
@@ -78,7 +79,7 @@ class BareWorldTests(unittest.TestCase):
         for key in ("rendered_trees", "collision_trees", "visual_only_trees", "visual_only_grass"):
             self.assertEqual(self.bare_export[key], 0, key)
             self.assertGreater(self.full_export[key], 0, key)
-        self.assertEqual(self.bare_export["rocks"], 4)
+        self.assertEqual(self.bare_export["rocks"], 0)
         self.assertTrue(self.bare_export["no_roadside_boundary"])
 
     def test_asset_identity_and_portable_shared_resource_paths(self):

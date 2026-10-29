@@ -1,6 +1,6 @@
 """Endpoint-aligned SE(2) lattice with cached cubic-Hermite motion primitives.
 
-The lattice is rooted at the initial rear-axle pose; translations repeat at a fixed
+The lattice is rooted at the initial non-steering-axle pose; translations repeat at a fixed
 spacing and orientations at 16 bins. Curvature is checked before admitting an edge.
 """
 import math

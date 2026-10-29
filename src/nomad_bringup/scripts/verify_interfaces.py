@@ -63,7 +63,7 @@ def main():
     odom=Odometry()
     odom.header.frame_id,odom.child_frame_id='odom','base_link'
     odom.pose.pose.orientation.w=1.
-    joints=JointState(name=['front_left_steering_joint','front_right_steering_joint'],position=[0.,0.])
+    joints=JointState(name=['rear_left_steering_joint','rear_right_steering_joint'],position=[0.,0.])
     grid=OccupancyGrid()
     grid.header.frame_id='odom'
     grid.info.width=grid.info.height=80

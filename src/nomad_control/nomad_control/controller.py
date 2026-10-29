@@ -42,11 +42,7 @@ def actuator_twist(speed, steer, wheelbase):
     return msg
 
 
-def centre_steering(left, right, wheelbase, track):
-    """Recover centre-wheel curvature from both measured Ackermann joints."""
-    tl, tr = math.tan(left), math.tan(right)
-    curvature = .5*(tl/(wheelbase+.5*track*tl) + tr/(wheelbase-.5*track*tr))
-    return math.atan(wheelbase*curvature)
+from nomad_vehicle_model import centre_steering, profile
 
 
 class Controller(Node):
@@ -58,8 +54,14 @@ class Controller(Node):
         self.wheelbase, self.track = p('wheelbase',.72),p('track',.60)
         self.command_timeout = p('command_wall_timeout',.35)
         self.rate = p('control_rate',20.)
-        self.left_joint = p('left_steering_joint','front_left_steering_joint')
-        self.right_joint = p('right_steering_joint','front_right_steering_joint')
+        self.drive_layout=p('drive_layout','front_drive_rear_steer')
+        self.steering_axle=p('steering_axle','rear' if self.drive_layout=='front_drive_rear_steer' else 'front')
+        self.geometry=profile(dict(drive_layout=self.drive_layout,steering_axle=self.steering_axle,
+            wheelbase=self.wheelbase,track=self.track,wheel_radius=p('wheel_radius',.15),
+            joint_limit=p('joint_limit',.55),max_steer=self.max_steer,
+            reference_offset=p('reference_offset',(-1 if self.steering_axle=='rear' else 1)*self.wheelbase/2)))
+        self.left_joint = p('left_steering_joint',self.steering_axle+'_left_steering_joint')
+        self.right_joint = p('right_steering_joint',self.steering_axle+'_right_steering_joint')
         if not all(math.isfinite(v) and v>0 for v in
                    (self.max_speed,self.max_steer,self.wheelbase,self.track,self.command_timeout,self.rate)):
             raise ValueError('Control limits/timing must be finite and positive')
@@ -131,7 +133,7 @@ class Controller(Node):
             right = msg.position[msg.name.index(self.right_joint)]
             if not all(math.isfinite(v) and abs(v)<1.2 for v in (left,right)):
                 raise ValueError('invalid joint angle')
-            angle = centre_steering(left,right,self.wheelbase,self.track)
+            angle = centre_steering(left,right,self.wheelbase,self.track,getattr(self,'steering_axle','front'))
             if not math.isfinite(angle) or not -.05 <= self.now()-stamp <= .6:
                 raise ValueError('stale joint angle')
         except (ValueError,IndexError,ZeroDivisionError):

@@ -33,14 +33,13 @@ def test_base_center_tracks_rear_axle_bicycle_in_forward_and_reverse():
     for speed in (.3, -.3):
         planner = AckermannRollout(speed=speed, horizon=.6)
         path = planner.simulate((2., 3., .4), .4)
-        rear_x, rear_y, yaw = 2.-.36*math.cos(.4), 3.-.36*math.sin(.4), .4
-        for x, y, actual_yaw in path[1:]:
-            rear_x += speed*.1*math.cos(yaw)
-            rear_y += speed*.1*math.sin(yaw)
-            yaw += speed/.72*math.tan(.4)*.1
-            assert np.allclose([x-.36*math.cos(actual_yaw), y-.36*math.sin(actual_yaw)],
-                               [rear_x, rear_y])
-            assert math.isclose(actual_yaw, yaw)
+        k=math.tan(.4)/.72
+        rx,ry=2.-.36*math.cos(.4),3.-.36*math.sin(.4)
+        for i,(x,y,yaw) in enumerate(path[1:],1):
+            angle=.4+speed*.1*i*k
+            assert np.allclose([x-.36*math.cos(yaw),y-.36*math.sin(yaw)],
+                [rx+(math.sin(angle)-math.sin(.4))/k,ry+(math.cos(.4)-math.cos(angle))/k])
+            assert math.isclose(yaw,angle)
 
 
 def test_projected_hit_blocks_full_nomad_footprint_and_can_clear():

@@ -1,0 +1,7 @@
+rear_steering_mixer:
+  ros__parameters:
+    # Geometry is passed from the generated vehicle metadata by the launch.
+    max_speed: 0.5
+    acceleration_limit: 0.6
+    command_wall_timeout: 0.35
+    command_topic: /nomad/rear_steer/drive_command

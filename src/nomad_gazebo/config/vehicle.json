@@ -4,9 +4,9 @@
   "provisional": true,
   "notes": [
     "Not the measured team's vehicle; base_link origin is the level ground plane.",
-    "Rear-wheel velocity drive, no suspension; effort limits are not a validated motor-output cap.",
+    "Front-wheel velocity drive, rear joint steering; no suspension or physical differential model.",
     "3D odom/TF is ideal ground truth from Gazebo, NOT a state estimator.",
-    "Planar wheel_odom/wheel_tf are separate and must not be bridged to the same ROS odom/TF.",
+    "Rear-steering profile publishes body ground truth only; no wheel-odometry estimate.",
     "Depth is ideal co-located RGBD rendering, NOT calibrated physical stereo depth.",
     "Single-plane GPU lidar samples the actual 3D scene; angular noise is not modeled."
   ],
@@ -25,50 +25,30 @@
   "wheel_radius_m": 0.15,
   "wheel_width_m": 0.08,
   "steering_limit_rad": 0.55,
-  "max_speed_mps": 1.0,
+  "max_speed_mps": 0.5,
   "max_acceleration_mps2": 0.6,
   "driven_joints": [
-    "rear_left_wheel_joint",
-    "rear_right_wheel_joint"
+    "front_left_wheel_joint",
+    "front_right_wheel_joint"
   ],
   "physical_links": [
     "base_link",
-    "front_left_steering_link",
     "front_left_wheel",
-    "front_right_steering_link",
     "front_right_wheel",
+    "rear_left_steering_link",
     "rear_left_wheel",
+    "rear_right_steering_link",
     "rear_right_wheel"
   ],
   "dynamic_joints": [
     {
-      "name": "front_left_steering_joint",
+      "name": "front_left_wheel_joint",
       "parent": "base_link",
-      "child": "front_left_steering_link",
+      "child": "front_left_wheel",
       "origin": [
         0.36,
         0.3,
         0.15
-      ],
-      "axis": [
-        0.0,
-        0.0,
-        1.0
-      ],
-      "type": "revolute",
-      "lower": -0.55,
-      "upper": 0.55,
-      "effort": 12.0,
-      "velocity": 2.0
-    },
-    {
-      "name": "front_left_wheel_joint",
-      "parent": "front_left_steering_link",
-      "child": "front_left_wheel",
-      "origin": [
-        0.0,
-        0.0,
-        0.0
       ],
       "axis": [
         0.0,
@@ -80,35 +60,15 @@
       "upper": 1e+16,
       "effort": 20.0,
       "velocity": 20.0
-    },
-    {
-      "name": "front_right_steering_joint",
-      "parent": "base_link",
-      "child": "front_right_steering_link",
-      "origin": [
-        0.36,
-        -0.3,
-        0.15
-      ],
-      "axis": [
-        0.0,
-        0.0,
-        1.0
-      ],
-      "type": "revolute",
-      "lower": -0.55,
-      "upper": 0.55,
-      "effort": 12.0,
-      "velocity": 2.0
     },
     {
       "name": "front_right_wheel_joint",
-      "parent": "front_right_steering_link",
+      "parent": "base_link",
       "child": "front_right_wheel",
       "origin": [
-        0.0,
-        0.0,
-        0.0
+        0.36,
+        -0.3,
+        0.15
       ],
       "axis": [
         0.0,
@@ -122,9 +82,9 @@
       "velocity": 20.0
     },
     {
-      "name": "rear_left_wheel_joint",
+      "name": "rear_left_steering_joint",
       "parent": "base_link",
-      "child": "rear_left_wheel",
+      "child": "rear_left_steering_link",
       "origin": [
         -0.36,
         0.3,
@@ -132,6 +92,26 @@
       ],
       "axis": [
         0.0,
+        0.0,
+        1.0
+      ],
+      "type": "revolute",
+      "lower": -0.55,
+      "upper": 0.55,
+      "effort": 12.0,
+      "velocity": 2.0
+    },
+    {
+      "name": "rear_left_wheel_joint",
+      "parent": "rear_left_steering_link",
+      "child": "rear_left_wheel",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "axis": [
+        0.0,
         1.0,
         0.0
       ],
@@ -142,13 +122,33 @@
       "velocity": 20.0
     },
     {
-      "name": "rear_right_wheel_joint",
+      "name": "rear_right_steering_joint",
       "parent": "base_link",
-      "child": "rear_right_wheel",
+      "child": "rear_right_steering_link",
       "origin": [
         -0.36,
         -0.3,
         0.15
+      ],
+      "axis": [
+        0.0,
+        0.0,
+        1.0
+      ],
+      "type": "revolute",
+      "lower": -0.55,
+      "upper": 0.55,
+      "effort": 12.0,
+      "velocity": 2.0
+    },
+    {
+      "name": "rear_right_wheel_joint",
+      "parent": "rear_right_steering_link",
+      "child": "rear_right_wheel",
+      "origin": [
+        0.0,
+        0.0,
+        0.0
       ],
       "axis": [
         0.0,
@@ -306,9 +306,6 @@
     40.0
   ],
   "native_topics": {
-    "cmd_vel": "/nomad/vehicle/cmd_vel",
-    "wheel_odom": "/nomad/vehicle/wheel_odom",
-    "wheel_tf": "/nomad/vehicle/wheel_tf",
     "odom": "/nomad/vehicle/odom",
     "tf": "/nomad/vehicle/tf",
     "joint_states": "/nomad/vehicle/joint_states",
@@ -365,5 +362,20 @@
   },
   "imu_source": {
     "hz": 200.0
-  }
+  },
+  "drive_layout": "front_drive_rear_steer",
+  "reference_offset_m": -0.36,
+  "equivalent_steering_limit_rad": 0.45428493974912093,
+  "steered_joints": [
+    "rear_left_steering_joint",
+    "rear_right_steering_joint"
+  ],
+  "actuator_topics": {
+    "front_left_velocity": "/nomad/rear_steer/actuators/front_left_velocity",
+    "front_right_velocity": "/nomad/rear_steer/actuators/front_right_velocity",
+    "rear_left_position": "/nomad/rear_steer/actuators/rear_left_position",
+    "rear_right_position": "/nomad/rear_steer/actuators/rear_right_position"
+  },
+  "reference_axle": "front",
+  "command_topic": "/nomad/rear_steer/drive_command"
 }

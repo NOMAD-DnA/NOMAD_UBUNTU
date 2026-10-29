@@ -13,6 +13,19 @@ def workspace():
     return Path(os.environ.get('NOMAD_WS_ROOT', PACKAGE.parents[3])).resolve()
 
 
+def resolved_config():
+    """Current shared mechanics, explicit scenario planning overrides."""
+    import yaml
+    data=yaml.safe_load((PACKAGE/'config.yaml').read_text())
+    vehicle=yaml.safe_load((workspace()/'src/nomad_bringup/config/vehicle.yaml').read_text())['/**']['ros__parameters']
+    data['/**']['ros__parameters'].update(vehicle)
+    geometry_keys=('drive_layout','steering_axle','wheelbase','reference_offset','track','wheel_radius','joint_limit')
+    for node,block in data.items():
+        if node!='/**':
+            for key in geometry_keys:block['ros__parameters'][key]=vehicle[key]
+    return data
+
+
 def catalog():
     return json.loads((PACKAGE/'authoring.json').read_text())
 
@@ -76,7 +89,7 @@ def observe(spec, known, pose, radius=7.5):
     return changed
 
 
-def polygon_clearance(pose, boxes, half_length=.52, half_width=.40):
+def polygon_clearance(pose, boxes, half_length=.52, half_width=.42):
     """Exact 2-D rectangle-envelope to static obstacle rectangles distance.
 
     Returns zero on overlap, not contact-force evidence. Envelope encloses wheels.
@@ -115,5 +128,5 @@ def summarize(samples, result, spec, gpp_count, invalid_replans, cpu, started_at
                 clearance_coverage_pct=100*len(values)/len(samples) if samples else 0,
                 envelope_overlap=overlap,gpp_path_publications=gpp_count,
                 invalidity_replans=invalid_replans,cpu=cpu,
-                metric_definition='p05: 10Hz sim-time samples; XY .52m/.40m rectangular envelope to GT obstacle rectangles. Zero means envelope overlap, not measured contact force.',
+                metric_definition='p05: 10Hz sim-time samples; XY .52m/.42m rectangular envelope to GT obstacle rectangles. Zero means envelope overlap, not measured contact force.',
                 input_mode='Gazebo physics + ground-truth pose and synthetic accumulated LOS map; no B0/VIO')

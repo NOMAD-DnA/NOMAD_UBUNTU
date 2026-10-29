@@ -17,3 +17,17 @@ def valid_grid(msg,frame):
             and all(math.isfinite(v) for v in (i.origin.position.x,i.origin.position.y,q.x,q.y,q.z,q.w))
             and abs(q.x)+abs(q.y)+abs(q.z)<1e-6 and abs(abs(q.w)-1.)<1e-6
             and min(msg.data)>=-1 and max(msg.data)<=100)
+
+
+def causal_stamp(now, request):
+    """A response cannot precede its request when a node's /clock callback lags.
+
+    This changes response provenance only. Sensor/command freshness and rejection
+    of previous missions remain unchanged; no old measurement is restamped here.
+    """
+    from copy import deepcopy
+    header=getattr(request,'header',None)
+    stamp=getattr(header,'stamp',None)
+    if stamp is not None and (stamp.sec,stamp.nanosec)>(now.sec,now.nanosec):
+        return deepcopy(stamp)
+    return now

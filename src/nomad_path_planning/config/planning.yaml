@@ -62,7 +62,7 @@ nomad_planning_command:
     health_label: navigation sensors/TF
     observed_guard.enabled: true
     observed_guard.half_length: 0.52 # Body and wheel envelope at max_steer .4
-    observed_guard.half_width: 0.40 # Only newly entered unknown cells block forward travel
+    observed_guard.half_width: 0.42 # Only newly entered unknown cells block forward travel
     observed_guard.deceleration: 0.4 # Provisional simulation braking assumption, m/s^2
     observed_guard.latency: 0.3 # Command lease/response allowance; map age is added, sim seconds
     observed_guard.margin: 0.1 # Additional stopping distance, metres

@@ -20,6 +20,7 @@ RGB → nomad_semantic → 라벨 ─┐                    │
 | 비용·관측 기억 | `nomad_perception/navigation_costmap.py` | 같은 YAML: 20cm, 120cm 이차 장애물 비용 |
 | 인지 ROS 입출력 | `live_terrain.py`, `navigation_terrain.py` | 같은 YAML |
 | GPP·LPP·복구 | `nomad_path_planning/gpp/`, `lpp/`, `recovery_supervisor.py` | `config/planning.yaml`, 통합 override `terrain_planning.yaml` |
+| 공통 차량 운동학 | `nomad_vehicle_model/` | `nomad_bringup/config/vehicle.yaml`: 앞축 적분·뒤 조향 |
 | 제어 | `nomad_control/` | `config/parameters.yaml` |
 
 패키지 경로는 모두 `src/` 아래. 토픽 계약은 `nomad_bringup/config/topics.yaml`, 공통 차량 기하는 `config/vehicle.yaml`.
@@ -31,3 +32,5 @@ RGB → nomad_semantic → 라벨 ─┐                    │
 플래닝 단독 검증은 `scripts/run_scenario_lab.sh` → `nomad_bringup/nomad_bringup/scenario_lab/`.
 GT 관측 입력·6개 맵 생성·실행 큐·결과 GUI를 묶고 기존 GPP/LPP/Control을 사용한다.
 생성 맵과 결과는 `sessions/planning_lab/`, 상세 안내는 [플래닝 시나리오 실험실](플래닝_시나리오_실험실.md).
+
+현재 전륜 구동·후륜 조향은 [차량 실행 안내](후륜조향_시뮬레이션.md) 참조. Planning·Control·맵/GUI가 같은 기하를 사용한다.

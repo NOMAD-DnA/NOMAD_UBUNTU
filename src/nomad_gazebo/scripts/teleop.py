@@ -2,6 +2,7 @@
 """Keyboard teleop with real key-release steering in a small Qt window."""
 
 import sys
+import math
 
 import rclpy
 from geometry_msgs.msg import Twist
@@ -11,11 +12,12 @@ from PyQt5.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 
 class TeleopWindow(QWidget):
-    def __init__(self, publisher):
+    def __init__(self, publisher, wheelbase=.72, max_speed=.5, max_steer=.4):
         super().__init__()
         self.publisher = publisher
+        self.wheelbase,self.max_speed,self.max_steer=wheelbase,max_speed,max_steer
         self.speed = 0.0
-        self.yaw_rate = 0.0
+        self.steering_angle = 0.0
         self.left_down = False
         self.right_down = False
         self.close_reason = "user closed window"
@@ -40,15 +42,15 @@ class TeleopWindow(QWidget):
             return
         key = event.key()
         if key == Qt.Key_W:
-            self.speed = min(1.0, self.speed + 0.1)
+            self.speed = min(self.max_speed, self.speed + 0.1)
         elif key == Qt.Key_S:
-            self.speed = max(-0.6, self.speed - 0.1)
+            self.speed = max(-self.max_speed, self.speed - 0.1)
         elif key == Qt.Key_A:
             self.left_down = True
         elif key == Qt.Key_D:
             self.right_down = True
         elif key == Qt.Key_Space:
-            self.speed = self.yaw_rate = 0.0
+            self.speed = self.steering_angle = 0.0
             self.left_down = self.right_down = False
             self.publish_command()
         elif key == Qt.Key_Q:
@@ -72,7 +74,7 @@ class TeleopWindow(QWidget):
     def focusOutEvent(self, event):
         # Releasing a key in another window must not leave the car moving.
         self.left_down = self.right_down = False
-        self.speed = self.yaw_rate = 0.0
+        self.speed = self.steering_angle = 0.0
         self.publish_command()
         self.update_status()
         super().focusOutEvent(event)
@@ -84,13 +86,13 @@ class TeleopWindow(QWidget):
                             '키 입력은 이 창을 선택한 상태에서만 받습니다.')
 
     def publish_command(self):
-        target = 0.55 * (int(self.left_down) - int(self.right_down))
+        target = self.max_steer * (int(self.left_down) - int(self.right_down))
         # Smoothly return to center instead of snapping the steering target.
         step = 0.08
-        self.yaw_rate += max(-step, min(step, target - self.yaw_rate))
+        self.steering_angle += max(-step, min(step, target - self.steering_angle))
         message = Twist()
         message.linear.x = self.speed
-        message.angular.z = self.yaw_rate
+        message.angular.z = self.speed/self.wheelbase*math.tan(self.steering_angle)
         self.publisher.publish(message)
 
 
@@ -100,12 +102,17 @@ def main():
     initialization_only = node.declare_parameter("initialization_only", False).value
     publisher = node.create_publisher(Twist, '/cmd_vel', 5)
     app = QApplication([sys.argv[0]])
-    window = TeleopWindow(publisher)
+    from nomad_vehicle_model import load_profile,profile
+    from pathlib import Path
+    from ament_index_python.packages import get_package_share_directory
+    vehicle_file=node.declare_parameter('vehicle_file',str(Path(get_package_share_directory('nomad_bringup'))/'config/vehicle.yaml')).value
+    values=load_profile(vehicle_file);geometry=profile(values)
+    window = TeleopWindow(publisher,geometry.wheelbase,float(values['max_speed']),float(values['max_steer']))
     if initialization_only:
         window.setWindowTitle('NOMAD 초기 위치 정렬 · 수동 조종')
         window.layout().insertWidget(0, QLabel('빈 길로 2–3 m 이동\n위치 정렬이 끝나면 자동으로 정지하고 이 창이 닫힙니다.'))
         def finish(_request, response):
-            window.speed = window.yaw_rate = 0.0
+            window.speed = window.steering_angle = 0.0
             window.left_down = window.right_down = False
             window.timer.stop()
             window.close_reason = "automatic close after localization alignment"

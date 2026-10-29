@@ -34,7 +34,7 @@ class Fixture(Node):
         self.clock_pub = self.create_publisher(Clock, '/clock', 10)
         self.odom_pub = self.create_publisher(Odometry, '/odom', qos_profile_sensor_data)
         self.joint_pub = self.create_publisher(JointState, '/joint_states', 10)
-        self.joint = JointState(name=['front_left_steering_joint','front_right_steering_joint'],position=[0.,0.])
+        self.joint = JointState(name=['rear_left_steering_joint','rear_right_steering_joint'],position=[0.,0.])
         self.scan_pub = self.create_publisher(LaserScan, '/scan', qos_profile_sensor_data)
         self.goal_pub = self.create_publisher(PoseStamped, '/goal_pose', 10)
         self.create_subscription(Twist, '/nomad/test/cmd_vel', self.on_command, 10)

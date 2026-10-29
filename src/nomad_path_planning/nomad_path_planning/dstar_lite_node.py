@@ -1,3 +1,4 @@
+from nomad_path_planning.contracts import causal_stamp
 from nomad_path_planning.contracts import valid_grid
 import math
 
@@ -311,9 +312,7 @@ class DStarLiteNode(Node):
         msg = Path()
 
         msg.header.frame_id = self.planning_frame
-        msg.header.stamp = (
-            self.get_clock().now().to_msg()
-        )
+        msg.header.stamp = causal_stamp(self.get_clock().now().to_msg(),getattr(self,'goal_pose',None))
 
         for i, cell in enumerate(path_cells):
 

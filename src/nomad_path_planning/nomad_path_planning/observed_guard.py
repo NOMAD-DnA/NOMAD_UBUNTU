@@ -64,7 +64,7 @@ def footprint_known(grid, x, y, radius):
     return True
 
 
-def footprint_cells(grid, pose, half_length=.52, half_width=.40):
+def footprint_cells(grid, pose, half_length=.52, half_width=.42):
     """Grid cells intersecting an oriented bounding rectangle (SAT test).
 
     Includes body/wheels at planning steering limit .4rad. This is an execution
@@ -86,7 +86,7 @@ def footprint_cells(grid, pose, half_length=.52, half_width=.40):
 
 
 def observed_distance(grid, pose, steer, direction, wheelbase=.72,
-                      offset=.36, half_length=.52, half_width=.40, horizon=2.):
+                      offset=.36, half_length=.52, half_width=.42, horizon=2.):
     """Forward: check newly entered cells; reverse: require known whole footprint.
 
     The initial exemption is fixed for this entire predicted arc, never advanced
@@ -106,20 +106,14 @@ def observed_distance(grid, pose, steer, direction, wheelbase=.72,
             if not (0<=i<width and 0<=j<height):return False
             if data[j*width+i]<0 and cell not in exempt:return False
         return True
-    x,y,yaw=pose
     if not permitted(pose):return 0.
-    x-=offset*math.cos(yaw);y-=offset*math.sin(yaw)
+    from nomad_vehicle_model import advance
     step=min(.02,grid['resolution']*.1);walked=0.;k=math.tan(steer)/wheelbase
+    predicted=pose
     while walked<horizon-1e-9:
-        ds=min(step,horizon-walked);signed=direction*ds;next_yaw=yaw+signed*k
-        if abs(k)>1e-9:
-            x+=(math.sin(next_yaw)-math.sin(yaw))/k
-            y+=(-math.cos(next_yaw)+math.cos(yaw))/k
-        else:
-            x+=signed*math.cos(yaw);y+=signed*math.sin(yaw)
-        yaw=next_yaw
-        if not permitted((x+offset*math.cos(yaw),y+offset*math.sin(yaw),yaw)):
-            return max(0.,walked-step)
+        ds=min(step,horizon-walked)
+        predicted=advance(predicted,k,direction*ds,offset)
+        if not permitted(predicted):return max(0.,walked-step)
         walked+=ds
     return max(0.,walked-step)
 
@@ -130,3 +124,17 @@ def speed_limit(distance, latency, deceleration, margin):
         return 0.
     usable=max(0.,distance-margin)
     return max(0.,math.sqrt((deceleration*latency)**2+2*deceleration*usable)-deceleration*latency)
+
+
+def usable_prefix(prefix, reference, mission):
+    """A fully observed terminal GPP tail can be shorter than an ordinary prefix.
+
+    GPP permits a .29m endpoint error; cutting another .1m before that endpoint
+    can strand the vehicle outside the .35m arrival radius. This only relaxes
+    the length heuristic, never observation, curvature or collision checks.
+    """
+    length=sum(math.hypot(b[0]-a[0],b[1]-a[1]) for a,b in zip(prefix,prefix[1:]))
+    terminal=(prefix and reference and mission is not None
+              and math.dist(prefix[-1][:2],reference[-1][:2])<1e-6
+              and math.dist(reference[-1][:2],mission)<.30)
+    return length >= (.01 if terminal else .1)

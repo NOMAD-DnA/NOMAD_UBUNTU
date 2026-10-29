@@ -41,6 +41,19 @@ def merged_parameter_file(files, overrides=None):
         common.update(overrides)
         for values in nodes.values():
             values.update(overrides)
+    from nomad_vehicle_model import profile
+    if 'drive_layout' in common:
+        profile(common)
+        # The second file is the shared vehicle profile. Module-specific overrides
+        # may tune behavior/limits, but cannot change simulator geometry alone.
+        reference=yaml.safe_load(Path(files[1]).read_text()).get('/**',{}).get('ros__parameters',{}) if len(files)>1 else common
+        geometry_keys=('drive_layout','steering_axle','wheelbase','track','wheel_radius','joint_limit','reference_offset')
+        for values in [common,*nodes.values()]:
+            for key in geometry_keys:
+                if key in reference and values.get(key,reference[key])!=reference[key]:
+                    raise ValueError(f'{key}: change shared vehicle_file, not a module-only override')
+        for values in nodes.values():
+            profile(values)
     document = {'/**': {'ros__parameters': common}}
     document.update({name: {'ros__parameters': values} for name, values in nodes.items()})
     with tempfile.NamedTemporaryFile(mode='w', prefix='nomad_parameters_', suffix='.yaml', delete=False) as stream:

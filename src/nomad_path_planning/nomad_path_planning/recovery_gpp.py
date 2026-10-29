@@ -17,7 +17,7 @@ from nomad_path_planning.gpp.registry import create as create_gpp
 from nomad_path_planning.gpp.base import Request, Grid, BudgetExceeded
 from nomad_path_planning.gpp.reference import ReferenceAdapter
 from nomad_path_planning.gpp.proximity import proximity_costs
-from nomad_path_planning.contracts import valid_pose, valid_grid
+from nomad_path_planning.contracts import valid_pose, valid_grid, causal_stamp
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path, OccupancyGrid
 from nomad_path_planning.dstar_lite_node import DStarLiteNode
@@ -131,7 +131,7 @@ class RecoveryGPP(DStarLiteNode):
         options = dict(
             wheelbase=self.declare_parameter('wheelbase', .72).value,
             max_steer=self.declare_parameter('max_steer', .4).value,
-            reference_offset=self.declare_parameter('reference_offset', .36).value,
+            reference_offset=self.declare_parameter('reference_offset', -.36).value,
             unknown_penalty=self.unknown_penalty,
             seconds=self.declare_parameter('gpp.time_budget', 0.0).value,
             expansions=self.declare_parameter('gpp.max_expansions', 50000).value)
@@ -376,7 +376,7 @@ class RecoveryGPP(DStarLiteNode):
             return
         msg=Path()
         msg.header.frame_id=self.planning_frame
-        msg.header.stamp=self.get_clock().now().to_msg()
+        msg.header.stamp=causal_stamp(self.get_clock().now().to_msg(),getattr(self,"goal_pose",None))
         for x,y,yaw in result.path:
             point=PoseStamped(); point.header=msg.header
             point.pose.position.x=float(x); point.pose.position.y=float(y)
@@ -505,7 +505,7 @@ class RecoveryGPP(DStarLiteNode):
         self.corridor.accept(target,result.path)
         if not retained:
             self.corridor.accepted_slope=self.corridor.path_slope(grid,result.path)
-        stamp=self.get_clock().now().to_msg()
+        stamp=causal_stamp(self.get_clock().now().to_msg(),getattr(self,"goal_pose",None))
         goal=PoseStamped();goal.header.frame_id=self.planning_frame;goal.header.stamp=stamp
         goal.pose.position.x=float(target.point[0]);goal.pose.position.y=float(target.point[1]);goal.pose.orientation.w=1.
         if getattr(self,'published_navigation_target',None)!=tuple(target.point):

@@ -68,48 +68,14 @@ class AckermannRollout:
             (x, y, yaw)
         ]
 
-        # Integrate at the rear axle; expose the base_link center to planners.
-        x -= self.reference_offset * math.cos(yaw)
-        y -= self.reference_offset * math.sin(yaw)
-        step_distance = abs(self.speed) * self.dt
-
-        if step_distance <= 0.0:
+        step_distance = abs(self.speed)*self.dt
+        if step_distance <= 0:
             return trajectory
-
-        steps = max(
-            1,
-            int(math.ceil(
-                (self.horizon if horizon is None else horizon) / step_distance
-            ))
-        )
-
+        steps=max(1,math.ceil((self.horizon if horizon is None else horizon)/step_distance))
+        from nomad_vehicle_model import advance
+        curvature=math.tan(steer)/self.wheelbase
         for _ in range(steps):
-            x += (
-                self.speed
-                * math.cos(yaw)
-                * self.dt
-            )
-
-            y += (
-                self.speed
-                * math.sin(yaw)
-                * self.dt
-            )
-
-            yaw += (
-                self.speed
-                / self.wheelbase
-                * math.tan(steer)
-                * self.dt
-            )
-
-            yaw = normalize_angle(yaw)
-
-            trajectory.append(
-                (x + self.reference_offset * math.cos(yaw),
-                 y + self.reference_offset * math.sin(yaw), yaw)
-            )
-
+            trajectory.append(advance(trajectory[-1],curvature,self.speed*self.dt,self.reference_offset))
         return trajectory
 
     def world_to_cell(

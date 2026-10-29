@@ -1,6 +1,6 @@
 # NOMAD 공통 메시지 명세
 
-> 계약 버전 1 · 2026-10-02 · 정의 파일은 [msg/](msg/)에 있다.
+> 계약 버전 2 · 2026-10-28 · 정의 파일은 [msg/](msg/)에 있다.
 
 메시지 타입은 팀 경계에서 고정한다. **토픽명은 topics.yaml로 바꾸고, 타입이 다르면 어댑터로 변환한다.** 런타임에 타입 문자열만 교체하는 기능은 제공하지 않는다. `nomad_interfaces`는 Python/C++ 양쪽에서 쓸 ROS 2 인터페이스를 빌드한다.
 
@@ -21,8 +21,8 @@
 
 - 거리 m, 속도 m/s, 각도 rad, 각속도 rad/s. 차량 +X 전방, +Y 왼쪽, +Z 위.
 - 기본 전역 기준 `odom`, 차량 기준 `base_link`. 공통 vehicle.yaml의 planning_frame/base_frame으로 설정한다.
-- 경로와 VIO pose는 base_link 원점. 현재 차량 중심 기준이며 뒷축보다 0.36m 앞에 있다.
-- 명령/피드백의 속도는 차량 종방향, 조향각은 가상 전륜 중심 각도다. 현재 평면 차량 모델에서 종방향 속도는 중심과 뒷축에 공통이고 횡방향 속도는 다를 수 있다.
+- 경로와 VIO pose는 base_link 원점. 차체 기준이다. 현재 비조향 앞축은 base_link보다 0.36m 앞에 있다(reference_offset=-0.36m).
+- 명령/피드백의 속도는 비조향축 종방향, 조향각은 등가 자전거 각도다. 전진 좌회전이 양수이며 후륜 물리 조향은 반대 부호다. 후진은 속도 부호만 바꾼다. 평면 모델에서 종방향 속도는 중심과 비조향축에 공통이고 횡방향 속도는 다를 수 있다.
 - stamp는 ROS time이다. 시뮬레이터는 use_sim_time=true와 /clock을 사용한다. 센서 측정 시각과 메시지 조립 시각의 차이를 각 메시지에서 지킨다.
 - `valid_for`는 header.stamp로부터의 유효기간이다. 수신 시각부터 새로 세지 않는다. ROS 시계가 멈춘 상황을 위해 wall-clock timeout도 별도로 적용한다.
 - `/tf`, `/tf_static`, `/clock`과 ROS parameter/event 인프라는 topics.yaml의 대상이 아니다.
@@ -40,8 +40,8 @@ bool stop_requested
 | 필드 | 정의 |
 |---|---|
 | header | 생성 ROS 시각, frame_id=base_link |
-| target_speed | 뒷축 중심 종방향 m/s; 양수 전진, 음수 후진 |
-| target_steering_angle | 가상 전륜 중심 조향각 rad; 양수 왼쪽, 후진 시에도 같은 부호 |
+| target_speed | 설정된 비조향축 종방향 m/s; 현재 앞축, 양수 전진·음수 후진 |
+| target_steering_angle | 등가 자전거 조향각 rad; 전진 좌회전 양수, 후륜 물리각과 구분 |
 | valid_for | 기본 0.3초; 기본 Control은 0초 초과·0.5초 이하만 허용 |
 | stop_requested | true이면 속도·조향 목표보다 우선하는 정지 요청 |
 

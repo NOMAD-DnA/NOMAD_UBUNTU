@@ -4,7 +4,7 @@ from nomad_interfaces.msg import PlannedMotion
 import math
 from nomad_path_planning.route_guard import route_is_behind
 import time
-from nomad_path_planning.observed_guard import known_prefix
+from nomad_path_planning.observed_guard import known_prefix, usable_prefix
 
 import rclpy
 from rclpy.node import Node
@@ -37,7 +37,7 @@ class LocalPlannerNode(Node):
         self.forward_speed = self.declare_parameter('forward_speed', 0.4).value
         self.wheelbase = self.declare_parameter('wheelbase', 0.72).value
         self.max_steer = self.declare_parameter('max_steer', 0.4).value
-        self.reference_offset = self.declare_parameter('reference_offset', 0.36).value
+        self.reference_offset = self.declare_parameter('reference_offset', -0.36).value
         self.require_sensor_health = self.declare_parameter('require_sensor_health', True).value
         self.sensor_health_timeout = self.declare_parameter('sensor_health_timeout', 1.0).value
         self.sensor_ready = not self.require_sensor_health
@@ -301,9 +301,9 @@ class LocalPlannerNode(Node):
         costmap = self.make_costmap()
 
         if getattr(self, 'observed_prefix', False):
+            reference=global_path
             global_path = known_prefix(start, global_path, costmap)
-            length = sum(math.hypot(b[0]-a[0],b[1]-a[1]) for a,b in zip(global_path,global_path[1:]))
-            if length < .1:
+            if not usable_prefix(global_path,reference,getattr(self,'last_goal',None)):
                 self.publish_empty_path()
                 self.publish_failed(False)
                 self.publish_status('LPP_WAIT_OBSERVATION: no connected known route prefix')

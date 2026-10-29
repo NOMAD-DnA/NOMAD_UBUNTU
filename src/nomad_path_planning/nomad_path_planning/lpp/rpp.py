@@ -1,4 +1,4 @@
-"""Forward regulated pure pursuit in rear-axle coordinates.
+"""Forward regulated pure pursuit in non-steering-axle coordinates.
 
 Curvature, map cost and remaining distance regulate speed. The checked arc and
 its speed/steering stay together in PlannedMotion. No local obstacle detour.

@@ -12,6 +12,8 @@ install(PROGRAMS
   scripts/command_watchdog.py
   scripts/teleop.py
   scripts/generate_vehicle.py
+  scripts/rear_steering_model.py
+  scripts/rear_steering_mixer.py
   scripts/generate_world.py
   scripts/select_map.py
   scripts/generate_vehicle_test_map.py

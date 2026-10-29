@@ -11,7 +11,7 @@ import time
 from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_prefix
-from .core import PACKAGE, scenario, save, read, summarize, ALGORITHM, workspace
+from .core import PACKAGE, scenario, save, read, summarize, ALGORITHM, workspace, resolved_config
 from .worlds import build, viewer_config
 
 
@@ -71,11 +71,11 @@ def run(number,directory,timeout=180):
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);check_conflicts(domain,partition)
         world=build(number,directory/'map');viewer_config(world,directory/'viewer.config')
         spec=scenario(number)
-        source_files = list(PACKAGE.glob('*.py')) + [PACKAGE/'authoring.json', PACKAGE/'config.yaml']
+        source_files = list(PACKAGE.glob('*.py')) + [PACKAGE/'authoring.json', PACKAGE/'config.yaml',workspace()/'src/nomad_bringup/config/vehicle.yaml']
         for package in ('nomad_path_planning', 'nomad_control'):
             source_files.extend((workspace()/'src'/package).rglob('*.py'))
         source_hashes={str(p.relative_to(workspace())):hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
-        (directory/'config.yaml').write_bytes((PACKAGE/'config.yaml').read_bytes())
+        (directory/'config.yaml').write_text(yaml.safe_dump(resolved_config()))
         save(directory/'manifest.json',dict(schema_version=1,scenario=spec,algorithm=ALGORITHM,timeout_sim_s=timeout,ros_domain=domain,gz_partition=partition,world=str(world),input_mode='GT observation; no perception/localization nodes',source_sha256=source_hashes))
         env=dict(os.environ);env.pop('NOMAD_RUN_LOG_DIR',None);env['NOMAD_EXPERIMENT_TIMING_DIR']=str(directory/'timing')
         env['ROS_LOG_DIR']=str(directory/'ros_logs')
@@ -91,6 +91,11 @@ def run(number,directory,timeout=180):
         bridge=[]
         for ros,gz,rt,gt,direction in [('/clock','/world/nomad_forest/clock','rosgraph_msgs/msg/Clock','gz.msgs.Clock','GZ_TO_ROS'),('/odom','/nomad/vehicle/odom','nav_msgs/msg/Odometry','gz.msgs.Odometry','GZ_TO_ROS'),('/joint_states','/nomad/vehicle/joint_states','sensor_msgs/msg/JointState','gz.msgs.Model','GZ_TO_ROS'),('/nomad/vehicle/cmd_vel','/nomad/vehicle/cmd_vel','geometry_msgs/msg/Twist','gz.msgs.Twist','ROS_TO_GZ')]:
             bridge.append(dict(ros_topic_name=ros,gz_topic_name=gz,ros_type_name=rt,gz_type_name=gt,direction=direction))
+        bridge=[e for e in bridge if e['ros_topic_name']!='/nomad/vehicle/cmd_vel']
+        for name in ('front_left_velocity','front_right_velocity','rear_left_position','rear_right_position'):
+            topic='/nomad/rear_steer/actuators/'+name
+            bridge.append(dict(ros_topic_name=topic,gz_topic_name=topic,ros_type_name='std_msgs/msg/Float64',gz_type_name='gz.msgs.Double',direction='ROS_TO_GZ'))
+        start('rear_mixer',[executable('nomad_gazebo','rear_steering_mixer.py'),'--ros-args','--params-file',cfg,'-p','input_mode:=twist'])
         bp=directory/'bridge.yaml';bp.write_text(yaml.safe_dump(bridge))
         start('bridge',[executable('ros_gz_bridge','parameter_bridge'),'--ros-args','-p',f'config_file:={bp}','-p','use_sim_time:=true'])
         for name,pkg,exe in [('watchdog','nomad_gazebo','command_watchdog.py'),('control','nomad_control','controller'),('selector','nomad_path_planning','planning_command'),('gpp','nomad_path_planning','dstar_lite_gpp'),('lpp','nomad_path_planning','ackermann_lpp')]:

@@ -1,4 +1,4 @@
-"""Bounded forward Hybrid A*, integrating at rear axle, publishing base_link poses."""
+"""Bounded forward Hybrid A*, integrating at the configured non-steering axle, publishing base_link poses."""
 import heapq
 import math
 import time
@@ -54,15 +54,7 @@ def wrap(a):
     return math.atan2(math.sin(a),math.cos(a))
 
 
-def advance(pose, curvature, distance, offset):
-    x,y,yaw = pose
-    x,y = x-offset*math.cos(yaw), y-offset*math.sin(yaw)
-    end = yaw+curvature*distance
-    if abs(curvature)<1e-10:
-        x,y = x+distance*math.cos(yaw),y+distance*math.sin(yaw)
-    else:
-        x,y = x+(math.sin(end)-math.sin(yaw))/curvature,y+(math.cos(yaw)-math.cos(end))/curvature
-    return x+offset*math.cos(end), y+offset*math.sin(end),wrap(end)
+from nomad_vehicle_model import advance
 
 
 class HybridAStar:

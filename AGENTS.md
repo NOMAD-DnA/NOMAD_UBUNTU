@@ -62,3 +62,13 @@
 - 사용자 선택: 첫 검증은 실제 Gazebo 물리 + GT 위치·관측 지도 + 실제 Hybrid A*/RPP/Control. B0/VIO 통합 시험과 구분한다.
 - 실행은 scripts/run_scenario_lab.sh, 기본 domain142. 시나리오 입력/생성기는 nomad_bringup/nomad_bringup/scenario_lab, 생성 맵·명시적 시험 결과는 sessions/planning_lab. 기존 maps1–8과 개인 ABCD 백업은 보존한다.
 - 큐의 명시적 시험 실행은 metrics/trajectory/events/진단 로그 저장을 허용한다. 일반 GUI의 기본 로그 기록 비활성 정책은 유지한다. 5번 안전 정지·6번 전진 불가를 목표 완주로 집계하지 않는다. 3번 합성 비용과 추가한 물리 곡면의 차이는 docs/플래닝_시나리오_실험실.md 참조.
+
+## 2026-10-28 전륜 구동·후륜 조향 통합
+- 현재 기본은 front_drive_rear_steer. 기하/한계는 nomad_bringup/config/vehicle.yaml, 계산은 ROS 독립 nomad_vehicle_model. 이전 전륜 조향은 vehicle_legacy.yaml로 명시한다. 1단계 단독 시험 기록은 GPT log/차량_후륜조향에 보존.
+- DriveCommand speed=비조향 앞축 m/s, steer=등가 자전거 각 rad(전진 좌회전 양수). 물리 뒤각은 반대 부호이며 후진에서 다시 반전하지 않는다. 메시지 v2 의미를 사용하며 wire 필드는 동일하다.
+- base_link는 차체 기준, +X 새 전방. 앞축이 +wheelbase/2이므로 reference_offset=-wheelbase/2. GPP/RPP/Rollout/observed_guard/복구와 Control 피드백은 이 기준을 공유한다. 공통 vehicle_file과 다른 기하의 모듈 override는 거부한다.
+- forest/GUI/시나리오 실험실은 같은 기하로 차량을 생성한다. 기존 맵의 지형·spawn·추가 contact 센서는 보존하고 이전 구동/조향 링크·플러그인은 교체한다. SDF·URDF·vehicle.json은 생성기와 함께 유지한다.
+- Planning→Control Twist→watchdog→rear_steering_mixer(input_mode=twist)→4개 joint 출력. 단독 domain152 시험만 전용 DriveCommand 모드. 하나의 믹서에서 입력 모드 두 개를 동시에 받지 않는다. mixer 종료 시 전체 sim을 종료한다.
+- 실제 /odom·뒤 steering joint로 VehicleState를 만든다. 명령 echo 금지·ROS lease/wall timeout/clock reset/정지 계약 유지. 후미 외곽 반길이.52m/반폭.42m, 미관측후방을 free로 꾸미지 않는다.
+- 카메라 optical/IMU/GNSS/안테나 lever arm은 실제 장착 정보 없이 뒤집지 않는다. 실제 TF·센서 캘리브레이션과 실차 치수/질량·ERPM/서보/제동 보정은 별도이다. 실물 VESC/서보에 시뮬4출력을 그대로 연결하지 않는다.
+- 단독 시험 scripts/run_rear_steering_sim.sh, 통합은 기존 scripts/run_terrain_navigation.sh·GUI. 짧은 실행 안내 docs/후륜조향_시뮬레이션.md. 사용자가 승인하기 전 commit/push 금지.

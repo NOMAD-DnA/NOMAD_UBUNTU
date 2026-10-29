@@ -95,6 +95,8 @@ DESCRIPTIONS = {
     'recovery.gate_ttl': '실패한 접근 구간을 기억해 재진입을 피하는 시간입니다.',
     'control_rate': '차량 제어 명령을 갱신하는 주기입니다.',
     'command_wall_timeout': '새 제어 명령이 이 실제 시간 동안 오지 않으면 차량을 정지합니다.',
+    'wheelbase': '앞뒤 축간 거리(m)입니다. 공통 config/vehicle.yaml에서 모델·제어·플래닝을 함께 변경합니다.',
+    'reference_offset': '비조향축에서 base_link까지의 X 거리(m)입니다. 후륜 조향에서는 앞축 기준이므로 -wheelbase/2입니다.',
     'track': '차량 좌우 바퀴 사이의 거리입니다. 현재 통합 설정에서는 차량 모델과 맞춰 고정합니다.',
     'health_label': '주행 상태·진단 메시지에 표시할 센서 상태 이름입니다.',
     'model_reference': '현재 센서 구성이 참고한 모델 이름입니다. 실제 센서 동작을 변경하는 값은 아닙니다.',

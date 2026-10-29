@@ -3,7 +3,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 import copy
 import math
-from .core import scenario, rectangles, elevation, workspace, save
+from .core import scenario, rectangles, elevation, workspace, save, resolved_config
 
 
 def tag(parent,element,text=None,**attrs):
@@ -59,7 +59,13 @@ def build(number,directory):
         for kind in ('collision','visual'):
             item=tag(link,kind,name='body');tag(tag(tag(item,'geometry'),'box'),'size',f'{x1-x0} {y1-y0} 1.3')
             if kind=='visual':tag(tag(item,'material'),'diffuse','.38 .41 .37 1')
-    vehicle=copy.deepcopy(ET.parse(source/'models/nomad_vehicle/model.sdf').find('model'))
+    import importlib.util, yaml
+    loader=importlib.util.spec_from_file_location('lab_vehicle',source/'scripts/generate_vehicle.py')
+    generator=importlib.util.module_from_spec(loader);loader.loader.exec_module(generator)
+    config=resolved_config()['/**']['ros__parameters']
+    metadata=generator.generate_vehicle(directory/'vehicle',source/'config/sensors.yaml',with_sensors=False,vehicle_config=config)
+    vehicle=ET.parse(directory/'vehicle/models/nomad_vehicle/model.sdf').find('model')
+    save(directory/'vehicle_profile.json',metadata)
     for parent in vehicle.iter():
         for child in list(parent):
             if child.tag=='sensor':parent.remove(child)

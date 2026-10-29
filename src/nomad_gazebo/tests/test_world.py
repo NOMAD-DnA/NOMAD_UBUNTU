@@ -373,7 +373,11 @@ class GazeboWorldTests(unittest.TestCase):
         spawn = pose(includes[0])
         np.testing.assert_allclose(spawn[:3], [*self.layout["waypoints"]["start"], 0.03])
         a, b = self.layout["paths"]["entrance"][:2]
-        self.assertAlmostEqual(spawn[5], math.atan2(b[1] - a[1], b[0] - a[0]))
+        expected_yaw=math.atan2(b[1]-a[1],b[0]-a[0])
+        profile=self.authoring/'spawn_pose.json'
+        if profile.exists():expected_yaw=float(json.loads(profile.read_text())['yaw_rad'])
+        self.assertTrue(math.isfinite(expected_yaw))
+        self.assertAlmostEqual(spawn[5],expected_yaw)
 
     def test_vehicle_dynamic_joints_frames_and_positive_inertias(self):
         data = self.vehicle_data
@@ -467,10 +471,12 @@ class GazeboWorldTests(unittest.TestCase):
         high = float(lidar.findtext("lidar/scan/horizontal/max_angle"))
         self.assertAlmostEqual(high - low + 2 * math.pi / 500, 2 * math.pi)
         plugins = {node.attrib["name"].split("::")[-1]: node for node in self.vehicle.findall("plugin")}
-        ackermann = plugins["AckermannSteering"]
-        self.assertEqual(ackermann.findtext("topic"), topics["cmd_vel"])
-        self.assertEqual([ackermann.findtext("left_joint"), ackermann.findtext("right_joint")], data["driven_joints"])
-        self.assertEqual(ackermann.findtext("odom_topic"), topics["wheel_odom"])
+        self.assertNotIn('AckermannSteering', plugins)
+        controls=self.vehicle.findall("plugin[@name='gz::sim::systems::JointController']")
+        steering=self.vehicle.findall("plugin[@name='gz::sim::systems::JointPositionController']")
+        self.assertEqual({p.findtext('joint_name') for p in controls},set(data['driven_joints']))
+        self.assertEqual({p.findtext('joint_name') for p in steering},set(data['steered_joints']))
+        self.assertEqual(len(controls),2);self.assertEqual(len(steering),2)
         odom = plugins["OdometryPublisher"]
         self.assertEqual(int(odom.findtext("dimensions")), 3)
         self.assertEqual(odom.findtext("odom_topic"), topics["odom"])
@@ -479,8 +485,8 @@ class GazeboWorldTests(unittest.TestCase):
         bridge = yaml.safe_load((self.package / "config" / "bridge.yaml").read_text())
         by_ros = {item["ros_topic_name"]: item for item in bridge}
         self.assertEqual(len(by_ros), len(bridge), "Duplicate bridge output/input topic")
-        self.assertEqual(by_ros[topics["cmd_vel"]]["gz_topic_name"], ackermann.findtext("topic"))
-        self.assertEqual(by_ros[topics["cmd_vel"]]["direction"], "ROS_TO_GZ")
+        # forest.launch replaces the legacy Twist entry with these four actuator bridges.
+        self.assertEqual(len(data['actuator_topics']),4)
         for ros, native in (("/odom", topics["odom"]), ("/tf", topics["tf"]),
                             ("/joint_states", topics["joint_states"]), ("/nomad/raw/scan", topics["scan"])):
             self.assertEqual(by_ros[ros]["gz_topic_name"], native)
@@ -488,8 +494,8 @@ class GazeboWorldTests(unittest.TestCase):
         # The bridge's omitted profile is reliable KeepLast; "DEFAULT" is not
         # a valid Jazzy profile name and would drop the whole scan bridge entry.
         self.assertNotIn("qos_profile", by_ros["/nomad/raw/scan"])
-        self.assertNotIn(topics["wheel_odom"], {item["gz_topic_name"] for item in bridge})
-        self.assertNotIn(topics["wheel_tf"], {item["gz_topic_name"] for item in bridge})
+        self.assertNotIn("/nomad/vehicle/wheel_odom", {item["gz_topic_name"] for item in bridge})
+        self.assertNotIn("/nomad/vehicle/wheel_tf", {item["gz_topic_name"] for item in bridge})
         self.assertNotIn("/cmd_vel", by_ros, "Commands must pass through the watchdog first")
         for side in ("rgb", "depth", "left", "right"):
             for suffix, native_key in (("image", side + "_image"),
@@ -506,7 +512,7 @@ class GazeboWorldTests(unittest.TestCase):
                  and isinstance(node.func, ast.Attribute)]
         publishers = [node.args[1].value for node in calls if node.func.attr == "create_publisher"]
         subscribers = [node.args[1].value for node in calls if node.func.attr == "create_subscription"]
-        self.assertEqual(publishers, [topics["cmd_vel"]])
+        self.assertEqual(publishers, ["/nomad/vehicle/cmd_vel"])
         self.assertEqual(subscribers, ["/cmd_vel"])
         timeout = next(node.args[1].value for node in calls if node.func.attr == "declare_parameter"
                        and node.args[0].value == "timeout_s")

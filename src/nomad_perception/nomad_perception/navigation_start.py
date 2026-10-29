@@ -79,7 +79,7 @@ def main():
     n = Node("terrain_navigation_start")
     n.declare_parameter("rviz", True)
     n.declare_parameter("initial_teleop", False)
-    for key in ("gpp", "lpp", "params_file"):
+    for key in ("gpp", "lpp", "params_file", "vehicle_file"):
         n.declare_parameter(key, "")
     n.declare_parameter(
         "modules_file",
@@ -145,7 +145,7 @@ def main():
             "modules_file:=" + n.get_parameter("modules_file").value,
             "rviz:=" + str(n.get_parameter("rviz").value).lower(),
         ]
-        for key in ("gpp", "lpp", "params_file"):
+        for key in ("gpp", "lpp", "params_file", "vehicle_file"):
             value = n.get_parameter(key).value
             if value:
                 args.append(key + ":=" + value)

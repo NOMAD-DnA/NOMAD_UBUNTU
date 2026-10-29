@@ -34,6 +34,7 @@ def generate_launch_description():
     )
     return LaunchDescription(
         [
+            DeclareLaunchArgument("vehicle_file", default_value=str(share("nomad_bringup")/"config/vehicle.yaml")),
             DeclareLaunchArgument("world_file", default_value=""),
             DeclareLaunchArgument("record_results", default_value="true"),
             DeclareLaunchArgument("record_directory", default_value=str(directory)),
@@ -93,6 +94,7 @@ def generate_launch_description():
                 "nomad_gazebo",
                 "forest.launch.py",
                 {
+                    "vehicle_file": lc("vehicle_file"),
                     "world_file": lc("world_file"),
                     "sensor_config": lc("sensor_config"),
                     "ros_remappings": lc("ros_remappings"),
@@ -166,7 +168,7 @@ def generate_launch_description():
             Node(
                 package="nomad_gazebo",
                 executable="teleop.py",
-                parameters=[{"initialization_only": True}],
+                parameters=[{"initialization_only": True,"vehicle_file": lc("vehicle_file")}],
                 condition=IfCondition(lc("initial_teleop")),
                 output="screen",
             ),
@@ -183,6 +185,7 @@ def generate_launch_description():
                         "initial_teleop": ParameterValue(lc("initial_teleop"), value_type=bool),
                         "gpp": ParameterValue(lc("gpp"), value_type=str),
                         "lpp": ParameterValue(lc("lpp"), value_type=str),
+                        "vehicle_file": ParameterValue(lc("vehicle_file"), value_type=str),
                         "params_file": ParameterValue(
                             lc("params_file"), value_type=str
                         ),
