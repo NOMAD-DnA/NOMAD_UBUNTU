@@ -1,0 +1,8 @@
+{
+  "pose_topic": "/nomad/localization/odometry",
+  "status_topic": "/nomad/localization/status",
+  "frame": "odom",
+  "child_frame": "base_link",
+  "raw_imu_frame": "oak_imu_frame",
+  "max_age_s": 0.6
+}

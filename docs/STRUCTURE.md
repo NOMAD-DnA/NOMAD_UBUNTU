@@ -18,6 +18,7 @@ RGB → nomad_semantic → 라벨 ─┐                    │
 | 분할 | `nomad_semantic/node.py`, `runtime.py` | `nomad_semantic/models/nomad_b0/metadata.json` |
 | 지면·클래스 누적 | `nomad_perception/terrain_layers.py`, `quality_mapping_core.py` | `nomad_perception/config/navigation_terrain.yaml` |
 | 비용·관측 기억 | `nomad_perception/navigation_costmap.py` | 같은 YAML: 20cm, 120cm 이차 장애물 비용 |
+| 실물 인지 | `nomad_perception/real/`, 선택 LiDAR 드라이버 `.nomad/real_sensors/` | `config/real/`, `real_perception.launch.py` |
 | 인지 ROS 입출력 | `live_terrain.py`, `navigation_terrain.py` | 같은 YAML |
 | GPP·LPP·복구 | `nomad_path_planning/gpp/`, `lpp/`, `recovery_supervisor.py` | `config/planning.yaml`, 통합 override `terrain_planning.yaml` |
 | 공통 차량 운동학 | `nomad_vehicle_model/` | `nomad_bringup/config/vehicle.yaml`: 앞축 적분·뒤 조향 |
@@ -34,3 +35,5 @@ GT 관측 입력·6개 맵 생성·실행 큐·결과 GUI를 묶고 기존 GPP/L
 생성 맵과 결과는 `sessions/planning_lab/`, 상세 안내는 [플래닝 시나리오 실험실](플래닝_시나리오_실험실.md).
 
 현재 전륜 구동·후륜 조향은 [차량 실행 안내](후륜조향_시뮬레이션.md) 참조. Planning·Control·맵/GUI가 같은 기하를 사용한다.
+
+실물 인지는 `scripts/run_real_perception.sh`를 사용하며 Pi 5 입력과 외부 센서를 받는다. [입력 계약과 파일 목록](../src/nomad_perception/docs/real_perception.md). 실물 모듈 연결은 `modules_real_perception.yaml`의 external 설정으로 내장 인지 중복 실행을 막는다.

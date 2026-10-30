@@ -1,0 +1,2 @@
+# Optional live OAK acquisition only. Use a ROS-compatible Python interpreter.
+depthai==3.11.0

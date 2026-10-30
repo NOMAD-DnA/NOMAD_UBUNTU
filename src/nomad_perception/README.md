@@ -106,3 +106,7 @@ With record_results enabled, terrain/obstacle_diagnostics.jsonl records each sav
 카메라 관측지원 점수는 마지막 직접 촬영 후 10sim초 감쇠 없이 유지하고, 10~30sim초 선형 감쇠 후 0이 된다. 관측지원은 통행 허가가 아니며 새로 확정된 장애물·차단 경사를 덮어쓰지 않는다. 장애물 확정의 최근3초 증거 창과 별도이다.
 
 `navigation_terrain.yaml`의 `observation_support_hold_seconds: 10.0`, `observation_support_expire_seconds: 30.0`으로 설정한다. 점수 품질은 마지막 관측 시점의 증거로 계산하며, 새 관측 없이 강해지거나 유효기간이 연장되지 않는다. OccupancyGrid의 미관측/장애물 값이나 local/global 지도 보존 정책을 변경하지 않는다. 재시작한 인지 노드부터 적용된다.
+
+## 실물 LiDAR/OAK/ZED 인지
+
+`./scripts/run_real_perception.sh`로 별도 실행한다. Pi 5 융합 pose를 사용하고 기존 Planning 계약에 맞춰 발행한다. 웹 화면과 실험 결과 저장은 포함하지 않는다. 실행 파일 목록, 외부 센서 의존성, 미완성 실물 설정 및 검사 방법은 [실물 인지 안내](docs/real_perception.md)를 참고한다.

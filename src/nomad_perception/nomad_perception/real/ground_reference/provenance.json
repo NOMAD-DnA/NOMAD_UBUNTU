@@ -1,0 +1,18 @@
+{
+  "source": "pinned NOMAD measured-point slope implementation, 2026-10-26",
+  "files": {
+    "fusion_core.py": "4048ef91131fafdb713172a71b56eac8b1aa0ec204f81ad4b118ec30d430b5f2",
+    "costmap_core.py": "eb5789b5717150c0323511b7a3f085aa798b77a770838aa6b10ce9d384e14841",
+    "settings.yaml": "7b9146dc10adee476045ee100a6e4948f1c73b77b070464a7e4054a951e5b9f1",
+    "slope_comparison_core.py": "819b719f278fda49993f2cc00b910cecf030fa21c52ddc0fc2827da0998205ed",
+    "core.py": "e53db552ea5926ce5c7d33c542a8011adf6a2cf3ee1153c836566b2eaf8a5fb9",
+    "__init__.py": "87960ac92fe8681630589fc2e8feeaa7faa8bd875898bd0a9e71b095e60bda24",
+    "_geometry/cost_policy.py": "77a937633c97658c36756a1785467ac608c2c55dd39a89347c03204aaee2443a",
+    "_geometry/traversability_core.py": "b3398e3ff4474dc79bcb3ecede1bd2b243508e680869c053cc1206098f554d2a",
+    "_geometry/__init__.py": "532f924ec6d5f2cff0c15fc08a14d80a62e94786128af92722d3eb0d7743b8ea",
+    "_geometry/stage1_geometry_layers.py": "21b5415e6114b9ab8df438a58b7bc4b2bb4e2965bd5db133b1c18e2037cb574e",
+    "_geometry/quality_mapping_core.py": "1d3df74c17f422e4c850b4c9438eb15f09a6d2ce6a51b8ddcc12b5c5a3d6fa13",
+    "slope_optimized_core.py": "d185f3c3def4b511c92baa4b8d02cce67c454935c60d736903c9b302cb6cba63"
+  },
+  "method": "Pinned calculation source and settings; unused file recording and replay/render helpers removed from core.py and costmap_core.py. Source/import hashes are in config/real/import_manifest.json."
+}

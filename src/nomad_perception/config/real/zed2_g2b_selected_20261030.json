@@ -1,0 +1,538 @@
+{
+  "convention": "p_camera_optical = R_camera_lidar * p_lidar + t_camera_lidar_m",
+  "R_camera_lidar": [
+    [
+      -0.856430844459014,
+      -0.5131798607393157,
+      0.05632618565815617
+    ],
+    [
+      -0.0524408646302858,
+      0.19501484472596875,
+      0.9793973484001959
+    ],
+    [
+      -0.5135914372105989,
+      0.8358323042740592,
+      -0.19392832375872393
+    ]
+  ],
+  "t_camera_lidar_m": [
+    0.0382384450497967,
+    -0.1460905944642771,
+    -0.06921929838621621
+  ],
+  "quaternion_xyzw": [
+    -0.18873435999688937,
+    0.7492286054575911,
+    0.6056995286390608,
+    0.19016813383702766
+  ],
+  "train_pose_count": 18,
+  "validation_pose_count": 9,
+  "jacobian_singular_values": [
+    4.290123378555655,
+    2.9139427059410865,
+    1.6845281618816457,
+    0.42817538042242426,
+    0.28745867749829235,
+    0.15998809928692648
+  ],
+  "jacobian_condition_number": 26.815265620861243,
+  "ceres_summary": "Ceres Solver Report: Iterations: 6, Initial cost: 6.536992e-04, Final cost: 6.462963e-04, Termination: CONVERGENCE",
+  "residual_interpretation": "Sensor-to-plane consistency, not absolute map accuracy",
+  "per_pose": [
+    {
+      "id": "train_1m_C1",
+      "split": "train",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 6.121941282936841,
+      "bias_mm": 5.931598355694583,
+      "p95_abs_mm": 7.86152214328939,
+      "point_count": 54
+    },
+    {
+      "id": "train_1m_C2",
+      "split": "train",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 5.324238773222429,
+      "bias_mm": 0.7319672721497766,
+      "p95_abs_mm": 8.63063940856945,
+      "point_count": 61
+    },
+    {
+      "id": "train_1m_C3",
+      "split": "train",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 2.4897829203276753,
+      "bias_mm": -0.5862881924316685,
+      "p95_abs_mm": 4.025411600802831,
+      "point_count": 68
+    },
+    {
+      "id": "train_1m_C4",
+      "split": "train",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 7.077526003289587,
+      "bias_mm": -5.2674145251889435,
+      "p95_abs_mm": 12.619425067547319,
+      "point_count": 66
+    },
+    {
+      "id": "train_1m_C5",
+      "split": "train",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 5.600496858462969,
+      "bias_mm": 1.788902541207883,
+      "p95_abs_mm": 9.160286319813915,
+      "point_count": 68
+    },
+    {
+      "id": "train_1m_C6",
+      "split": "train",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 4.898885752670023,
+      "bias_mm": -1.0132791249442827,
+      "p95_abs_mm": 9.361341574320669,
+      "point_count": 64
+    },
+    {
+      "id": "validation_1m_V1",
+      "split": "validation",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 6.2125419209701205,
+      "bias_mm": 2.8446779183354294,
+      "p95_abs_mm": 10.570741773945237,
+      "point_count": 69
+    },
+    {
+      "id": "validation_1m_V2",
+      "split": "validation",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 6.118479576033853,
+      "bias_mm": -2.8362900499197203,
+      "p95_abs_mm": 13.00141608713079,
+      "point_count": 67
+    },
+    {
+      "id": "validation_1m_V3",
+      "split": "validation",
+      "distance_bin_m": 1.0,
+      "rmse_mm": 3.881197181984089,
+      "bias_mm": 1.8217246664431446,
+      "p95_abs_mm": 7.287836634701783,
+      "point_count": 75
+    },
+    {
+      "id": "train_2m_C1",
+      "split": "train",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 8.557001659778859,
+      "bias_mm": 5.796853305122382,
+      "p95_abs_mm": 14.930325925595733,
+      "point_count": 34
+    },
+    {
+      "id": "train_2m_C2",
+      "split": "train",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 4.603408665657216,
+      "bias_mm": 0.21874029696629277,
+      "p95_abs_mm": 7.238297093904222,
+      "point_count": 36
+    },
+    {
+      "id": "train_2m_C3",
+      "split": "train",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 8.814109514918385,
+      "bias_mm": -8.62795275078989,
+      "p95_abs_mm": 11.94288904650298,
+      "point_count": 40
+    },
+    {
+      "id": "train_2m_C4",
+      "split": "train",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 10.303517445225173,
+      "bias_mm": -10.030508538201353,
+      "p95_abs_mm": 13.73444743912522,
+      "point_count": 37
+    },
+    {
+      "id": "train_2m_C5",
+      "split": "train",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 5.382161698018481,
+      "bias_mm": -1.289252010110374,
+      "p95_abs_mm": 11.01040793187913,
+      "point_count": 35
+    },
+    {
+      "id": "train_2m_C6",
+      "split": "train",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 7.854627008180268,
+      "bias_mm": 4.054571789285921,
+      "p95_abs_mm": 13.28820953154719,
+      "point_count": 33
+    },
+    {
+      "id": "validation_2m_V1",
+      "split": "validation",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 9.15721630711989,
+      "bias_mm": 2.7436865342310295,
+      "p95_abs_mm": 15.642933925213764,
+      "point_count": 35
+    },
+    {
+      "id": "validation_2m_V2",
+      "split": "validation",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 13.513812087484448,
+      "bias_mm": -12.287163640662259,
+      "p95_abs_mm": 18.43728830462865,
+      "point_count": 32
+    },
+    {
+      "id": "validation_2m_V3",
+      "split": "validation",
+      "distance_bin_m": 2.0,
+      "rmse_mm": 12.653495998519128,
+      "bias_mm": -11.412158648239869,
+      "p95_abs_mm": 19.584314504492497,
+      "point_count": 32
+    },
+    {
+      "id": "train_3m_C1",
+      "split": "train",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 14.26010991357979,
+      "bias_mm": 11.024684682850202,
+      "p95_abs_mm": 26.116252913370275,
+      "point_count": 26
+    },
+    {
+      "id": "train_3m_C2",
+      "split": "train",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 8.804946545352234,
+      "bias_mm": 5.23996705720326,
+      "p95_abs_mm": 13.621646082317529,
+      "point_count": 22
+    },
+    {
+      "id": "train_3m_C3",
+      "split": "train",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 9.940913252417296,
+      "bias_mm": -7.974772922832532,
+      "p95_abs_mm": 14.446577511213032,
+      "point_count": 24
+    },
+    {
+      "id": "train_3m_C4",
+      "split": "train",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 15.04299815611583,
+      "bias_mm": -14.789374729459404,
+      "p95_abs_mm": 17.543289015983454,
+      "point_count": 27
+    },
+    {
+      "id": "train_3m_C5",
+      "split": "train",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 7.007932020862279,
+      "bias_mm": 5.645101159201497,
+      "p95_abs_mm": 11.818853261321038,
+      "point_count": 26
+    },
+    {
+      "id": "train_3m_C6",
+      "split": "train",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 16.58747959731497,
+      "bias_mm": 14.9915702306099,
+      "p95_abs_mm": 22.34460151605422,
+      "point_count": 25
+    },
+    {
+      "id": "validation_3m_V1",
+      "split": "validation",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 9.618163977193399,
+      "bias_mm": -0.2934117849373587,
+      "p95_abs_mm": 16.245812714885233,
+      "point_count": 21
+    },
+    {
+      "id": "validation_3m_V2",
+      "split": "validation",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 18.456566669614585,
+      "bias_mm": -17.691832620852832,
+      "p95_abs_mm": 23.621604438399668,
+      "point_count": 23
+    },
+    {
+      "id": "validation_3m_V3",
+      "split": "validation",
+      "distance_bin_m": 3.0,
+      "rmse_mm": 15.498512558692738,
+      "bias_mm": 12.203815919806312,
+      "p95_abs_mm": 23.169543052270924,
+      "point_count": 25
+    }
+  ],
+  "source": "real_sensor",
+  "camera_frame": "zed2_23472639_left_rectified_optical_frame",
+  "lidar_frame": "g2_laser",
+  "board_geometry_hash": "fee3cfc5424819cb5dc76536caaaf5e7067736253e3f5986d81243660a54e65f",
+  "geometry": {
+    "family": "tag36h11",
+    "board_size_mm": [
+      700,
+      550
+    ],
+    "tag_detection_edge_mm": 134.0,
+    "coordinate_system": "Viewed from printed front: origin at board top-left; x right, y down, z into board. All tags upright in the supplied print orientation.",
+    "status": "User confirmed mounting measurements in the collection UI",
+    "corner_mapping": "TL/TR/BR/BL refer to the supplied canonical printed orientation. Match the detector corner order and decoded rotation explicitly. Do not sort corners only by image position.",
+    "tags": [
+      {
+        "id": 0,
+        "tag_size_m": 0.134,
+        "center_mm": [
+          97.0,
+          151.0,
+          0
+        ],
+        "corners_mm": {
+          "TL": [
+            30.0,
+            84.0,
+            0
+          ],
+          "TR": [
+            164.0,
+            84.0,
+            0
+          ],
+          "BR": [
+            164.0,
+            218.0,
+            0
+          ],
+          "BL": [
+            30.0,
+            218.0,
+            0
+          ]
+        }
+      },
+      {
+        "id": 1,
+        "tag_size_m": 0.134,
+        "center_mm": [
+          276.0,
+          151.0,
+          0
+        ],
+        "corners_mm": {
+          "TL": [
+            209.0,
+            84.0,
+            0
+          ],
+          "TR": [
+            343.0,
+            84.0,
+            0
+          ],
+          "BR": [
+            343.0,
+            218.0,
+            0
+          ],
+          "BL": [
+            209.0,
+            218.0,
+            0
+          ]
+        }
+      },
+      {
+        "id": 2,
+        "tag_size_m": 0.134,
+        "center_mm": [
+          455.0,
+          151.0,
+          0
+        ],
+        "corners_mm": {
+          "TL": [
+            388.0,
+            84.0,
+            0
+          ],
+          "TR": [
+            522.0,
+            84.0,
+            0
+          ],
+          "BR": [
+            522.0,
+            218.0,
+            0
+          ],
+          "BL": [
+            388.0,
+            218.0,
+            0
+          ]
+        }
+      },
+      {
+        "id": 3,
+        "tag_size_m": 0.134,
+        "center_mm": [
+          97.0,
+          479.0,
+          0
+        ],
+        "corners_mm": {
+          "TL": [
+            30.0,
+            412.0,
+            0
+          ],
+          "TR": [
+            164.0,
+            412.0,
+            0
+          ],
+          "BR": [
+            164.0,
+            546.0,
+            0
+          ],
+          "BL": [
+            30.0,
+            546.0,
+            0
+          ]
+        }
+      },
+      {
+        "id": 4,
+        "tag_size_m": 0.134,
+        "center_mm": [
+          276.0,
+          479.0,
+          0
+        ],
+        "corners_mm": {
+          "TL": [
+            209.0,
+            412.0,
+            0
+          ],
+          "TR": [
+            343.0,
+            412.0,
+            0
+          ],
+          "BR": [
+            343.0,
+            546.0,
+            0
+          ],
+          "BL": [
+            209.0,
+            546.0,
+            0
+          ]
+        }
+      },
+      {
+        "id": 5,
+        "tag_size_m": 0.134,
+        "center_mm": [
+          455.0,
+          479.0,
+          0
+        ],
+        "corners_mm": {
+          "TL": [
+            388.0,
+            412.0,
+            0
+          ],
+          "TR": [
+            522.0,
+            412.0,
+            0
+          ],
+          "BR": [
+            522.0,
+            546.0,
+            0
+          ],
+          "BL": [
+            388.0,
+            546.0,
+            0
+          ]
+        }
+      }
+    ],
+    "tag_size_m": 0.134,
+    "paper_margin": "Not a calibration parameter. Keep the existing white margin; additional white paper is allowed. No fixed cutting dimension.",
+    "measurement_status": "Per-tag size and mounting coordinates confirmed by user in the collection UI",
+    "nominal_print_scale_ratio": 0.95,
+    "nominal_print_scale_ratio_note": "Computed from reported edge size only. Do not apply this ratio to board dimensions or independently positioned tag centers.",
+    "geometry_confirmed": true
+  },
+  "dataset_path": "source_capture/solve_input_04d35dc7.json",
+  "held_out_validation_available": true,
+  "by_distance": [
+    {
+      "split": "train",
+      "distance_bin_m": 1,
+      "pose_count": 6,
+      "pose_balanced_rmse_mm": 5.43876094318939
+    },
+    {
+      "split": "train",
+      "distance_bin_m": 2,
+      "pose_count": 6,
+      "pose_balanced_rmse_mm": 7.841422883367453
+    },
+    {
+      "split": "train",
+      "distance_bin_m": 3,
+      "pose_count": 6,
+      "pose_balanced_rmse_mm": 12.451552505820604
+    },
+    {
+      "split": "validation",
+      "distance_bin_m": 1,
+      "pose_count": 3,
+      "pose_balanced_rmse_mm": 5.5104494979265155
+    },
+    {
+      "split": "validation",
+      "distance_bin_m": 2,
+      "pose_count": 3,
+      "pose_balanced_rmse_mm": 11.92460605381107
+    },
+    {
+      "split": "validation",
+      "distance_bin_m": 3,
+      "pose_count": 3,
+      "pose_balanced_rmse_mm": 14.981742478252935
+    }
+  ]
+}

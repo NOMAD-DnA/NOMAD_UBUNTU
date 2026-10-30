@@ -1,0 +1,6 @@
+# Board profile: connect to separately launched real perception and Pi 5 poses.
+# Launch real_perception.launch.py on the perception host exactly once.
+perception: external
+vio: external
+control: external
+tf_owner: vio
