@@ -12,8 +12,8 @@ def tag(parent,element,text=None,**attrs):
     return node
 
 
-def build(number,directory):
-    spec=scenario(number);directory=Path(directory).resolve();directory.mkdir(parents=True,exist_ok=True)
+def build(number,directory,slope_degrees=None):
+    spec=scenario(number,slope_degrees);directory=Path(directory).resolve();directory.mkdir(parents=True,exist_ok=True)
     source=workspace()/'src/nomad_gazebo'
     tree=ET.parse(source/'worlds/forest_bare.sdf');world=tree.find('world')
     for item in list(world):
@@ -76,7 +76,7 @@ def build(number,directory):
     world.append(vehicle)
     path=directory/'world.sdf';tree.write(path,encoding='utf-8',xml_declaration=True)
     save(directory/'scenario.json',spec)
-    save(directory/'provenance.json',dict(source='scenario_lab/authoring.json; original HTML XY grid',physical_extension='scenario 3: smooth 0.30m mound x7..17,y4..12; HTML had no height geometry',obstacles='exact blocked cell union; 1.3m static walls',input_mode='GT radial LOS; not actual camera perception'))
+    save(directory/'provenance.json',dict(source='scenario_lab/authoring.json; original HTML XY grid',physical_extension=spec.get('terrain', 'legacy: scenario 3 smooth 0.30m mound; synthetic HTML cost independent of height'),obstacles='exact blocked cell union; 1.3m static walls',input_mode='GT radial LOS; not actual camera perception'))
     return path
 
 

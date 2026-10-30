@@ -1,0 +1,87 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    planning_frame: odom
+    base_frame: base_link
+    drive_layout: front_drive_rear_steer
+    steering_axle: rear
+    track: 0.6
+    wheel_radius: 0.15
+    joint_limit: 0.55
+    wheelbase: 0.72
+    reference_offset: -0.36
+    max_steer: 0.4
+    max_speed: 0.5
+    recovery.gate_half_width: 2.0
+dstar_lite_gpp:
+  ros__parameters:
+    gpp_algorithm: hybrid_astar
+    lpp_algorithm: rpp
+    max_steer: 0.35
+    navigation.goal_mode: observed_corridor
+    corridor.retain_safe_path: true
+    corridor.observed_goal_lock: true
+    corridor.incremental_selection: true
+    corridor.goal_weight: 1.0
+    corridor.bearing_weight: 1.0
+    corridor.heading_weight: 1.0
+    corridor.narrow_weight: 2.0
+    corridor.clearance_weight: 1.0
+    corridor.risk_weight: 3.0
+    corridor.observation_guard: false
+    corridor.observation_turn_weight: 0.0
+    corridor.reselect_new_blocked: false
+    corridor.continuation_distance: 0.0
+    gpp.cost_mode: legacy
+    gpp.proximity_weight: 0.0
+    gpp.debug_costs.enabled: false
+    gpp.max_expansions: 30000
+    gpp.time_budget: 2.0
+    drive_layout: front_drive_rear_steer
+    steering_axle: rear
+    wheelbase: 0.72
+    reference_offset: -0.36
+    track: 0.6
+    wheel_radius: 0.15
+    joint_limit: 0.55
+ackermann_rollout_lpp:
+  ros__parameters:
+    lpp_algorithm: rpp
+    gpp_algorithm: hybrid_astar
+    forward_speed: 0.5
+    rpp.adaptive_lookahead: true
+    rpp.lookahead: 0.8
+    managed_recovery: true
+    recovery.enabled: false
+    require_sensor_health: true
+    sensor_health_timeout: 0.6
+    allow_unknown: false
+    drive_layout: front_drive_rear_steer
+    steering_axle: rear
+    wheelbase: 0.72
+    reference_offset: -0.36
+    track: 0.6
+    wheel_radius: 0.15
+    joint_limit: 0.55
+nomad_planning_command:
+  ros__parameters:
+    navigation.goal_mode: observed_corridor
+    health_label: controlled GT pose and observed map
+    allow_unknown: false
+    drive_layout: front_drive_rear_steer
+    steering_axle: rear
+    wheelbase: 0.72
+    reference_offset: -0.36
+    track: 0.6
+    wheel_radius: 0.15
+    joint_limit: 0.55
+nomad_control:
+  ros__parameters:
+    track: 0.6
+    control_rate: 20.0
+    drive_layout: front_drive_rear_steer
+    steering_axle: rear
+    wheelbase: 0.72
+    reference_offset: -0.36
+    wheel_radius: 0.15
+    joint_limit: 0.55

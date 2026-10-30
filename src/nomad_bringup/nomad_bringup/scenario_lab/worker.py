@@ -13,8 +13,8 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Odometry, OccupancyGrid, Path as ROSPath
 from std_msgs.msg import Bool, String
-from nomad_interfaces.msg import VehicleState
-from .core import observe, rectangles, polygon_clearance, save, read, summarize
+from nomad_interfaces.msg import VehicleState, PlanningCostLayers
+from .core import observe, rectangles, polygon_clearance, save, read, summarize, observed_planning_layers
 
 
 def stamp(t):return t.sec+t.nanosec*1e-9
@@ -32,6 +32,7 @@ class Worker(Node):
         for p in self.spec.get('prior_observation',[]):observe(self.spec,self.known,p)
         latched=QoSProfile(depth=1,durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.map_pub=self.create_publisher(OccupancyGrid,'/nomad/costmap',latched)
+        self.layers_pub=self.create_publisher(PlanningCostLayers,'/nomad/planning_cost_layers',latched) if 'terrain' in self.spec else None
         self.pose_pub=self.create_publisher(PoseStamped,'/nomad/current_pose',10)
         self.health_pub=self.create_publisher(Bool,'/nomad/sensors_ready',10)
         self.goal_pub=self.create_publisher(PoseStamped,'/nomad/goal',latched)
@@ -90,7 +91,13 @@ class Worker(Node):
             self.start_sim=now;self.last_progress=now;self.progress_pose=pose[:2]
         if now-self.last_map>=.2:
             observe(self.spec,self.known,pose);self.last_map=now
-            grid=OccupancyGrid();grid.header.frame_id='odom';grid.header.stamp=self.get_clock().now().to_msg();grid.info.resolution=float(self.spec['resolution']);grid.info.width=self.spec['width'];grid.info.height=self.spec['height'];grid.info.origin.orientation.w=1.;grid.data=self.known;self.map_pub.publish(grid)
+            grid=OccupancyGrid();grid.header.frame_id='odom';grid.header.stamp=self.get_clock().now().to_msg();grid.info.resolution=float(self.spec['resolution']);grid.info.width=self.spec['width'];grid.info.height=self.spec['height'];grid.info.origin.orientation.w=1.;grid.data=self.known
+            if self.layers_pub is not None:
+                data,slopes,terrain=observed_planning_layers(self.spec,self.known)
+                grid.data=data
+                layers=PlanningCostLayers();layers.grid=grid;layers.slope_cost=slopes;layers.terrain_cost=terrain
+                self.layers_pub.publish(layers)
+            self.map_pub.publish(grid)
         if not self.goal_sent and now-self.start_sim>=2 and self.state and self.state.ready:
             if self.goal_pub.get_subscription_count()>=3:
                 goal=PoseStamped();goal.header.frame_id='odom';goal.header.stamp=self.get_clock().now().to_msg();goal.pose.orientation.w=1.;goal.pose.position.x=float(self.spec['goal'][0]);goal.pose.position.y=float(self.spec['goal'][1]);self.goal_pub.publish(goal);self.goal_sent=True;self.start_sim=now;self.last_progress=now;self.event('mission_goal',self.spec['goal'])

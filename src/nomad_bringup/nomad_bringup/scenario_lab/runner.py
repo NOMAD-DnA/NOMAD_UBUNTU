@@ -8,10 +8,11 @@ import signal
 import subprocess
 import sys
 import time
+import traceback
 from pathlib import Path
 import yaml
 from ament_index_python.packages import get_package_prefix
-from .core import PACKAGE, scenario, save, read, summarize, ALGORITHM, workspace, resolved_config, strategy_timings
+from .core import PACKAGE, scenario, save, read, summarize, ALGORITHM, workspace, resolved_config, strategy_timings, trial_parameters
 from .worlds import build, viewer_config
 
 
@@ -74,17 +75,17 @@ def algorithm_config(algorithm):
     return config
 
 
-def run(number,directory,timeout=180,algorithm=ALGORITHM):
-    config=algorithm_config(algorithm)
+def run(number,directory,timeout=180,algorithm=ALGORITHM,slope_degrees=None):
+    spec=scenario(number,slope_degrees)
     directory=Path(directory).resolve();directory.mkdir(parents=True,exist_ok=False)
     domain=int(os.environ.get('ROS_DOMAIN_ID','142'));partition=os.environ['GZ_PARTITION']
     lock=open(f'/tmp/nomad-planning-lab-{os.getuid()}-domain-{domain}.lock','a')
     processes=[];streams=[];reason=None
     try:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);check_conflicts(domain,partition)
-        world=build(number,directory/'map');viewer_config(world,directory/'viewer.config')
-        spec=scenario(number)
-        source_files = list(PACKAGE.glob('*.py')) + [PACKAGE/'authoring.json', PACKAGE/'config.yaml',workspace()/'src/nomad_bringup/config/vehicle.yaml']
+        config=trial_parameters(spec,algorithm_config(algorithm))
+        world=build(number,directory/'map',slope_degrees);viewer_config(world,directory/'viewer.config')
+        source_files = list(PACKAGE.glob('*.py')) + list(PACKAGE.glob('*.json')) + [PACKAGE/'config.yaml',workspace()/'src/nomad_bringup/config/vehicle.yaml']
         for package in ('nomad_path_planning', 'nomad_control'):
             source_files.extend((workspace()/'src'/package).rglob('*.py'))
         source_hashes={str(p.relative_to(workspace())):hashlib.sha256(p.read_bytes()).hexdigest() for p in source_files}
@@ -128,11 +129,13 @@ def run(number,directory,timeout=180,algorithm=ALGORITHM):
         if worker.poll() is not None and worker.returncode and not reason:reason='recorder_failure'
     except (Exception,KeyboardInterrupt) as exc:
         reason='cancelled' if isinstance(exc,KeyboardInterrupt) else 'startup_error: '+str(exc)
+        if not isinstance(exc,KeyboardInterrupt):
+            (directory/'error.log').write_text(traceback.format_exc())
     finally:
         remaining=cleanup(processes)
         for f in streams:f.close()
         outcome=read(directory/'outcome.json')
-        if outcome is None:outcome=summarize([],reason or 'worker_missing_result',scenario(number),0,0,{},None)
+        if outcome is None:outcome=summarize([],reason or 'worker_missing_result',spec,0,0,{},None)
         if reason and outcome.get('result') not in ('cancelled',):outcome.update(result=reason,completed=False,expected_result_met=False)
         outcome['algorithm']=algorithm
         outcome['strategy_timing']=strategy_timings(directory)
@@ -144,10 +147,12 @@ def run(number,directory,timeout=180,algorithm=ALGORITHM):
 
 
 def main():
-    parser=argparse.ArgumentParser();parser.add_argument('--scenario',type=int,choices=range(1,7),required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--timeout',type=float,default=180);parser.add_argument('--algorithm',default=ALGORITHM);a=parser.parse_args()
+    parser=argparse.ArgumentParser();parser.add_argument('--scenario',type=int,choices=range(1,7),required=True);parser.add_argument('--output',type=Path,required=True);parser.add_argument('--timeout',type=float,default=180);parser.add_argument('--slope-deg',type=float,help='Scenario 3 maximum mesh slope, 0..30 degrees; omitted keeps legacy terrain');parser.add_argument('--algorithm',default=ALGORITHM);a=parser.parse_args()
     if a.timeout<=0:parser.error('timeout must be positive')
+    try:scenario(a.scenario,a.slope_deg)
+    except ValueError as error:parser.error(str(error))
     def interrupted(*_):raise KeyboardInterrupt
     signal.signal(signal.SIGTERM,interrupted)
-    result=run(a.scenario,a.output,a.timeout,a.algorithm);print(json.dumps(result,ensure_ascii=False));return 0 if result.get('cleanup_ok') else 2
+    result=run(a.scenario,a.output,a.timeout,a.algorithm,slope_degrees=a.slope_deg);print(json.dumps(result,ensure_ascii=False));return 0 if result.get('cleanup_ok') else 2
 
 if __name__=='__main__':sys.exit(main())

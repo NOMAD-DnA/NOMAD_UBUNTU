@@ -1,0 +1,3 @@
+wall_epoch_ns,sim_ns,stage,elapsed_wall_ns,thread_cpu_ns,exception
+1793258001205234113,2076665836,corridor_selection,31376949,31089196,
+1793258001236750282,2076665836,gpp_corridor_candidate,19289987,19218453,

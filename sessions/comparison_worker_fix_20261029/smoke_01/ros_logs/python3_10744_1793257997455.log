@@ -1,0 +1,4 @@
+[INFO] [1793257997.533583652] [dstar_lite_gpp]: D* Lite GPP node started
+[INFO] [1793257997.579240855] [dstar_lite_gpp]: Selected GPP=hybrid_astar, LPP=rpp
+[INFO] [1793258001.258308842] [dstar_lite_gpp]: GPP_OK [hybrid_astar observed_corridor]: target=(7.650000303983688, 6.4500002562999725), final=False, poses=73, retained=False
+[INFO] [1793258002.257309467] [dstar_lite_gpp]: GPP_VALID: existing path valid; no path/target publication

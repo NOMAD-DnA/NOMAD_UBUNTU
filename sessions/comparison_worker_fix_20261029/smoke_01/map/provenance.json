@@ -1,0 +1,6 @@
+{
+  "source": "scenario_lab/authoring.json; original HTML XY grid",
+  "physical_extension": "legacy: scenario 3 smooth 0.30m mound; synthetic HTML cost independent of height",
+  "obstacles": "exact blocked cell union; 1.3m static walls",
+  "input_mode": "GT radial LOS; not actual camera perception"
+}

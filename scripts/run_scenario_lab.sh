@@ -13,4 +13,15 @@ if [[ "${1:-}" == "--run" ]]; then
   shift
   exec python3 -m nomad_bringup.scenario_lab.runner "$@"
 fi
+# Prefer the restored bundled results unless the caller selects another root.
+LAB_HAS_ROOT=false
+for LAB_ARG in "$@"; do
+  case "$LAB_ARG" in
+    --root|--root=*) LAB_HAS_ROOT=true ;;
+  esac
+done
+LAB_ARCHIVE="$LAB_WS/sessions/planning_lab_archives/20261027"
+if [[ "$LAB_HAS_ROOT" == false && -f "$LAB_ARCHIVE/queue.json" ]]; then
+  set -- --root "$LAB_ARCHIVE" "$@"
+fi
 exec python3 -m nomad_bringup.scenario_lab.gui "$@"

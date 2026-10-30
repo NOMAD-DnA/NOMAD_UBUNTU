@@ -12,11 +12,11 @@ from pathlib import Path
 from PyQt5.QtCore import Qt, QTimer, QUrl
 from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (QApplication,QMainWindow,QWidget,QTabWidget,QVBoxLayout,QHBoxLayout,QLabel,
-    QPushButton,QComboBox,QSpinBox,QTableWidget,QTableWidgetItem,QHeaderView,QMessageBox,QSplitter)
+    QPushButton,QComboBox,QSpinBox,QDoubleSpinBox,QTableWidget,QTableWidgetItem,QHeaderView,QMessageBox,QSplitter)
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib import font_manager,rcParams
-from .core import workspace,catalog,scenario,read,save,ALGORITHM
+from .core import workspace,catalog,scenario,read,save,ALGORITHM,terrain_profile
 
 FONT='/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc'
 if Path(FONT).exists():font_manager.fontManager.addfont(FONT);rcParams['font.family']=font_manager.FontProperties(fname=FONT).get_name()
@@ -44,14 +44,19 @@ class Lab(QMainWindow):
         row.addWidget(self.select,1);self.repeat=QSpinBox();self.repeat.setRange(1,30);self.repeat.setSuffix(' 회');row.addWidget(self.repeat)
         self.timeout=QSpinBox();self.timeout.setRange(30,1800);self.timeout.setValue(180);self.timeout.setSuffix(' sim초 제한');row.addWidget(self.timeout)
         self.button(row,'큐에 추가',self.add);self.button(row,'6개 모두 추가',self.add_all);ql.addLayout(row)
+        row=QHBoxLayout();row.addWidget(QLabel('3번 지형 최대 경사각'))
+        profile=terrain_profile()
+        self.slope=QDoubleSpinBox();self.slope.setRange(0.,profile['max_selectable_slope_deg']);self.slope.setDecimals(1);self.slope.setSingleStep(.5);self.slope.setValue(profile['default_max_slope_deg']);self.slope.setSuffix(' °');row.addWidget(self.slope)
+        row.addWidget(QLabel(f"지형·GPP 비용 동시 반영 · 차단 기준 {profile['slope_limit_deg']:g}° · 경사 가중치 {profile['slope_weight']:g}"));row.addStretch();ql.addLayout(row)
+        self.select.currentIndexChanged.connect(lambda:self.slope.setEnabled(self.select.currentData()==3));self.slope.setEnabled(self.select.currentData()==3)
         row=QHBoxLayout();self.button(row,'큐 시작',self.start);self.button(row,'현재 시험 중지 / 큐 일시정지',self.stop);self.button(row,'선택한 대기 항목 삭제',self.remove);self.button(row,'실행 중 Gazebo 보기',self.show_gazebo);ql.addLayout(row)
-        self.queue=QTableWidget(0,5);self.queue.setHorizontalHeaderLabels(['번호','시나리오','알고리즘','상태','실행 폴더']);self.queue.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents);self.queue.horizontalHeader().setStretchLastSection(True);self.queue.setSelectionBehavior(QTableWidget.SelectRows);self.queue.setEditTriggers(QTableWidget.NoEditTriggers);ql.addWidget(self.queue)
+        self.queue=QTableWidget(0,6);self.queue.setHorizontalHeaderLabels(['번호','시나리오','알고리즘','상태','실행 폴더','최대 경사']);self.queue.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents);self.queue.horizontalHeader().setStretchLastSection(True);self.queue.setSelectionBehavior(QTableWidget.SelectRows);self.queue.setEditTriggers(QTableWidget.NoEditTriggers);ql.addWidget(self.queue)
         self.live=QLabel('대기 중 · 실행할 시나리오를 큐에 추가하세요.');self.live.setWordWrap(True);self.live.setStyleSheet('padding:15px;background:#e9f2f3;color:#294a58');ql.addWidget(self.live)
         results=QWidget();rl=QVBoxLayout(results);tabs.addTab(results,'시나리오 결과')
         row=QHBoxLayout();self.result_select=QComboBox()
         for s in catalog()['scenarios']:self.result_select.addItem(f"{s['id']}. {s['name']}",s['id'])
         self.result_select.currentIndexChanged.connect(self.refresh_results);row.addWidget(self.result_select,1);self.button(row,'결과 새로고침',self.refresh_results);self.button(row,'기록 폴더 열기',lambda:QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.root))));rl.addLayout(row)
-        self.results=QTableWidget(0,11);self.results.setHorizontalHeaderLabels(['알고리즘','시작 시각','결과','목표 도착','기대 결과','여유 p05(m)','주행(sim s)','GPP CPU(core·s)','LPP CPU(core·s)','GPP 발행','무효 후 재계획']);self.results.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents);self.results.setMaximumHeight(230);self.results.setSelectionBehavior(QTableWidget.SelectRows);self.results.setEditTriggers(QTableWidget.NoEditTriggers);self.results.itemSelectionChanged.connect(self.draw_result);rl.addWidget(self.results)
+        self.results=QTableWidget(0,12);self.results.setHorizontalHeaderLabels(['알고리즘','시작 시각','결과','목표 도착','기대 결과','여유 p05(m)','주행(sim s)','GPP CPU(core·s)','LPP CPU(core·s)','GPP 발행','무효 후 재계획','최대 경사']);self.results.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents);self.results.setMaximumHeight(230);self.results.setSelectionBehavior(QTableWidget.SelectRows);self.results.setEditTriggers(QTableWidget.NoEditTriggers);self.results.itemSelectionChanged.connect(self.draw_result);rl.addWidget(self.results)
         self.figure=Figure(figsize=(11,5),tight_layout=True);self.canvas=FigureCanvasQTAgg(self.figure);rl.addWidget(self.canvas)
         self.result_note=QLabel('완주와 기대 결과 충족을 구분합니다. 5번=벽 앞 안전 정지, 6번=전진 경로 부재 확인. 결측 지표는 —로 표시합니다.');self.result_note.setWordWrap(True);rl.addWidget(self.result_note)
         self.timer=QTimer(self);self.timer.timeout.connect(self.poll);self.timer.start(500);self.refresh_queue();self.refresh_results()
@@ -59,9 +64,12 @@ class Lab(QMainWindow):
     @staticmethod
     def button(row,label,action):
         b=QPushButton(label);b.clicked.connect(action);row.addWidget(b);return b
+    @staticmethod
+    def slope_label(number,value):
+        return '—' if number!=3 else '기존 지형·합성비용' if value is None else f'{value:.1f}°'
     def persist(self):save(self.root/'queue.json',self.jobs)
     def append(self,number):
-        for _ in range(self.repeat.value()):self.jobs.append(dict(id=datetime.now().strftime('%Y%m%d_%H%M%S_%f'),scenario=number,algorithm=self.algorithm.currentData(),state='queued',timeout=self.timeout.value(),directory=''))
+        for _ in range(self.repeat.value()):self.jobs.append(dict(id=datetime.now().strftime('%Y%m%d_%H%M%S_%f'),scenario=number,algorithm=self.algorithm.currentData(),state='queued',timeout=self.timeout.value(),directory='',slope_deg=self.slope.value() if number==3 else None))
     def add(self):self.append(self.select.currentData());self.refresh_queue()
     def add_all(self):
         for i in range(1,7):self.append(i)
@@ -72,7 +80,7 @@ class Lab(QMainWindow):
     def refresh_queue(self):
         self.persist();self.queue.setRowCount(len(self.jobs))
         for i,j in enumerate(self.jobs):
-            for k,v in enumerate([i+1,scenario(j['scenario'])['name'],self.algorithms.get(j['algorithm'],j['algorithm']),j['state'],j['directory']]):self.queue.setItem(i,k,QTableWidgetItem(str(v)))
+            for k,v in enumerate([i+1,scenario(j['scenario'])['name'],self.algorithms.get(j['algorithm'],j['algorithm']),j['state'],j['directory'],self.slope_label(j['scenario'],j.get('slope_deg'))]):self.queue.setItem(i,k,QTableWidgetItem(str(v)))
     def start(self):self.running=True;self.launch_next()
     def launch_next(self):
         if self.process or not self.running:return
@@ -81,7 +89,9 @@ class Lab(QMainWindow):
         job=self.current;folder=self.root/'runs'/job['id'];folder.parent.mkdir(parents=True,exist_ok=True);job.update(state='running',directory=str(folder))
         self.stopping=False
         self.log=(self.root/(job['id']+'.runner.log')).open('w')
-        self.process=subprocess.Popen([sys.executable,'-m','nomad_bringup.scenario_lab.runner','--scenario',str(job['scenario']),'--output',str(folder),'--timeout',str(job['timeout']),'--algorithm',job['algorithm']],stdout=self.log,stderr=subprocess.STDOUT,start_new_session=True)
+        command=[sys.executable,'-m','nomad_bringup.scenario_lab.runner','--scenario',str(job['scenario']),'--output',str(folder),'--timeout',str(job['timeout']),'--algorithm',job['algorithm']]
+        if job.get('slope_deg') is not None:command+=['--slope-deg',str(job['slope_deg'])]
+        self.process=subprocess.Popen(command,stdout=self.log,stderr=subprocess.STDOUT,start_new_session=True)
         self.refresh_queue()
     def stop(self):
         self.running=False
@@ -113,8 +123,14 @@ class Lab(QMainWindow):
             self.live.setText(f"실행 중: {self.current['scenario']}번 · {d.get('sim_s',0):.1f} sim s\n{d.get('status','Gazebo/ROS 준비 중')}\n{d.get('gpp_status','')}\nGPP 경로 발행 {d.get('gpp_paths',0)}회 · 정상 검사 {d.get('valid_checks',0)}회 · 무효 후 재계획 {d.get('invalidity_replans',0)}회")
             return
         result=read(Path(self.current['directory'])/'outcome.json',{});self.current['state']=result.get('result','worker_error');self.current['expected_result_met']=result.get('expected_result_met',False)
+        self.current['exit_code']=self.process.returncode
         self.log.close();self.log=None;self.process=None;self.close_viewer()
-        if not result.get('cleanup_ok',False):self.running=False;self.live.setText('정리 확인 실패: 다음 시험은 시작하지 않습니다. 실행 폴더를 확인하세요.')
+        if not result or str(result.get('result','')).startswith('startup_error:'):
+            self.running=False
+            reason=result.get('result',f'worker_error: 실행 결과 없음 (종료 코드 {self.current.get("exit_code")})')
+            self.current['reason']=reason
+            self.live.setText(f'실행 준비 오류로 큐를 일시정지했습니다.\n{reason}\n로그: {self.root / (self.current["id"] + ".runner.log")}')
+        elif not result.get('cleanup_ok',False):self.running=False;self.live.setText('정리 확인 실패: 다음 시험은 시작하지 않습니다. 실행 폴더를 확인하세요.')
         self.refresh_queue();self.refresh_results();self.current=None
         if self.closing:self.close()
         else:self.launch_next()
@@ -131,7 +147,7 @@ class Lab(QMainWindow):
             if started:
                 try:started=datetime.fromisoformat(started).astimezone().strftime('%m-%d %H:%M:%S %Z')
                 except ValueError:pass
-            values=[self.algorithms.get(d.get('algorithm',ALGORITHM),d.get('algorithm',ALGORITHM)),started,d.get('result'),'예' if d.get('completed') else '아니오','충족' if d.get('expected_result_met') else '미충족',d.get('clearance_p05_m'),d.get('elapsed_sim_s'),d.get('cpu',{}).get('gpp'),d.get('cpu',{}).get('lpp'),d.get('gpp_path_publications'),d.get('invalidity_replans')]
+            values=[self.algorithms.get(d.get('algorithm',ALGORITHM),d.get('algorithm',ALGORITHM)),started,d.get('result'),'예' if d.get('completed') else '아니오','충족' if d.get('expected_result_met') else '미충족',d.get('clearance_p05_m'),d.get('elapsed_sim_s'),d.get('cpu',{}).get('gpp'),d.get('cpu',{}).get('lpp'),d.get('gpp_path_publications'),d.get('invalidity_replans'),self.slope_label(d.get('scenario'),(d.get('terrain') or {}).get('max_slope_deg'))]
             for j,v in enumerate(values):
                 item=QTableWidgetItem(fmt(v));item.setToolTip(str(folder));self.results.setItem(i,j,item)
         if self.records:self.results.selectRow(len(self.records)-1)
@@ -140,9 +156,9 @@ class Lab(QMainWindow):
     def draw_result(self):
         self.figure.clear();i=self.results.currentRow()
         if i<0 or i>=len(self.records):self.figure.text(.5,.5,'선택한 시나리오의 실행 기록이 없습니다.',ha='center');self.canvas.draw();return
-        folder,d=self.records[i];spec=scenario(d['scenario']);ax=self.figure.add_subplot(121)
+        folder,d=self.records[i];spec=read(folder/'map'/'scenario.json') or scenario(d['scenario']);ax=self.figure.add_subplot(121)
         import numpy as np
-        ax.imshow(np.array(spec['grid']).reshape(spec['height'],spec['width']),origin='lower',extent=(0,24,0,16.2),cmap='Greys',vmin=0,vmax=100,alpha=.4)
+        ax.imshow(np.array(spec.get('planning_grid',spec['grid'])).reshape(spec['height'],spec['width']),origin='lower',extent=(0,24,0,16.2),cmap='Greys',vmin=0,vmax=100,alpha=.4)
         rows=[]
         try:
             with (folder/'trajectory.csv').open() as f:rows=list(csv.DictReader(f))

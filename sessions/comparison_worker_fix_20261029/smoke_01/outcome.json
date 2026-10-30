@@ -1,0 +1,41 @@
+{
+  "scenario": 1,
+  "name": "넓은 직선 통로의 기본 추종",
+  "algorithm": "hybrid_astar+rpp",
+  "result": "timeout",
+  "completed": false,
+  "expected_result_met": false,
+  "started_at": "2026-10-29T07:13:17.327611+00:00",
+  "terrain": null,
+  "elapsed_sim_s": 5.0499979800000006,
+  "clearance_p05_m": 0.8801277360988975,
+  "clearance_min_m": 0.88,
+  "clearance_coverage_pct": 100.0,
+  "envelope_overlap": false,
+  "gpp_path_publications": 1,
+  "invalidity_replans": 0,
+  "cpu": {
+    "gpp": 3.27,
+    "lpp": 4.0
+  },
+  "metric_definition": "p05: 10Hz sim-time samples; XY .52m/.42m rectangular envelope to GT obstacle rectangles. Zero means envelope overlap, not measured contact force.",
+  "input_mode": "Gazebo physics + ground-truth pose and synthetic accumulated LOS map; no B0/VIO",
+  "duration_wall_s": 8.94510451000042,
+  "gpp_empty_publications": 0,
+  "valid_checks": 4,
+  "last_status": "DRIVING",
+  "last_gpp_status": "GPP_VALID: existing path valid; no path/target publication",
+  "cpu_definition": "whole GPP/LPP process CPU delta (user+system), core-seconds; wall time distinct",
+  "strategy_timing": {
+    "gpp_strategy": {
+      "samples": 0,
+      "p95_ms": null
+    },
+    "lpp_strategy": {
+      "samples": 51,
+      "p95_ms": 1.2998465000000001
+    }
+  },
+  "cleanup_ok": true,
+  "remaining_owned_processes": {}
+}

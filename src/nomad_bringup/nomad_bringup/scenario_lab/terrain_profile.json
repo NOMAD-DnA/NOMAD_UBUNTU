@@ -1,0 +1,6 @@
+{
+  "default_max_slope_deg": 5.0,
+  "max_selectable_slope_deg": 30.0,
+  "slope_limit_deg": 10.0,
+  "slope_weight": 5.0
+}

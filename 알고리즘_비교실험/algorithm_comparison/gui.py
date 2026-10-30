@@ -64,11 +64,11 @@ class ComparisonLab(Lab):
 
     def refresh_results(self):
         super().refresh_results()
-        self.results.setColumnCount(12)
-        self.results.setHorizontalHeaderItem(11,QTableWidgetItem('LPP 연산 p95(ms)'))
+        self.results.setColumnCount(13)
+        self.results.setHorizontalHeaderItem(12,QTableWidgetItem('LPP 연산 p95(ms)'))
         for i,(_,d) in enumerate(self.records):
             latency=d.get('strategy_timing',{}).get('lpp_strategy',{}).get('p95_ms')
-            self.results.setItem(i,11,QTableWidgetItem('—' if latency is None else f'{latency:.3f}'))
+            self.results.setItem(i,12,QTableWidgetItem('—' if latency is None else f'{latency:.3f}'))
         if hasattr(self,'summary'):self.refresh_comparison()
 
     def refresh_comparison(self):

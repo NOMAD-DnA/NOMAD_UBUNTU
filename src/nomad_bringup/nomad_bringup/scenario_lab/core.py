@@ -30,10 +30,34 @@ def catalog():
     return json.loads((PACKAGE/'authoring.json').read_text())
 
 
-def scenario(number):
+def terrain_profile():
+    return json.loads((PACKAGE/'terrain_profile.json').read_text())
+
+
+def scenario(number, slope_degrees=None):
     data = catalog()
     selected = next(s for s in data['scenarios'] if s['id'] == int(number))
-    return dict(selected, resolution=data['resolution'], width=data['width'], height=data['height'])
+    spec = dict(selected, resolution=data['resolution'], width=data['width'], height=data['height'])
+    if slope_degrees is not None:
+        profile=terrain_profile()
+        if int(number) != 3 or not math.isfinite(slope_degrees) or not 0 <= slope_degrees <= profile['max_selectable_slope_deg']:
+            raise ValueError('slope_degrees requires scenario 3 and a finite angle in [0, 30]')
+        # Scale the exact triangulation used by Gazebo, not the analytic surface.
+        unit = mesh_slopes(spec, height=1.)
+        peak = math.tan(math.radians(slope_degrees)) / math.tan(math.radians(float(unit.max())))
+        slopes = mesh_slopes(spec, height=peak)
+        limit = float(profile['slope_limit_deg'])
+        normalized = np.minimum(slopes/limit, 1.)**2
+        original = np.asarray(spec['grid']).reshape(slopes.shape)
+        planning = np.rint(79*normalized).astype(int)
+        planning[slopes >= limit-1e-9] = 80
+        planning[original >= 80] = original[original >= 80]
+        spec.update(terrain=dict(max_slope_deg=float(slope_degrees), peak_height_m=peak,
+                                 measured_mesh_max_deg=float(slopes.max()), slope_limit_deg=limit,
+                                 slope_weight=float(profile['slope_weight']), cost_mode='multi', source='generated mesh ground truth'),
+                    slope_deg=slopes.ravel().tolist(), slope_cost=normalized.ravel().tolist(),
+                    planning_grid=planning.ravel().tolist())
+    return spec
 
 
 def save(path, value):
@@ -71,7 +95,37 @@ def elevation(spec,x,y):
     # HTML has only XY costs. Explicit, reproducible 3-D extension for scenario 3.
     # Smooth mound; topology/blocked-cell footprints remain identical to HTML.
     if spec['id']!=3 or not 7<x<17 or not 4<y<12:return 0.
-    return .30*math.sin(math.pi*(x-7)/10)**2*math.sin(math.pi*(y-4)/8)**2
+    height = spec.get('terrain', {}).get('peak_height_m', .30)
+    return height*math.sin(math.pi*(x-7)/10)**2*math.sin(math.pi*(y-4)/8)**2
+
+
+def mesh_slopes(spec, height):
+    """Maximum of the two triangle inclinations in each generated mesh cell."""
+    r=spec['resolution'];w=spec['width'];h=spec['height']
+    sample=dict(spec, terrain=dict(peak_height_m=height))
+    z=np.array([[elevation(sample,x*r,y*r) for x in range(w+1)] for y in range(h+1)])
+    # Same diagonal a->d as worlds.build(): triangles (a,b,d), (a,d,c).
+    gx1=(z[:-1,1:]-z[:-1,:-1])/r;gy1=(z[1:,1:]-z[:-1,1:])/r
+    gx2=(z[1:,1:]-z[1:,:-1])/r;gy2=(z[1:,:-1]-z[:-1,:-1])/r
+    return np.degrees(np.arctan(np.maximum(np.hypot(gx1,gy1),np.hypot(gx2,gy2))))
+
+
+def observed_planning_layers(spec, known):
+    """Expose only LOS-observed cells; the rest retain unknown/NaN evidence."""
+    observed=np.asarray(known)>=0
+    grid=np.where(observed, spec['planning_grid'], -1).astype(int).tolist()
+    slope=np.where(observed, spec['slope_cost'], np.nan).tolist()
+    terrain=np.where(observed, 0., np.nan).tolist()
+    return grid,slope,terrain
+
+
+def trial_parameters(spec, parameters):
+    """Configure the existing GPP feature interface only for adjustable S3."""
+    if 'terrain' in spec:
+        options=parameters['dstar_lite_gpp']['ros__parameters']
+        options.update({'gpp.cost_mode':'multi', 'gpp.slope_weight':spec['terrain']['slope_weight'],
+                        'gpp.terrain_weight':0., 'gpp.proximity_weight':0., 'gpp.cluster_weight':0.})
+    return parameters
 
 
 def observe(spec, known, pose, radius=7.5):
@@ -121,7 +175,7 @@ def summarize(samples, result, spec, gpp_count, invalid_replans, cpu, started_at
     completed=result=='arrived'; overlap=any(x<=0 for x in values)
     expected=(result == {5:'safe_stop',6:'forward_limit'}.get(spec['id'],'arrived')) and not overlap
     return dict(scenario=spec['id'],name=spec['name'],algorithm=ALGORITHM,result=result,
-                completed=completed,expected_result_met=expected,started_at=started_at,
+                completed=completed,expected_result_met=expected,started_at=started_at,terrain=spec.get('terrain'),
                 elapsed_sim_s=(samples[-1]['time_s']-samples[0]['time_s'] if len(samples)>1 else None),
                 clearance_p05_m=float(np.percentile(values,5)) if values else None,
                 clearance_min_m=min(values) if values else None,
@@ -129,7 +183,7 @@ def summarize(samples, result, spec, gpp_count, invalid_replans, cpu, started_at
                 envelope_overlap=overlap,gpp_path_publications=gpp_count,
                 invalidity_replans=invalid_replans,cpu=cpu,
                 metric_definition='p05: 10Hz sim-time samples; XY .52m/.42m rectangular envelope to GT obstacle rectangles. Zero means envelope overlap, not measured contact force.',
-                input_mode='Gazebo physics + ground-truth pose and synthetic accumulated LOS map; no B0/VIO')
+                input_mode=('Gazebo physics + GT pose/LOS and mesh-derived slope layers; no B0/VIO' if 'terrain' in spec else 'Gazebo physics + ground-truth pose and synthetic accumulated LOS map; no B0/VIO'))
 
 
 def strategy_timings(directory):

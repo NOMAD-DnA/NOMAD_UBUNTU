@@ -1,0 +1,6 @@
+[INFO] [1793257997.466982866] [nomad_planning_command]: STOP: control feedback unavailable
+[INFO] [1793257999.255178174] [nomad_planning_command]: STOP: controlled GT pose and observed map unavailable
+[INFO] [1793258001.204678714] [nomad_planning_command]: Goal changed; waiting for a new GPP and LPP path
+[INFO] [1793258001.254592529] [nomad_planning_command]: STOP: waiting for GPP recovery
+[INFO] [1793258001.358566555] [nomad_planning_command]: DRIVING
+[INFO] [1793258006.354437708] [nomad_planning_command]: STOP: controlled GT pose and observed map unavailable

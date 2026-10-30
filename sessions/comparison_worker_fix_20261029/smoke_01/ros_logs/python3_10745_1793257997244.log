@@ -1,0 +1,7 @@
+[INFO] [1793257997.378563857] [ackermann_rollout_lpp]: LPP started: rpp
+[INFO] [1793257997.458958814] [ackermann_rollout_lpp]: LPP_PAUSED: required navigation sensors unavailable
+[INFO] [1793257999.558902678] [ackermann_rollout_lpp]: LPP_PAUSED: required navigation sensors unavailable
+[INFO] [1793258001.265849115] [ackermann_rollout_lpp]: LPP_OK: steer=0.0 deg, score=1.00, valid=1/1
+[INFO] [1793258003.360733415] [ackermann_rollout_lpp]: LPP_OK: steer=0.0 deg, score=1.00, valid=1/1
+[INFO] [1793258005.460735441] [ackermann_rollout_lpp]: LPP_OK: steer=6.2 deg, score=1.00, valid=1/1
+[INFO] [1793258006.359112493] [ackermann_rollout_lpp]: LPP_PAUSED: required navigation sensors unavailable

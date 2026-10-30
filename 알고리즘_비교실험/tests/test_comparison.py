@@ -70,3 +70,30 @@ def test_timing_ignores_other_stages_and_keeps_missing_null(tmp_path):
     timing=strategy_timings(tmp_path)
     assert timing['lpp_strategy']['p95_ms']==pytest.approx(2.9)
     assert timing['gpp_strategy']['p95_ms'] is None
+
+
+def test_combination_slope_and_latency_survive_integration(app,tmp_path):
+    from nomad_bringup.scenario_lab.core import save,trial_parameters,scenario
+    save(tmp_path/'runs'/'slope'/'outcome.json',dict(scenario=3,algorithm='hybrid_astar+rollout',
+         result='timeout',cpu={},terrain={'max_slope_deg':8.},strategy_timing={'lpp_strategy':{'p95_ms':2.5}}))
+    window=ComparisonLab(tmp_path)
+    try:
+        window.result_select.setCurrentIndex(2)
+        assert window.results.horizontalHeaderItem(11).text()=='최대 경사'
+        assert window.results.item(0,11).text()=='8.0°'
+        assert window.results.item(0,12).text()=='2.500'
+        window.select.setCurrentIndex(2);window.slope.setValue(8.)
+        window.algorithm.setCurrentIndex(1);window.add()
+        process=Mock();process.poll.return_value=None
+        with patch('nomad_bringup.scenario_lab.gui.subprocess.Popen',return_value=process) as popen:
+            window.start();command=popen.call_args.args[0]
+            assert command[command.index('--algorithm')+1]=='hybrid_astar+rollout'
+            assert command[command.index('--slope-deg')+1]=='8.0'
+        config=trial_parameters(scenario(3,8.),algorithm_config('hybrid_astar+rollout'))
+        assert config['dstar_lite_gpp']['ros__parameters']['lpp_algorithm']=='rollout'
+        assert config['dstar_lite_gpp']['ros__parameters']['gpp.cost_mode']=='multi'
+        assert config['/**']['ros__parameters']['steering_axle']=='rear'
+    finally:
+        window.process=window.current=None
+        if window.log:window.log.close();window.log=None
+        window.close()

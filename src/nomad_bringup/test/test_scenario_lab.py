@@ -64,3 +64,69 @@ def test_stop_outcome_is_not_completion_and_missing_metrics_are_not_zero():
     d = summarize([], 'startup_error', scenario(1), 0, 0, {}, 'now')
     assert not d['expected_result_met']
     assert d['clearance_p05_m'] is None and d['elapsed_sim_s'] is None
+
+
+@pytest.mark.parametrize('angle', [0., 5., 10., 20., 30.])
+def test_selected_slope_matches_generated_mesh_and_blocking(angle, tmp_path):
+    import json
+    from nomad_bringup.scenario_lab.core import observed_planning_layers
+    build(3, tmp_path, slope_degrees=angle)
+    s=json.loads((tmp_path/'scenario.json').read_text())
+    vertices=[];inclinations=[]
+    for line in (tmp_path/'terrain.obj').read_text().splitlines():
+        if line.startswith('v '):vertices.append(np.array(list(map(float,line.split()[1:]))))
+        if line.startswith('f '):
+            a,b,c=[vertices[int(v.split('/')[0])-1] for v in line.split()[1:]]
+            normal=np.cross(b-a,c-a)
+            inclinations.append(math.degrees(math.atan2(np.linalg.norm(normal[:2]),abs(normal[2]))))
+    assert max(inclinations)==pytest.approx(angle, abs=1e-7)
+    assert np.array(s['slope_deg'])==pytest.approx(np.max(np.array(inclinations).reshape(-1,2),axis=1))
+    # Terrain blocking is a planning constraint, never a new vertical wall.
+    assert rectangles(s)==rectangles(scenario(3))
+    costs=np.array(s['planning_grid']);slopes=np.array(s['slope_deg'])
+    if angle >= 10:assert np.all(costs[slopes>=10-1e-9]>=80)
+    if angle == 0:assert np.all(costs[np.array(s['grid'])<80]==0)
+    known=[-1]*len(costs);known[0]=s['grid'][0]
+    grid,sc,tc=observed_planning_layers(s,known)
+    assert grid[1]==-1 and math.isnan(sc[1]) and math.isnan(tc[1])
+    assert sc[0]==s['slope_cost'][0]
+
+
+def test_adjustable_slope_reaches_existing_gpp_cost_equation():
+    import yaml
+    sys.path.insert(0,str(workspace()/'src/nomad_path_planning'))
+    from nomad_path_planning.gpp.multicost import compose
+    from nomad_bringup.scenario_lab.core import trial_parameters, observed_planning_layers, PACKAGE
+    base=yaml.safe_load((PACKAGE/'config.yaml').read_text())
+    flat=scenario(3,0.);hill=scenario(3,8.)
+    parameters=trial_parameters(hill,base)['dstar_lite_gpp']['ros__parameters']
+    assert parameters['gpp.cost_mode']=='multi' and parameters['gpp.slope_weight']==5.
+    def costs(s):
+        data,sc,tc=observed_planning_layers(s,s['grid'])
+        grid=dict(width=s['width'],height=s['height'],resolution=s['resolution'],data=data)
+        return np.array(compose(grid,sc,tc,slope_weight=parameters['gpp.slope_weight'],
+                               obstacle_weight=0.,terrain_weight=0.))
+    low,high=costs(flat),costs(hill)
+    valid=np.isfinite(high)
+    assert np.all(high[valid]>=low[valid])
+    assert high[valid].max()==pytest.approx(1.+5.*(.8**2))
+    # Existing archived/CLI specifications keep their legacy input mode.
+    assert 'terrain' not in scenario(3)
+    assert trial_parameters(scenario(3),yaml.safe_load((PACKAGE/'config.yaml').read_text()))['dstar_lite_gpp']['ros__parameters']['gpp.cost_mode']=='legacy'
+
+
+@pytest.mark.parametrize('number,angle', [(1,5.),(3,-1.),(3,31.),(3,float('nan'))])
+def test_invalid_slope_is_rejected(number,angle):
+    with pytest.raises(ValueError):scenario(number,angle)
+
+
+def test_slope_overrides_preserve_remote_shared_rear_steering_geometry():
+    from nomad_bringup.scenario_lab.core import resolved_config, trial_parameters
+    original=resolved_config()
+    modified=trial_parameters(scenario(3,8.),resolved_config())
+    for node in original:
+        for key in ('drive_layout','steering_axle','wheelbase','reference_offset','track','wheel_radius','joint_limit'):
+            assert modified[node]['ros__parameters'][key]==original[node]['ros__parameters'][key]
+    assert modified['dstar_lite_gpp']['ros__parameters']['gpp.cost_mode']=='multi'
+    assert modified['/**']['ros__parameters']['steering_axle']=='rear'
+    assert modified['/**']['ros__parameters']['reference_offset']<0
