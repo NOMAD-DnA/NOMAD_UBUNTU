@@ -1,0 +1,30 @@
+# Values 4614/-1.2135/0.5304 are copied from the existing F1TENTH
+# ackermann_to_vesc example launch in Pi 4 vesc_ws. They are NOT validated
+# measurements for this rear-steer NOMAD vehicle. Actuation is off by default;
+# the supervised Pi 4 cycle script enables candidate conversion after checks.
+nomad_vesc_control:
+  ros__parameters:
+    use_sim_time: false
+    actuation_enabled: false
+    motor_mode: erpm  # candidate ratio can drive this mode after safeguards are verified
+    calibration_valid: false
+    watchdog_verified: false
+    current_limit_a: 30.0
+    current_limit_verified: false
+    trial_candidate_conversion: false
+    max_steer: 0.4
+    erpm_per_mps: 4614.0
+    erpm_offset: 0.0
+    servo_per_rad: -1.2135
+    servo_center: 0.5304
+    servo_min: 0.0
+    servo_max: 1.0
+    # Lifted wheel test 2026-10-30: -0.10 duty spun in reverse; forward is +.
+    forward_sign: 1
+    duty_per_mps: 0.0
+    duty_kp: 0.0
+    duty_ki: 0.0
+    max_duty: 0.3
+    control_rate: 20.0
+    command_wall_timeout: 0.35
+    telemetry_wall_timeout: 0.5

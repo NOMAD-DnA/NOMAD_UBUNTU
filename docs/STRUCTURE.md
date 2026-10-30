@@ -37,3 +37,5 @@ GT 관측 입력·6개 맵 생성·실행 큐·결과 GUI를 묶고 기존 GPP/L
 현재 전륜 구동·후륜 조향은 [차량 실행 안내](후륜조향_시뮬레이션.md) 참조. Planning·Control·맵/GUI가 같은 기하를 사용한다.
 
 실물 인지는 `scripts/run_real_perception.sh`를 사용하며 Pi 5 입력과 외부 센서를 받는다. [입력 계약과 파일 목록](../src/nomad_perception/docs/real_perception.md). 실물 모듈 연결은 `modules_real_perception.yaml`의 external 설정으로 내장 인지 중복 실행을 막는다.
+
+Pi 4 실차 VESC 제어는 `nomad_control/vesc_controller.py`, 실행은 `scripts/run_pi4_vesc_cycle.sh`. 30A 설정·시험 결과는 [Pi 4 VESC 30A 변경](실차_VESC_30A_변경_20261030.md).

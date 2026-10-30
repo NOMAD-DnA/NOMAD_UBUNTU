@@ -33,6 +33,8 @@ class PlanningCommandNode(Node):
         super().__init__('nomad_planning_command')
         self.base_frame = self.declare_parameter('base_frame', 'base_link').value
         self.max_steer = self.declare_parameter('max_steer', .4).value
+        self.allow_unmeasured_steering_trial = self.declare_parameter(
+            'allow_unmeasured_steering_trial', False).value
         self.vehicle_state = None
         self.vehicle_wall = -math.inf
         self.local_motion = self.recovery_motion = None
@@ -290,7 +292,8 @@ class PlanningCommandNode(Node):
         reason = None
         vehicle = self.vehicle_state
         if (vehicle is None or not vehicle.ready or vehicle.fault
-                or not vehicle.speed_valid or not vehicle.steering_valid
+                or not vehicle.speed_valid
+                or (not vehicle.steering_valid and not self.allow_unmeasured_steering_trial)
                 or vehicle.header.frame_id != self.base_frame
                 or not all(math.isfinite(v) for v in (vehicle.speed,vehicle.steering_angle))
                 or not -.05 <= now-(vehicle.header.stamp.sec+vehicle.header.stamp.nanosec*1e-9) <= .6

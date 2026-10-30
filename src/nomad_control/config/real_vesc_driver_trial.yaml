@@ -1,0 +1,17 @@
+# Supervised real-cycle driver profile. Firmware motor and input current limits
+# must be read back as <=30 A before the node is started.
+/**:
+  ros__parameters:
+    port: /dev/serial/by-id/usb-STMicroelectronics_ChibiOS_RT_Virtual_COM_Port_304-if00
+    duty_cycle_min: 0.0
+    duty_cycle_max: 0.0
+    speed_min: 0.0
+    speed_max: 23250.0
+    current_min: 0.0
+    current_max: 0.0
+    brake_min: 0.0
+    brake_max: 0.0
+    position_min: 0.0
+    position_max: 0.0
+    servo_min: 0.0
+    servo_max: 1.0
