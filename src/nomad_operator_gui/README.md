@@ -30,13 +30,13 @@ Jetson이 아직 데이터를 발행하지 않으면 화면에는 수신 대기 
 
 ## 보드 원격 시작 버튼
 
-`~/.config/nomad/boards.env`에 `NOMAD_PI5_HOST`, `NOMAD_PI5_SCRIPT`, `NOMAD_PI4_HOST`, `NOMAD_PI4_SCRIPT`, `NOMAD_SSH_KEY`를 설정한다. 스크립트 경로는 **각 보드에서의 절대 경로**다. GUI는 이 파일을 실행할 때 읽는다. Jetson 주소·계정·스크립트 경로는 PC 설정의 환경변수 `NOMAD_JETSON_HOST`, `NOMAD_JETSON_USER`, `NOMAD_JETSON_SCRIPT`로 지정한다. GUI 화면은 이 내부 연결값을 입력받지 않는다. 현재 Jetson 경로는 `/home/nvidia/nomad_semantic_20261030/scripts/run_jetson_autonomy.sh`다. GUI는 실행 ID를 생성해 팀 배포본의 `start --run-id`와 `stop --run-id`를 직접 호출한다.
+`~/.config/nomad/boards.env`에 `NOMAD_PI5_HOST`, `NOMAD_PI5_SCRIPT`, `NOMAD_PI4_HOST`, `NOMAD_PI4_SCRIPT`, `NOMAD_SSH_KEY`를 설정한다. 스크립트 경로는 **각 보드에서의 절대 경로**다. GUI는 이 파일을 실행할 때 읽는다. Jetson 주소·계정·스크립트 경로는 PC 설정의 환경변수 `NOMAD_JETSON_HOST`, `NOMAD_JETSON_USER`, `NOMAD_JETSON_SCRIPT`로 지정한다. GUI 화면은 이 내부 연결값을 입력받지 않는다. 현재 Jetson 경로는 `/home/nvidia/nomad_semantic_20261030/scripts/run_jetson_autonomy_local.sh`다. GUI는 실행 ID를 생성해 팀 배포본의 `start --run-id`와 `stop --run-id`를 직접 호출한다.
 
 ‘세 보드 자율주행 기능 시작’은 확인 대화상자 후 Pi 5 → Jetson → Pi 4 순으로 호출한다. Jetson의 영상·위치·지도 상태가 `READY`가 될 때까지 최대 130초 기다린 뒤 Pi 4를 시작한다. Pi 4에는 `NOMAD_ENABLE_ACTUATION=1`을 넘기므로 실제 차량 구동이 활성화될 수 있다. 앞 단계가 실패하면 이번 클릭에서 시작한 보드만 역순으로 중지한다. ‘이번 실행 중지’는 실행 ID가 일치하는 프로세스만 역순으로 종료한다. 실행 중에는 GUI 창 닫기를 막는다. SSH는 `BatchMode=yes`로 호출하므로 공개키 인증이 필요하다. 기존 수동 실행은 GUI가 소유하지 않는다.
 
-현재 PC 설정은 같은 네트워크의 `user-desktop.local`(Pi 5), `ubuntu.local`(Jetson), `lpp.local`(Pi 4)을 사용한다. 세 보드 모두 GUI 전용 SSH 키로 `status=STOPPED` 조회를 확인했다. 버튼과 GUI 표시를 확인했으며, 세 보드 통합 시작은 아직 시험하지 않았다.
+현재 PC 설정은 같은 네트워크의 `user-desktop.local`(Pi 5), `ubuntu.local`(Jetson), `lpp.local`(Pi 4)을 사용한다. 기본 SSH 공개키 인증을 사용한다. 최신 배포는 세 보드 모두 로컬 Humble 실행 경로를 사용한다. 2026-10-31 GUI 통합 시작은 실제 실행했으나 Jetson의 양안 입력 최신성 검사에서 시간 초과되어 전체 루프를 완료하지 못했다.
 
-Jetson 현재 통합 배포본은 OAK를 여는 `semantic_perception_rgbd.pyz` 하나에서 `/oak/rgb/image_raw`(640×480 `bgr8`), `/perception/semantic/input_image`(640×360 `bgr8`), 의미 마스크, 깊이, 양안 영상과 IMU를 발행한다. 별도 `oak_rgb_publisher.pyz`는 GUI 시작 버튼에서 실행하지 않는다. GUI는 주 토픽이 없으면 추론 영상을 표시한다. 실제 라이브 지도·영상 동시 수신은 아직 검증하지 않았다.
+Jetson 현재 통합 배포본은 OAK를 여는 `semantic_perception_rgbd_local.pyz` 하나에서 `/oak/rgb/image_raw`(640×480 `bgr8`), `/perception/semantic/input_image`(640×360 `bgr8`), 의미 마스크, 깊이, 양안 영상과 IMU를 발행한다. 별도 `oak_rgb_publisher.pyz`는 GUI 시작 버튼에서 실행하지 않는다. GUI는 주 토픽이 없으면 추론 영상을 표시한다. 실제 라이브 지도·영상 동시 수신은 아직 검증하지 않았다.
 
 ## 시도별 로그 기록
 
@@ -62,3 +62,12 @@ Jetson 현재 통합 배포본은 OAK를 여는 `semantic_perception_rgbd.pyz` �
 권장 순서: 기록 시작 → 보드 시작 → 목표 전송 → 이번 실행 중지. 기록 버튼 자체는
 보드를 실행하거나 모터 명령을 보내지 않는다. 설치본을 직접 실행하는 경우
 `NOMAD_OPERATOR_GUI_LOG_DIR`로 저장 위치를 지정할 수 있으며 wrapper는 GUI 소스 폴더로 지정한다.
+
+
+## 2026-10-31 로컬 실행 최종 설정
+
+`config/boards.env.example`을 PC의 `~/.config/nomad/boards.env`로 복사한 뒤 실제 호스트 이름과 설치 경로를 맞춘다. 암호는 이 파일에 넣지 않는다. Pi 5는 `run_pi5_autonomy_local.sh`, Jetson은 `run_jetson_autonomy_local.sh`, Pi 4는 `run_pi4_autonomy.sh`를 호출한다. 이 예시는 PC의 SSH 실행 설정이며 보드의 ROS 설치·배포를 대신하지 않는다.
+
+현재 보드 배포는 의미분할 목표 상한 2Hz, 양안 입력 10Hz다. Pi 5의 `~/nomad_gnss_pi5/config/localization.env`에서 `NOMAD_PI5_LOCALIZATION_MODE=vio_only`를 선택한 실내 시험 모드이며, 첫 유효 VIO 위치를 로컬 원점으로 사용한다. GNSS 융합으로 복귀하려면 보드 설정을 `gnss_vio`로 바꾸고 실행을 재시작한다. 모드는 GUI가 임의로 전환하지 않는다. 새 실행에서는 목표를 다시 선택한다.
+
+최종 적용 내역과 성공/미해결 로그는 [실내 VIO GUI 실행 기록](../../docs/(최종최종)NOMAD_실내_VIO_GUI_실행_20261031.md)을 참고한다. 의미분할 마지막 누적 처리율은 약 1.49Hz이며, 지도·플래닝까지 전체 루프 완료를 확인한 상태는 아니다.
