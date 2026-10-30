@@ -9,14 +9,16 @@ import time
 import rclpy
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import OccupancyGrid, Odometry
-from PyQt5.QtCore import QThread, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PyQt5.QtCore import QThread, QTimer, Qt, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices, QColor, QImage, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
     QApplication, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
-    QVBoxLayout, QWidget,
+    QVBoxLayout, QWidget, QDialog, QDialogButtonBox, QCheckBox,
 )
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import Image
+from rcl_interfaces.msg import Log
+from .attempt_log import AttemptLog, PARTS, classify_node
 
 from .grid import GridGeometry
 from .remote import Board, RemoteError, start_sequence, stop_sequence
@@ -30,8 +32,9 @@ class RosWorker(QThread):
     goal_sent = pyqtSignal(float, float)
     goal_ready = pyqtSignal(bool)
 
-    def __init__(self, topics):
+    def __init__(self, topics, recorder=None):
         super().__init__()
+        self.recorder = recorder
         self.topics = topics
         self.commands = queue.Queue()
         self.running = True
@@ -61,6 +64,14 @@ class RosWorker(QThread):
                                          qos_profile_sensor_data)
             node.create_subscription(OccupancyGrid, self.topics.grid, lambda msg: self.grid_received.emit(msg), map_qos)
             node.create_subscription(Odometry, self.topics.odom, lambda msg: self.odom_received.emit(msg), 10)
+            def on_log(msg):
+                if self.recorder is not None:
+                    self.recorder.write(classify_node(msg.name), 'rosout', node=msg.name,
+                                        level=msg.level, message=msg.msg, file=msg.file,
+                                        function=msg.function, line=msg.line,
+                                        stamp_ns=msg.stamp.sec * 1000000000 + msg.stamp.nanosec)
+            # Volatile subscriber records new messages only; best effort accepts both publisher policies.
+            node.create_subscription(Log, '/rosout', on_log, qos_profile_sensor_data)
             publisher = node.create_publisher(PoseStamped, self.topics.goal, 10)
             last_ready = None
             while self.running and rclpy.ok():
@@ -104,9 +115,10 @@ class BoardWorker(QThread):
     progress = pyqtSignal(str)
     completed = pyqtSignal(object)
 
-    def __init__(self, action, boards, domain, owned):
+    def __init__(self, action, boards, domain, owned, recorder=None):
         super().__init__()
         self.action = action
+        self.recorder = recorder
         self.boards = boards
         self.domain = domain
         self.owned = dict(owned)
@@ -115,10 +127,12 @@ class BoardWorker(QThread):
         try:
             if self.action == 'start':
                 owned = dict(self.owned)
-                start_sequence(self.boards, self.domain, self.progress.emit, owned)
+                start_sequence(self.boards, self.domain, self.progress.emit, owned,
+                               self.recorder.board_event if self.recorder else None)
                 self.completed.emit({'owned': owned, 'error': ''})
             else:
-                errors = stop_sequence(self.boards, self.domain, self.owned, self.progress.emit)
+                errors = stop_sequence(self.boards, self.domain, self.owned, self.progress.emit,
+                                       self.recorder.board_event if self.recorder else None)
                 self.completed.emit({'owned': self.owned, 'error': '; '.join(errors)})
         except RemoteError as exc:
             self.completed.emit({'owned': owned if self.action == 'start' else self.owned, 'error': str(exc)})
@@ -207,6 +221,10 @@ class MapView(QWidget):
 class OperatorWindow(QMainWindow):
     def __init__(self, topics):
         super().__init__()
+        self.topics = topics
+        self.recorder = AttemptLog()
+        self.last_logged_health = None
+        self.last_log_flush = 0.0
         self.setWindowTitle('NOMAD 실차 운영 화면')
         self.resize(1250, 700)
         self.last_image = 0.0
@@ -253,21 +271,90 @@ class OperatorWindow(QMainWindow):
         buttons.addWidget(self.board_status, 2)
         root.addLayout(buttons)
         root.addWidget(self.status)
+        log_buttons = QHBoxLayout()
+        self.record_button = QPushButton('새 시도 로그 기록')
+        self.end_record_button = QPushButton('기록 종료')
+        self.end_record_button.setEnabled(False)
+        self.log_folder_button = QPushButton('로그 폴더 열기')
+        self.log_status = QLabel('로그 기록 꺼짐')
+        self.record_button.clicked.connect(self.start_recording)
+        self.end_record_button.clicked.connect(lambda: self.stop_recording('user'))
+        self.log_folder_button.clicked.connect(self.open_logs)
+        for widget in (self.record_button, self.end_record_button, self.log_folder_button, self.log_status):
+            log_buttons.addWidget(widget)
+        root.addLayout(log_buttons)
         central = QWidget()
         central.setLayout(root)
         self.setCentralWidget(central)
         self.map.selected.connect(self.select_cell)
-        self.worker = RosWorker(topics)
+        self.worker = RosWorker(topics, self.recorder)
         self.worker.image_received.connect(self.on_image)
         self.worker.grid_received.connect(self.on_grid)
         self.worker.odom_received.connect(self.on_odom)
-        self.worker.error.connect(lambda message: self.status.setText('ROS 오류: ' + message))
-        self.worker.goal_sent.connect(lambda x, y: self.status.setText(f'목적지 토픽 발행: ({x:.2f}, {y:.2f}) m — 주행 시작 확인은 별도 필요'))
+        self.worker.error.connect(self.on_ros_error)
+        self.worker.goal_sent.connect(self.on_goal_sent)
         self.worker.goal_ready.connect(self.on_goal_ready)
         self.worker.start()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(100)
+
+    def start_recording(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle('이번 시도에 기록할 파트')
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel('보드 실행 결과와 수신한 ROS 로그를 기록합니다.'))
+        checks = {}
+        for key, label in PARTS.items():
+            check = QCheckBox(label)
+            check.setChecked(key != 'simulation')
+            checks[key] = check
+            layout.addWidget(check)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        if dialog.exec_() != QDialog.Accepted:
+            return
+        try:
+            folder = self.recorder.start([key for key, box in checks.items() if box.isChecked()],
+                                         {'ros_domain_id': self.domain, 'topics': vars(self.topics),
+                                          'existing_board_runs': dict(self.owned_runs)})
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.log_status.setText('기록 시작 실패: ' + str(exc))
+            return
+        self.last_logged_health = None
+        self.record_button.setEnabled(False)
+        self.end_record_button.setEnabled(True)
+        self.log_status.setText('기록 중: ' + folder.name)
+        self.log_status.setToolTip(str(folder))
+        self.recorder.write('runtime', 'recording_started')
+
+    def stop_recording(self, reason):
+        self.recorder.write('runtime', 'recording_stopped', reason=reason)
+        self.recorder.stop(reason)
+        self.record_button.setEnabled(True)
+        self.end_record_button.setEnabled(False)
+        self.log_status.setText('기록 오류: ' + self.recorder.error if self.recorder.error else '로그 저장 완료')
+
+    def open_logs(self):
+        try:
+            self.recorder.root.mkdir(parents=True, exist_ok=True)
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.recorder.root.resolve())))
+        except OSError as exc:
+            self.log_status.setText('로그 폴더 열기 실패: ' + str(exc))
+
+    def on_ros_error(self, message):
+        self.status.setText('ROS 오류: ' + message)
+        self.recorder.write('runtime', 'ros_error', message=message)
+
+    def on_goal_sent(self, x, y):
+        self.status.setText(f'목적지 토픽 발행: ({x:.2f}, {y:.2f}) m — 주행 시작 확인은 별도 필요')
+        self.recorder.write('planning', 'goal_published', x=x, y=y, frame=self.map_frame)
+
+    def on_board_progress(self, message):
+        self.board_status.setText(message)
+        self.recorder.write('runtime', 'board_progress', message=message)
 
     def boards(self):
         return [
@@ -285,11 +372,12 @@ class OperatorWindow(QMainWindow):
     def run_board_action(self, action):
         if self.board_worker is not None and self.board_worker.isRunning():
             return
-        self.board_worker = BoardWorker(action, self.boards(), self.domain, self.owned_runs)
-        self.board_worker.progress.connect(self.board_status.setText)
+        self.board_worker = BoardWorker(action, self.boards(), self.domain, self.owned_runs, self.recorder)
+        self.board_worker.progress.connect(self.on_board_progress)
         self.board_worker.completed.connect(self.on_board_complete)
         self.start_boards_button.setEnabled(False)
         self.stop_boards_button.setEnabled(False)
+        self.recorder.write('runtime', 'board_action', action=action, owned=dict(self.owned_runs))
         self.board_worker.start()
 
     def start_boards(self):
@@ -308,6 +396,7 @@ class OperatorWindow(QMainWindow):
         self.run_board_action('stop')
 
     def on_board_complete(self, result):
+        self.recorder.write('runtime', 'board_complete', **result)
         self.owned_runs = result['owned']
         self.start_boards_button.setEnabled(not bool(self.owned_runs))
         self.stop_boards_button.setEnabled(bool(self.owned_runs))
@@ -317,6 +406,8 @@ class OperatorWindow(QMainWindow):
             self.board_status.setText('Jetson 영상·지도 준비 확인, Pi 4 시작 요청 완료; 주행 상태는 별도 확인')
         else:
             self.board_status.setText('이번 실행 중지 완료')
+        if not self.owned_runs and self.recorder.active:
+            self.stop_recording('board_failure' if result['error'] else 'boards_stopped')
 
     def on_image(self, msg):
         self.pending_image = msg
@@ -361,6 +452,7 @@ class OperatorWindow(QMainWindow):
         if self.map.selected_cell is None or self.map_frame != 'odom' or not self.planner_connected:
             return
         x, y = self.map.geometry.center(*self.map.selected_cell)
+        self.recorder.write('planning', 'goal_requested', x=x, y=y, frame=self.map_frame)
         self.worker.send_goal(x, y, self.map_frame)
         self.send_button.setEnabled(False)
         self.selection.setText(f'발행 요청: x={x:.2f} m, y={y:.2f} m')
@@ -387,6 +479,18 @@ class OperatorWindow(QMainWindow):
         now = time.monotonic()
         image_state = '수신 중' if now - self.last_image < 3 else '대기/끊김'
         grid_state = '수신 중' if now - self.last_grid < 10 else '대기/오래됨'
+        health = (image_state, grid_state, self.planner_connected)
+        if health != self.last_logged_health and self.recorder.active:
+            self.recorder.write('runtime', 'topic_health', image=image_state, grid=grid_state,
+                                goal_subscriber=self.planner_connected)
+            self.last_logged_health = health
+        if now - self.last_log_flush >= 1:
+            self.recorder.flush()
+            self.last_log_flush = now
+        if self.recorder.error:
+            self.log_status.setText('기록 오류: ' + self.recorder.error)
+            self.record_button.setEnabled(True)
+            self.end_record_button.setEnabled(False)
         if not self.status.text().startswith(('ROS 오류:', '지도 ', '목적지 토픽 발행:', '지도 형식')):
             planner_state = '연결됨' if self.planner_connected else '연결 대기'
             self.status.setText(f'전방 영상: {image_state}  |  그리드맵: {grid_state}  |  목표 수신 노드: {planner_state}')
@@ -402,6 +506,7 @@ class OperatorWindow(QMainWindow):
             return
         self.timer.stop()
         self.worker.stop()
+        self.stop_recording('gui_closed')
         super().closeEvent(event)
 
 

@@ -30,4 +30,5 @@ if [[ -f "$boards_env" ]]; then
   source "$boards_env"
   set +a
 fi
+export NOMAD_OPERATOR_GUI_LOG_DIR="$root/src/nomad_operator_gui/logs"
 exec ros2 run nomad_operator_gui operator_gui "$@"

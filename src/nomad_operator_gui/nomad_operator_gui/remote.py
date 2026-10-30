@@ -20,7 +20,7 @@ class RemoteError(RuntimeError):
     pass
 
 
-def invoke(board, action, domain, run_id=None, actuation=False):
+def _invoke(board, action, domain, run_id=None, actuation=False):
     if not board.host:
         raise RemoteError(f'{board.name}: SSH 주소를 입력하세요')
     if not board.script.startswith('/'):
@@ -72,11 +72,26 @@ def invoke(board, action, domain, run_id=None, actuation=False):
     return payload
 
 
-def start_sequence(boards, domain, on_progress, owned):
+def invoke(board, action, domain, run_id=None, actuation=False, on_event=None):
+    started = time.monotonic()
+    try:
+        result = _invoke(board, action, domain, run_id, actuation)
+    except RemoteError as exc:
+        if on_event:
+            on_event({'board': board.name, 'action': action, 'run_id': run_id,
+                      'elapsed_s': time.monotonic() - started, 'error': str(exc)})
+        raise
+    if on_event:
+        on_event({'board': board.name, 'action': action,
+                  'elapsed_s': time.monotonic() - started, 'result': result})
+    return result
+
+
+def start_sequence(boards, domain, on_progress, owned, on_event=None):
     try:
         for board in boards:
             on_progress(f'{board.name} 시작 중…')
-            result = invoke(board, 'start', domain, actuation=board.name == 'Pi 4')
+            result = invoke(board, 'start', domain, actuation=board.name == 'Pi 4', on_event=on_event)
             if result['state'] != 'STARTING':
                 raise RemoteError(f"{board.name}: 시작 결과 {result['state']}")
             owned[board.name] = result['run_id']
@@ -85,7 +100,7 @@ def start_sequence(boards, domain, on_progress, owned):
                 deadline = time.monotonic() + 130
                 last_reason = None
                 while True:
-                    status = invoke(board, 'status', domain, result['run_id'])
+                    status = invoke(board, 'status', domain, result['run_id'], on_event=on_event)
                     if status.get('state') == 'READY' and status.get('ready') is True:
                         on_progress('Jetson 영상·지도 준비 완료')
                         break
@@ -103,7 +118,7 @@ def start_sequence(boards, domain, on_progress, owned):
         for board in reversed(boards):
             if board.name in owned:
                 try:
-                    stopped = invoke(board, 'stop', domain, owned[board.name])
+                    stopped = invoke(board, 'stop', domain, owned[board.name], on_event=on_event)
                     if stopped['state'] == 'STOPPED':
                         del owned[board.name]
                 except RemoteError as exc:
@@ -111,14 +126,14 @@ def start_sequence(boards, domain, on_progress, owned):
         raise
 
 
-def stop_sequence(boards, domain, owned, on_progress):
+def stop_sequence(boards, domain, owned, on_progress, on_event=None):
     errors = []
     for board in reversed(boards):
         if board.name not in owned:
             continue
         on_progress(f'{board.name} 중지 중…')
         try:
-            result = invoke(board, 'stop', domain, owned[board.name])
+            result = invoke(board, 'stop', domain, owned[board.name], on_event=on_event)
             if result['state'] == 'STOPPED':
                 del owned[board.name]
             else:
