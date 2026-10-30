@@ -24,4 +24,10 @@ if [[ -z "${ROS_DOMAIN_ID:-}" ]]; then
   echo '먼저 Jetson과 같은 ROS_DOMAIN_ID를 지정하세요. 예: ROS_DOMAIN_ID=42 ./scripts/run_real_operator_gui.sh' >&2
   exit 1
 fi
+boards_env="${NOMAD_BOARDS_ENV:-$HOME/.config/nomad/boards.env}"
+if [[ -f "$boards_env" ]]; then
+  set -a
+  source "$boards_env"
+  set +a
+fi
 exec ros2 run nomad_operator_gui operator_gui "$@"

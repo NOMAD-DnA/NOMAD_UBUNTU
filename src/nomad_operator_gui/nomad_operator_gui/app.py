@@ -1,6 +1,7 @@
 """PC-only NOMAD operator window. No vehicle process is started here."""
 
 import argparse
+import os
 import queue
 import sys
 import time
@@ -11,13 +12,14 @@ from nav_msgs.msg import OccupancyGrid, Odometry
 from PyQt5.QtCore import QThread, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QImage, QPainter, QPen, QPixmap
 from PyQt5.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMainWindow, QPushButton,
+    QApplication, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
     QVBoxLayout, QWidget,
 )
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from sensor_msgs.msg import Image
 
 from .grid import GridGeometry
+from .remote import Board, RemoteError, start_sequence, stop_sequence
 
 
 class RosWorker(QThread):
@@ -33,6 +35,7 @@ class RosWorker(QThread):
         self.topics = topics
         self.commands = queue.Queue()
         self.running = True
+        self.last_primary_image = 0.0
 
     def run(self):
         node = None
@@ -44,7 +47,18 @@ class RosWorker(QThread):
                 reliability=ReliabilityPolicy.RELIABLE,
                 durability=DurabilityPolicy.TRANSIENT_LOCAL,
             )
-            node.create_subscription(Image, self.topics.image, lambda msg: self.image_received.emit(msg), qos_profile_sensor_data)
+            def on_primary_image(msg):
+                self.last_primary_image = time.monotonic()
+                self.image_received.emit(msg)
+
+            def on_fallback_image(msg):
+                if time.monotonic() - self.last_primary_image > 2.0:
+                    self.image_received.emit(msg)
+
+            node.create_subscription(Image, self.topics.image, on_primary_image, qos_profile_sensor_data)
+            if self.topics.image_fallback and self.topics.image_fallback != self.topics.image:
+                node.create_subscription(Image, self.topics.image_fallback, on_fallback_image,
+                                         qos_profile_sensor_data)
             node.create_subscription(OccupancyGrid, self.topics.grid, lambda msg: self.grid_received.emit(msg), map_qos)
             node.create_subscription(Odometry, self.topics.odom, lambda msg: self.odom_received.emit(msg), 10)
             publisher = node.create_publisher(PoseStamped, self.topics.goal, 10)
@@ -84,6 +98,30 @@ class RosWorker(QThread):
     def stop(self):
         self.running = False
         self.wait(2000)
+
+
+class BoardWorker(QThread):
+    progress = pyqtSignal(str)
+    completed = pyqtSignal(object)
+
+    def __init__(self, action, boards, domain, owned):
+        super().__init__()
+        self.action = action
+        self.boards = boards
+        self.domain = domain
+        self.owned = dict(owned)
+
+    def run(self):
+        try:
+            if self.action == 'start':
+                owned = dict(self.owned)
+                start_sequence(self.boards, self.domain, self.progress.emit, owned)
+                self.completed.emit({'owned': owned, 'error': ''})
+            else:
+                errors = stop_sequence(self.boards, self.domain, self.owned, self.progress.emit)
+                self.completed.emit({'owned': self.owned, 'error': '; '.join(errors)})
+        except RemoteError as exc:
+            self.completed.emit({'owned': owned if self.action == 'start' else self.owned, 'error': str(exc)})
 
 
 class MapView(QWidget):
@@ -187,6 +225,15 @@ class OperatorWindow(QMainWindow):
         self.send_button = QPushButton('선택한 목적지 보내기')
         self.send_button.setEnabled(False)
         self.send_button.clicked.connect(self.send_goal)
+        self.domain = os.environ.get('ROS_DOMAIN_ID', '42')
+        self.owned_runs = {}
+        self.board_worker = None
+        self.board_status = QLabel('보드: Jetson 연결 준비 전' if not os.environ.get('NOMAD_JETSON_HOST') or not os.environ.get('NOMAD_JETSON_SCRIPT') else '보드: 시작 전')
+        self.start_boards_button = QPushButton('세 보드 자율주행 기능 시작')
+        self.stop_boards_button = QPushButton('이번 실행 중지')
+        self.start_boards_button.clicked.connect(self.start_boards)
+        self.stop_boards_button.clicked.connect(self.stop_boards)
+        self.stop_boards_button.setEnabled(False)
         left = QVBoxLayout()
         left.addWidget(QLabel('OAK 전방 카메라'))
         left.addWidget(self.video, 1)
@@ -200,6 +247,11 @@ class OperatorWindow(QMainWindow):
         panes.addLayout(right, 1)
         root = QVBoxLayout()
         root.addLayout(panes, 1)
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.start_boards_button)
+        buttons.addWidget(self.stop_boards_button)
+        buttons.addWidget(self.board_status, 2)
+        root.addLayout(buttons)
         root.addWidget(self.status)
         central = QWidget()
         central.setLayout(root)
@@ -216,6 +268,55 @@ class OperatorWindow(QMainWindow):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.refresh)
         self.timer.start(100)
+
+    def boards(self):
+        return [
+            Board('Pi 5', os.environ.get('NOMAD_PI5_HOST', ''),
+                  os.environ.get('NOMAD_PI5_USER', 'user'),
+                  os.environ.get('NOMAD_PI5_SCRIPT', '')),
+            Board('Jetson', os.environ.get('NOMAD_JETSON_HOST', ''),
+                  os.environ.get('NOMAD_JETSON_USER', 'nvidia'),
+                  os.environ.get('NOMAD_JETSON_SCRIPT', '')),
+            Board('Pi 4', os.environ.get('NOMAD_PI4_HOST', ''),
+                  os.environ.get('NOMAD_PI4_USER', 'user'),
+                  os.environ.get('NOMAD_PI4_SCRIPT', '')),
+        ]
+
+    def run_board_action(self, action):
+        if self.board_worker is not None and self.board_worker.isRunning():
+            return
+        self.board_worker = BoardWorker(action, self.boards(), self.domain, self.owned_runs)
+        self.board_worker.progress.connect(self.board_status.setText)
+        self.board_worker.completed.connect(self.on_board_complete)
+        self.start_boards_button.setEnabled(False)
+        self.stop_boards_button.setEnabled(False)
+        self.board_worker.start()
+
+    def start_boards(self):
+        if not os.environ.get('NOMAD_JETSON_HOST') or not os.environ.get('NOMAD_JETSON_SCRIPT'):
+            self.board_status.setText('Jetson 연결 준비 전: 담당자 스크립트 설치 후 사용할 수 있습니다')
+            return
+        answer = QMessageBox.question(
+            self, '실차 구동 확인',
+            'Pi 5 → Jetson → Pi 4를 시작합니다. Pi 4 Control과 VESC 구동도 활성화됩니다. '
+            '차량 주변과 정지 수단을 확보했습니까?',
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if answer == QMessageBox.Yes:
+            self.run_board_action('start')
+
+    def stop_boards(self):
+        self.run_board_action('stop')
+
+    def on_board_complete(self, result):
+        self.owned_runs = result['owned']
+        self.start_boards_button.setEnabled(not bool(self.owned_runs))
+        self.stop_boards_button.setEnabled(bool(self.owned_runs))
+        if result['error']:
+            self.board_status.setText('원격 실행 오류: ' + result['error'])
+        elif self.owned_runs:
+            self.board_status.setText('Jetson 영상·지도 준비 확인, Pi 4 시작 요청 완료; 주행 상태는 별도 확인')
+        else:
+            self.board_status.setText('이번 실행 중지 완료')
 
     def on_image(self, msg):
         self.pending_image = msg
@@ -291,6 +392,14 @@ class OperatorWindow(QMainWindow):
             self.status.setText(f'전방 영상: {image_state}  |  그리드맵: {grid_state}  |  목표 수신 노드: {planner_state}')
 
     def closeEvent(self, event):
+        if self.board_worker is not None and self.board_worker.isRunning():
+            self.board_status.setText('보드 작업이 끝난 뒤 창을 닫으세요')
+            event.ignore()
+            return
+        if self.owned_runs:
+            self.board_status.setText('이번 실행 중지 버튼으로 보드를 중지한 뒤 창을 닫으세요')
+            event.ignore()
+            return
         self.timer.stop()
         self.worker.stop()
         super().closeEvent(event)
@@ -299,6 +408,7 @@ class OperatorWindow(QMainWindow):
 def main():
     parser = argparse.ArgumentParser(description='NOMAD PC operator GUI')
     parser.add_argument('--image', default='/oak/rgb/image_raw')
+    parser.add_argument('--image-fallback', default='/perception/semantic/input_image')
     parser.add_argument('--grid', default='/nomad/navigation_costmap')
     parser.add_argument('--odom', default='/nomad/localization/odometry')
     parser.add_argument('--goal', default='/goal_pose')
