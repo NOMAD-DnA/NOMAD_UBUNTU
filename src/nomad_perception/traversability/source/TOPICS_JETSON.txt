@@ -1,0 +1,40 @@
+입력
+/oak/depth/points: sensor_msgs/PointCloud2, oak_cam_a_optical_frame, Pi5 발행
+/oak/calibration/factory: std_msgs/String, OAK 공장 보정 및 장치 출처, Pi5 발행
+/nomad/localization/odometry: nav_msgs/Odometry, odom -> base_link, Pi5 발행
+/nomad/localization/status: nomad_interfaces/ModuleStatus, Pi5 READY 상태
+/perception/semantic/class_ids: sensor_msgs/Image, 640x360 mono8, 원래 ZED 촬영 시각
+/zed/zed_node/left/camera_info: sensor_msgs/CameraInfo, 1280x720 왼쪽 정렬 모델
+/scan: sensor_msgs/LaserScan, g2_laser, 로컬 C++ LiDAR 드라이버
+/point_cloud: sensor_msgs/PointCloud, g2_laser, 같은 스캔 시각 및 stamps 채널
+/tf_static: base_link <- oak_imu_frame, 시각 0의 고정 변환
+/tf: odom <- base_link, 최신 동적 변환
+
+출력
+/nomad/navigation_costmap: nav_msgs/OccupancyGrid
+/nomad/navigation_local_costmap: nav_msgs/OccupancyGrid
+/nomad/planning_cost_layers: nomad_interfaces/PlanningCostLayers
+/nomad/camera_observation_support: nav_msgs/OccupancyGrid
+/nomad/perception/status: nomad_interfaces/ModuleStatus
+/nomad/semantic_validation/slope_score: sensor_msgs/Image, 32FC1
+/nomad/semantic_validation/semantic_score: sensor_msgs/Image, 32FC1
+/nomad/semantic_validation/slope_deg: sensor_msgs/Image, 32FC1
+/nomad/semantic_validation/slope_magnitude_deg: sensor_msgs/Image, 32FC1
+/nomad/semantic_validation/cost_layers: nomad_interfaces/PlanningCostLayers
+/nomad/semantic_validation/capture_timing: diagnostic_msgs/DiagnosticArray
+
+출력 프레임은 odom. 지도 촬영 시각과 geometry가 같은 묶음만 함께 사용합니다.
+LiDAR 드라이버 외에 OAK, ZED2, VIO, 의미분할 모듈을 이 실행 패키지에서 시작하지 않습니다.
+
+현재 선택 설정의 토픽명, 메시지 형식, 프레임을 기준 -7과 동일하게 유지했다.
+사용자 정의 .msg 원본 6개도 바이트 단위로 동일함을 확인했다.
+진단 capture_timing의 KeyValue 내용은 C++의 source_timing 및 worker_compute_ms를 쓴다.
+원래 worker_queue_ms와 worker_processing_ms를 읽는 외부 진단 도구는 이 차이를 반영해야 한다.
+시험 화면은 변환해서 표시하며 비용지도 메시지의 필드를 변경한 것은 아니다.
+
+20261105-2는 같은 capture_timing 진단에 다음 시간 항목을 추가했다.
+worker_to_mapper_receive_ms: 작업자 완료부터 메인 수신까지.
+mapper_event_wait_ms: 메인 수신부터 완료 처리 시작까지.
+mapper_cost_output_ms: 비용 생성 및 발행 처리 호출 시간.
+worker_complete_to_map_publish_ms: 실제 새 지도를 발행했을 때 작업자 완료부터 발행까지.
+큰 진단 상태 파일은 별도 스레드에서 최신 상태를 기록하며 ROS 토픽의 메시지는 유지한다.

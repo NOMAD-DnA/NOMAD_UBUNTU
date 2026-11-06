@@ -1,0 +1,8 @@
+nomad_semantic:
+  ros__parameters:
+    image_topic: '/zed/zed_node/left/image_rect_color'
+    labels_topic: '/perception/semantic/ade20k/class_ids'
+    rate_hz: 5.0
+    max_age_s: 2.0
+    output_width: 640
+    output_height: 360

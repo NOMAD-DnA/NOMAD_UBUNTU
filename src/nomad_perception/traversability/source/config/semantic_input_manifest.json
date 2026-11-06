@@ -1,0 +1,39 @@
+{
+  "base_revision": "c1275349c6991d7040143f63b9b4a0119ee8b833",
+  "source": "/home/hyeonsu/Documents/Codex/2026-10-30/jetson-ssh-x20/work/jetson_arm64_release/source",
+  "source_sha256": {
+    "src/nomad_perception/nomad_perception/real/semantic_validation.py": "8baee96e7b70367b6cfd4e30087dedb1ccabb620879531510d7c02fe0f5c5659",
+    "src/nomad_perception/nomad_perception/real/oak_rgbd_input.py": null,
+    "src/nomad_perception/nomad_perception/real/input_check.py": null,
+    "src/nomad_perception/nomad_perception/real/node.py": "85ba234fe796029b96df1fcfd5c9491bbd88197ab44d349a8610d3a7f93e6b5d",
+    "src/nomad_perception/nomad_perception/real/cost_output.py": "752734cecb49e4a1fad6e9e25e03d0140bcb28c68d31186a78dace68c6ed4779",
+    "src/nomad_perception/launch/real_perception.launch.py": "ed09c76df23f3e76505cef0e21ffb62671b304f339cc1df4aae232dbdc449006",
+    "src/nomad_perception/config/real/semantic.real.json": "65fdf74dfe568bb0dc6c169fbdb0537fa5d3d55dfee6665190b11fe7aa7ecdb3",
+    "src/nomad_perception/config/real/semantic.zed.json": null,
+    "src/nomad_perception/config/real/classes.csv": null,
+    "src/nomad_perception/test/real/test_jetson_semantic_input.py": null,
+    "src/nomad_perception/test/real/test_live_planning_output.py": null,
+    "src/nomad_perception/test/real/oak_factory_reference.json": null,
+    "src/nomad_perception/test/real/test_calibration_application.py": "00594a6523117587e0fb39c00edad52758475ffa2c034fd6e74f51c56f9d7779",
+    "src/nomad_perception/docs/jetson_semantic_input.md": null,
+    "src/nomad_perception/docs/real_perception.md": "918bae7e6a28db60f9293882697ae3da5a327c2a72995ea7ef9174c8ca41d2fe"
+  },
+  "files": {
+    "src/nomad_perception/nomad_perception/real/semantic_validation.py": "9324892a9ebaf4ca3b4c1e2fe7d788eec5f3c68037223f0da96a46facba91e90",
+    "src/nomad_perception/nomad_perception/real/oak_rgbd_input.py": "bac14d56916d4eec59b8a585be8d81d600a4549c78a7ad10bef454b7c6c474f9",
+    "src/nomad_perception/nomad_perception/real/input_check.py": "1833576ae27fdcf784142823d17dc3d88e2328f463a60325cc8cea3b3201d267",
+    "src/nomad_perception/nomad_perception/real/node.py": "9d1396ecb88a061a0571f7ba5a021cc7fa4dbc1f654ea1d0e9956f2dd63c1801",
+    "src/nomad_perception/nomad_perception/real/cost_output.py": "72c2aa8601ce8cfcc0a4e48787539626cb9b80681549fe1445479bedd2bf7bc4",
+    "src/nomad_perception/launch/real_perception.launch.py": "40a27e44217f8770df1fca95709e8652ed2a46970701362af1206372acc0f5ae",
+    "src/nomad_perception/config/real/semantic.real.json": "89824b6e992657149579d8ead34cd6df007b451b124cc9fa56dfe804b75755da",
+    "src/nomad_perception/config/real/semantic.zed.json": "65fdf74dfe568bb0dc6c169fbdb0537fa5d3d55dfee6665190b11fe7aa7ecdb3",
+    "src/nomad_perception/config/real/classes.csv": "116c408ade6caea74b18ac8903cd78ec9d080fea0aad2279a5aba1a9be72b43c",
+    "src/nomad_perception/test/real/test_jetson_semantic_input.py": "2744143a19f03030ef6cc7689df5a9e879fc9e49ffaefff65890123becff356b",
+    "src/nomad_perception/test/real/test_live_planning_output.py": "c802f6f438f03db1b1a724533290ce632f73be3e15781639214c81cb9c7a7b28",
+    "src/nomad_perception/test/real/oak_factory_reference.json": "b1b98102b80eef72d819daf5b6abf7bd1190ee84cd6b5e11c891c30af7911f54",
+    "src/nomad_perception/test/real/test_calibration_application.py": "21f5763415e1066106d09772de66a65626663ae9fb33832a98dd0443512924f1",
+    "src/nomad_perception/docs/jetson_semantic_input.md": "1ce75cf462f50c4ea04458657038407b7af4372256bda0fd0b54e55934c69390",
+    "src/nomad_perception/docs/real_perception.md": "952feb617712e0c5e597f5ff42ad6f95bfda8cf124cccb7f9d35b1f0802718b8"
+  },
+  "scope": "PC build input only; no deployment or live hardware validation"
+}

@@ -18,3 +18,16 @@
 /sessions/terrain_navigation/
 /sessions/planning_lab/
 /sessions/planning_lab_archives/
+
+# Jetson native builds and device-local inference artifacts
+/src/nomad_perception/traversability/build/
+/src/nomad_perception/traversability/install/
+/src/nomad_perception/traversability/runtime*/
+/src/nomad_perception/traversability/.*.lock
+/tools/visual_trial_20261106/build*/
+/tools/visual_trial_20261106/runtime*/
+/tools/indoor_fcn_20261106/build*/
+/tools/indoor_fcn_20261106/deps/
+/tools/indoor_fcn_20261106/model/
+/tools/runtime/python/
+*.engine

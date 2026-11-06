@@ -1,0 +1,296 @@
+{
+  "confirmed_for_recording": false,
+  "description": "OAK RGB semantic labels and OAK RGB-aligned visibility depth classify the current recent-local LiDAR/OAK XYZ; original slope, revision and cost policies retained from gui_build_source.",
+  "topics": {
+    "labels": "/perception/semantic/class_ids",
+    "depth": "/oak/rgb/depth_aligned",
+    "camera_info": "/oak/rgb/camera_info_inference"
+  },
+  "calibration_provenance": "oak_g2b_selected_20261030.json",
+  "image_alignment_confirmed": false,
+  "common_clock_confirmed": false,
+  "depth_definition": "optical_z_m",
+  "ground_class_ids": [
+    4,
+    5,
+    6,
+    8
+  ],
+  "classes": {
+    "0": {
+      "name": "ignore",
+      "name_ko": "ignore",
+      "kind": "other",
+      "cost": null,
+      "is_ignore": true,
+      "color_rgb": [
+        0,
+        0,
+        0
+      ],
+      "description": "미분류·불확실하거나 판독하기 어려운 영역"
+    },
+    "1": {
+      "name": "person",
+      "name_ko": "사람",
+      "kind": "dynamic",
+      "cost": 100,
+      "is_ignore": false,
+      "color_rgb": [
+        240,
+        60,
+        70
+      ],
+      "description": "사람"
+    },
+    "2": {
+      "name": "vehicle",
+      "name_ko": "차량",
+      "kind": "dynamic",
+      "cost": 100,
+      "is_ignore": false,
+      "color_rgb": [
+        60,
+        110,
+        240
+      ],
+      "description": "차량"
+    },
+    "3": {
+      "name": "wood",
+      "name_ko": "나무줄기·뿌리",
+      "kind": "obstacle",
+      "cost": 100,
+      "is_ignore": false,
+      "color_rgb": [
+        150,
+        85,
+        45
+      ],
+      "description": "나무줄기·드러난 뿌리·통나무"
+    },
+    "4": {
+      "name": "soil",
+      "name_ko": "흙·흙길",
+      "kind": "ground",
+      "cost": 20,
+      "is_ignore": false,
+      "color_rgb": [
+        200,
+        160,
+        95
+      ],
+      "description": "흙 및 흙이 주된 표면인 길. 산재한 작은 낙엽·돌 때문에 길 영역을 잘게 나누지 않고 형태와 연결성을 우선함"
+    },
+    "5": {
+      "name": "gravel",
+      "name_ko": "자갈",
+      "kind": "ground",
+      "cost": 35,
+      "is_ignore": false,
+      "color_rgb": [
+        190,
+        190,
+        190
+      ],
+      "description": "자갈이 주된 표면"
+    },
+    "6": {
+      "name": "paved",
+      "name_ko": "포장면",
+      "kind": "ground",
+      "cost": 0,
+      "is_ignore": false,
+      "color_rgb": [
+        90,
+        105,
+        125
+      ],
+      "description": "아스팔트·콘크리트 등의 포장면"
+    },
+    "7": {
+      "name": "rock",
+      "name_ko": "돌·바위",
+      "kind": "obstacle",
+      "cost": 100,
+      "is_ignore": false,
+      "color_rgb": [
+        170,
+        90,
+        210
+      ],
+      "description": "돌·바위 등 주요 자연 장애물"
+    },
+    "8": {
+      "name": "leaves",
+      "name_ko": "낙엽층",
+      "kind": "ground",
+      "cost": 20,
+      "is_ignore": false,
+      "color_rgb": [
+        245,
+        165,
+        35
+      ],
+      "description": "흙길 주변 등에 쌓인 낙엽층"
+    },
+    "9": {
+      "name": "vegetation",
+      "name_ko": "식생",
+      "kind": "obstacle",
+      "cost": 100,
+      "is_ignore": false,
+      "color_rgb": [
+        50,
+        175,
+        75
+      ],
+      "description": "풀·관목·수관 등의 식생"
+    },
+    "10": {
+      "name": "artificial",
+      "name_ko": "인공물",
+      "kind": "obstacle",
+      "cost": 100,
+      "is_ignore": false,
+      "color_rgb": [
+        40,
+        210,
+        215
+      ],
+      "description": "울타리·벤치·표지판·기둥·쉼터 등의 인공물"
+    },
+    "11": {
+      "name": "sky",
+      "name_ko": "하늘",
+      "kind": "other",
+      "cost": null,
+      "is_ignore": false,
+      "color_rgb": [
+        50,
+        175,
+        255
+      ],
+      "description": "하늘. 수관 사이로 보이는 하늘 포함"
+    }
+  },
+  "max_point_label_dt_ms": 100,
+  "max_label_depth_dt_ms": 50,
+  "max_pose_gap_ms": 200,
+  "frame_wait_wall_s": 1.0,
+  "visibility_absolute_m": 0.1,
+  "visibility_relative": 0.03,
+  "boundary_margin_px": 2,
+  "dynamic_retention_s": 1.0,
+  "grid_resolution_m": 0.12,
+  "save_evidence": false,
+  "expected_oak_camera_info": {
+    "socket": 1,
+    "width": 640,
+    "height": 480,
+    "K": [
+      449.0936279296875,
+      0.0,
+      340.36871337890625,
+      0.0,
+      449.1954650878906,
+      248.99606323242188,
+      0.0,
+      0.0,
+      1.0
+    ],
+    "D": [
+      -4.222700595855713,
+      5.971201419830322,
+      -0.000619167578406632,
+      0.0004186110745649785,
+      -2.6188085079193115,
+      -4.220946788787842,
+      5.963455677032471,
+      -2.611093759536743,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      -0.0011266309302300215,
+      -0.00399620970711112
+    ],
+    "pixel_tolerance": 0.0001,
+    "distortion_tolerance": 1e-07
+  },
+  "calibration_note": "Selected LiDAR -> raw OAK CAM_B calibration retained unchanged for geometry. OAK RGB semantic projection uses the live metadata T_raw_imu_cam_a only after the same OAK is confirmed. RGB intrinsics and distortion must describe the exact inference image. Do not apply CAM_B or ZED extrinsics directly as RGB extrinsics.",
+  "label_image": {
+    "width": 640,
+    "height": 360,
+    "encoding": "mono8",
+    "geometry": "full_frame_resize",
+    "source_width": 1920,
+    "source_height": 1080,
+    "source_topic": "/perception/semantic/input_image",
+    "jetson_published_input_topic": "/perception/semantic/input_image"
+  },
+  "class_schema_source": {
+    "file": "classes.csv",
+    "sha256": "116c408ade6caea74b18ac8903cd78ec9d080fea0aad2279a5aba1a9be72b43c"
+  },
+  "camera_source": "oak_rgb",
+  "semantic_cost_policy": {
+    "status": "initial_engineering_prior_requires_field_validation",
+    "user_rule": "obstacle classes cost 100",
+    "ground_costs": {
+      "paved": 0,
+      "soil": 20,
+      "gravel": 35,
+      "leaves": 20
+    },
+    "note": "Preference penalties only; no probability or measured traversability. Leaves cost 20, as requested by the user on 2026-10-30. Vegetation mixes grass/shrubs/canopy and is blocked as one class. Ignore and sky remain unknown. Existing slope hard-block and cost combination remain in effect.",
+    "research_context": [
+      "https://arxiv.org/html/2203.16354",
+      "https://www.frontiersin.org/journals/robotics-and-ai/articles/10.3389/frobt.2022.887910/full"
+    ]
+  },
+  "oak_input": "local_rgbd",
+  "oak_device_id": "1944301091BA147E00",
+  "deployment_target": "oak_semantics_oak_geometry",
+  "rgb_depth_pairing": {
+    "mode": "depthai_sync",
+    "max_capture_delta_ms": 50,
+    "retimestamp": false,
+    "reference": "https://github.com/luxonis/depthai-core/blob/v2.29.0/include/depthai/pipeline/node/Sync.hpp",
+    "note": "Acquisition association limit, not measured exposure synchronization. Static-scene motion compensation uses poses at each original capture time."
+  },
+  "runtime_parameter_policy": {
+    "status": "initial_configured_values_not_measurements",
+    "max_point_label_dt_ms": 100,
+    "visibility_absolute_m": 0.1,
+    "visibility_relative": 0.03,
+    "dynamic_retention_s": 1.0,
+    "note": "These values enable the mapping calculation; they do not assert confirmed calibration or synchronized source clocks. Recording confirmation flags are not prerequisites for cost computation. Existing Planning readiness and clock guards remain independent.",
+    "references": [
+      "https://arxiv.org/abs/1911.10150",
+      "https://github.com/luxonis/depthai-core/blob/v2.29.0/include/depthai/pipeline/node/Sync.hpp"
+    ]
+  },
+  "oak_geometry_input": {
+    "frame": "oak_rgb_camera_optical_frame",
+    "width": 640,
+    "height": 360,
+    "topics": {
+      "depth": "/oak/rgb/depth_aligned",
+      "camera_info": "/oak/rgb/camera_info_inference"
+    }
+  },
+  "local_ground": {
+    "enabled": true,
+    "radius_m": 3.0,
+    "support_halo_m": 0.3,
+    "retention_s": 3.0,
+    "sample_period_s": 0.2,
+    "max_frames_per_source": 20
+  },
+  "geometry_source_policy": "LiDAR and OAK only; the same OAK aligned depth supplies existing XYZ and semantic visibility. No ZED input is required.",
+  "semantic_state_policy": "Latest valid visible hard label per source 3D observation; unknown retained for reobservation within 3s. No ground label based on slope or XY cell.",
+  "camera_optical_frame": "oak_rgb_camera_optical_frame",
+  "camera_image_model": "raw",
+  "shared_oak_camera_confirmed": true
+}

@@ -1,2 +1,10 @@
 # Unified patches require a space marker on empty context lines.
 .nomad/vio/patches/*.patch -whitespace
+
+# Preserve the byte hashes of imported Jetson sources and measured snapshots.
+src/nomad_perception/traversability/** -text
+tools/visual_trial_20261106/config/** -text
+# These frozen CSVs use CRLF; the vendor license is retained verbatim.
+src/nomad_perception/traversability/source/config/classes.csv whitespace=cr-at-eol
+tools/visual_trial_20261106/config/costmap_runtime/classes.csv whitespace=cr-at-eol
+src/nomad_perception/traversability/source/vendor/LICENSE-sdk.txt -whitespace

@@ -39,3 +39,8 @@ GT 관측 입력·6개 맵 생성·실행 큐·결과 GUI를 묶고 기존 GPP/L
 실물 인지는 `scripts/run_real_perception.sh`를 사용하며 Pi 5 입력과 외부 센서를 받는다. [입력 계약과 파일 목록](../src/nomad_perception/docs/real_perception.md). 실물 모듈 연결은 `modules_real_perception.yaml`의 external 설정으로 내장 인지 중복 실행을 막는다.
 
 Pi 4 실차 VESC 제어는 `nomad_control/vesc_controller.py`, 실행은 `scripts/run_pi4_vesc_cycle.sh`. 30A 설정·시험 결과는 [Pi 4 VESC 30A 변경](실차_VESC_30A_변경_20261030.md).
+
+Jetson C++ 비용지도는 `src/nomad_perception/traversability/`의 별도 CMake 빌드다.
+실측 보정 시험 소스는 `tools/visual_trial_20261106/`, 실내 FCN 시험은
+`tools/indoor_fcn_20261106/`에 보관한다. 새 실행 진입점은 `scripts/*jetson*`이며
+설치 전제와 토픽 및 검증 한계는 [Jetson C++ 실행 안내](Jetson_Cpp_실행안내.md)를 따른다.

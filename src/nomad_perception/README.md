@@ -1,5 +1,10 @@
 # 인지·지도
 
+Jetson 실물용 C++ 비용지도와 2026-10-30 실측 보정 시험 구성은
+[Jetson C++ 실행 안내](../../docs/Jetson_Cpp_실행안내.md)를 따른다.
+`traversability/`는 원본을 고정한 별도 CMake 빌드이며 `COLCON_IGNORE`로
+기존 Python 패키지의 colcon 빌드와 분리한다.
+
 ```bash
 ./scripts/run_module.sh semantic  # 별도 터미널: RGB 분할
 ./scripts/run_module.sh map       # 깊이·분할·융합 pose → 지도·코스트맵

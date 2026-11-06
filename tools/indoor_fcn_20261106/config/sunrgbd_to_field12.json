@@ -1,0 +1,159 @@
+{
+  "schema_version": 1,
+  "revision": "sunrgbd21-to-field12-indoor-trial-20261106-1",
+  "input_topic": "/nomad_preview/sunrgbd/class_ids",
+  "output_topic": "/perception/semantic/class_ids",
+  "image_contract": {
+    "width": 640,
+    "height": 360,
+    "encoding": "mono8",
+    "frame_id": "zed2_23472639_left_rectified_optical_frame"
+  },
+  "source_class_count": 21,
+  "unknown_target_id": 0,
+  "project_classes": [
+    "ignore",
+    "person",
+    "vehicle",
+    "wood",
+    "soil",
+    "gravel",
+    "paved",
+    "rock",
+    "leaves",
+    "vegetation",
+    "artificial",
+    "sky"
+  ],
+  "unavailable_target_ids": [
+    2,
+    3,
+    4,
+    5,
+    7,
+    8,
+    9,
+    11
+  ],
+  "sources": [
+    "../model/classes.txt",
+    "https://github.com/dusty-nv/jetson-inference/blob/master/data/networks/models.json",
+    "https://github.com/dusty-nv/jetson-inference/blob/master/c/segNet.cpp"
+  ],
+  "notes": [
+    "Temporary indoor trial policy; many-to-one ID remapping is not a model trained on our 12 classes.",
+    "Source IDs follow the 21 original classes.txt lines exactly, starting at zero.",
+    "floor -> paved(6) is an indoor test assumption, not proof of pavement material or safe traversability.",
+    "person -> person(1); all other named indoor objects -> artificial(10), including clothes, books and soft furnishings, as the trial obstacle policy.",
+    "other(0), ceiling(13), and raw IDs 21..255 -> ignore(0). Ignore means unknown, never free-space.",
+    "Source acquisition stamp and verified left-rectified optical frame must be preserved; do not retimestamp or relabel an unverified frame.",
+    "Existing ADE150-only semantic_mapping.hpp rejects this valid 21-class configuration; a separate compatible adapter is required before ROS use."
+  ],
+  "classes": [
+    {
+      "source_id": 0,
+      "source_name": "other",
+      "target_id": 0
+    },
+    {
+      "source_id": 1,
+      "source_name": "wall",
+      "target_id": 10
+    },
+    {
+      "source_id": 2,
+      "source_name": "floor",
+      "target_id": 6
+    },
+    {
+      "source_id": 3,
+      "source_name": "cabinet/shelves/bookshelf/dresser",
+      "target_id": 10
+    },
+    {
+      "source_id": 4,
+      "source_name": "bed/pillow",
+      "target_id": 10
+    },
+    {
+      "source_id": 5,
+      "source_name": "chair",
+      "target_id": 10
+    },
+    {
+      "source_id": 6,
+      "source_name": "sofa",
+      "target_id": 10
+    },
+    {
+      "source_id": 7,
+      "source_name": "table",
+      "target_id": 10
+    },
+    {
+      "source_id": 8,
+      "source_name": "door",
+      "target_id": 10
+    },
+    {
+      "source_id": 9,
+      "source_name": "window",
+      "target_id": 10
+    },
+    {
+      "source_id": 10,
+      "source_name": "picture/tv/mirror",
+      "target_id": 10
+    },
+    {
+      "source_id": 11,
+      "source_name": "blinds/curtain",
+      "target_id": 10
+    },
+    {
+      "source_id": 12,
+      "source_name": "clothes",
+      "target_id": 10
+    },
+    {
+      "source_id": 13,
+      "source_name": "ceiling",
+      "target_id": 0
+    },
+    {
+      "source_id": 14,
+      "source_name": "books",
+      "target_id": 10
+    },
+    {
+      "source_id": 15,
+      "source_name": "fridge",
+      "target_id": 10
+    },
+    {
+      "source_id": 16,
+      "source_name": "person",
+      "target_id": 1
+    },
+    {
+      "source_id": 17,
+      "source_name": "toilet",
+      "target_id": 10
+    },
+    {
+      "source_id": 18,
+      "source_name": "sink",
+      "target_id": 10
+    },
+    {
+      "source_id": 19,
+      "source_name": "lamp",
+      "target_id": 10
+    },
+    {
+      "source_id": 20,
+      "source_name": "bathtub",
+      "target_id": 10
+    }
+  ]
+}

@@ -1,0 +1,421 @@
+{
+  "source": "semantic_ground_validation, 2026-10-30",
+  "files": [
+    {
+      "source": null,
+      "destination": ".nomad/build_real_lidar.sh",
+      "source_sha256": null,
+      "installed_source_sha256": "33e0dbf5f7c5c514e060b83f725f13c25265ab5179bb15a862a847598ff16529"
+    },
+    {
+      "source": null,
+      "destination": ".nomad/real_sensors/requirements-oak.txt",
+      "source_sha256": null,
+      "installed_source_sha256": "2bb4c0dc8cb6fcb8fcedcfdc31859e5bc932bc0d55ab92bf71baaa87c30e78ba"
+    },
+    {
+      "source": "vendor/ydlidar_ros2_driver/CMakeLists.txt",
+      "destination": ".nomad/real_sensors/ydlidar_ros2_driver/CMakeLists.txt",
+      "source_sha256": "19a2bd6e961c7412822bf359b360768c726ba0e4898595ed6d9f1bddd33220af",
+      "installed_source_sha256": "e0007334c5130d7292568e8573c2d45dba0043a5f280c089306a4fbada98af62"
+    },
+    {
+      "source": "vendor/ydlidar_ros2_driver/LICENSE.txt",
+      "destination": ".nomad/real_sensors/ydlidar_ros2_driver/LICENSE.txt",
+      "source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "installed_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": null,
+      "destination": ".nomad/real_sensors/ydlidar_ros2_driver/NOTICE.md",
+      "source_sha256": null,
+      "installed_source_sha256": "272537f9ec42542eb332b7416af84619204d9297b6a6ce049c4bfdf5ba1adbe2"
+    },
+    {
+      "source": "vendor/ydlidar_ros2_driver/package.xml",
+      "destination": ".nomad/real_sensors/ydlidar_ros2_driver/package.xml",
+      "source_sha256": "039bb4b2f5e5a98257135ef8425bfcf2cb2d82cbd46eae5743da4fe1ca99eb43",
+      "installed_source_sha256": "039bb4b2f5e5a98257135ef8425bfcf2cb2d82cbd46eae5743da4fe1ca99eb43"
+    },
+    {
+      "source": "vendor/ydlidar_ros2_driver/src/ydlidar_ros2_driver_node.cpp",
+      "destination": ".nomad/real_sensors/ydlidar_ros2_driver/src/ydlidar_ros2_driver_node.cpp",
+      "source_sha256": "00ce08ed828deba9d8e5e40873bde6d925f8c40e52224962be6687d2868c1590",
+      "installed_source_sha256": "756132ddb17322fdf6651369c15150cf8578d8af4ca2b2c9c2e6ea23f6fc1304"
+    },
+    {
+      "source": null,
+      "destination": "scripts/run_real_perception.sh",
+      "source_sha256": null,
+      "installed_source_sha256": "4d1834dafb2213b71de7a5f304bc36e5ccbc3a66aa5f09a7c8ab3519ff490047"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_bringup/config/modules_real_perception.yaml",
+      "source_sha256": null,
+      "installed_source_sha256": "c75dc3b8d1d4ade4dd7f6ed871f1e9ed57dff21bae3b51dbe0819e186538f9aa"
+    },
+    {
+      "source": "config/g2b.yaml",
+      "destination": "src/nomad_perception/config/real/g2b.yaml",
+      "source_sha256": "48b90cf8c197790b82ca497a43857a427eb38a64e7e437d7f01e911484285aa4",
+      "installed_source_sha256": "01afb8bbba6c2628fcd07353cb63f0b5bb70412bca0773234f05aef228abc453"
+    },
+    {
+      "source": "vendor/oak_vio/config/nomad_vio_config.json",
+      "destination": "src/nomad_perception/config/real/nomad_vio_config.json",
+      "source_sha256": "349d014b3330ac6e46354c49c9616a0df38d980eeb4e32a1345b5c58e27af816",
+      "installed_source_sha256": "349d014b3330ac6e46354c49c9616a0df38d980eeb4e32a1345b5c58e27af816"
+    },
+    {
+      "source": "config/oak_g2b_selected_20261030.json",
+      "destination": "src/nomad_perception/config/real/oak_g2b_selected_20261030.json",
+      "source_sha256": "fdbbef027953b404aedf59aed2b9c999481ba24fd387fdd72bc01d1d5978c49c",
+      "installed_source_sha256": "45553797dd5f72ebf62c8e214c7b87312e8f72aecf6b06e8a5697d22c69160d0"
+    },
+    {
+      "source": "config/pi5_pose.json",
+      "destination": "src/nomad_perception/config/real/pi5_pose.json",
+      "source_sha256": "8eb805fe8fde451ee8a5f6fffc0b40debabbba5d03a7dcfdbf356df40e9eeb73",
+      "installed_source_sha256": "8eb805fe8fde451ee8a5f6fffc0b40debabbba5d03a7dcfdbf356df40e9eeb73"
+    },
+    {
+      "source": "config/semantic.example.json",
+      "destination": "src/nomad_perception/config/real/semantic.example.json",
+      "source_sha256": "323b08d77b74767ac1b15c697c6674b452dd23fab51ce4669f8d123b8f936bd3",
+      "installed_source_sha256": "a328463e8688fc23dcae249cb3a8b635348c62cf0cb5eae12a7e6ee9b1401ef9"
+    },
+    {
+      "source": "config/semantic.real.json",
+      "destination": "src/nomad_perception/config/real/semantic.real.json",
+      "source_sha256": "37d38205c7a6e0c94f303399c93972a898ca6601d989eab38c44ae400faca446",
+      "installed_source_sha256": "65fdf74dfe568bb0dc6c169fbdb0537fa5d3d55dfee6665190b11fe7aa7ecdb3"
+    },
+    {
+      "source": "config/zed2_g2b_selected_20261030.json",
+      "destination": "src/nomad_perception/config/real/zed2_g2b_selected_20261030.json",
+      "source_sha256": "3b793da0c518ef672b5e35663585ec807ed85cd6c3c2945452ece94f49ac9d85",
+      "installed_source_sha256": "bed69c47b2a0b6949b9381f7f4a73f718bfa28b6212d2df10b7bffd433a1dfa5"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/docs/real_perception.md",
+      "source_sha256": null,
+      "installed_source_sha256": "918bae7e6a28db60f9293882697ae3da5a327c2a72995ea7ef9174c8ca41d2fe"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/launch/real_perception.launch.py",
+      "source_sha256": null,
+      "installed_source_sha256": "ed09c76df23f3e76505cef0e21ffb62671b304f339cc1df4aae232dbdc449006"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/nomad_perception/real/__init__.py",
+      "source_sha256": null,
+      "installed_source_sha256": "91504abd3ad3dd20d5f768b1dc2e14425b3390f623f605b1a23d9a7c5cc441b3"
+    },
+    {
+      "source": "python/camera_intrinsics_override.py",
+      "destination": "src/nomad_perception/nomad_perception/real/camera_intrinsics_override.py",
+      "source_sha256": "3d03d58ba82d7201ed59f60c1d598781dd88e7d03168d4ed45dff1f7a741e12c",
+      "installed_source_sha256": "3d03d58ba82d7201ed59f60c1d598781dd88e7d03168d4ed45dff1f7a741e12c"
+    },
+    {
+      "source": "python/capture_timing.py",
+      "destination": "src/nomad_perception/nomad_perception/real/capture_timing.py",
+      "source_sha256": "9e7c77e60f888f9b15fa06ed4934ca9a6d17b1ed97074f883654aadfefbb27c6",
+      "installed_source_sha256": "9e7c77e60f888f9b15fa06ed4934ca9a6d17b1ed97074f883654aadfefbb27c6"
+    },
+    {
+      "source": "python/cost_output.py",
+      "destination": "src/nomad_perception/nomad_perception/real/cost_output.py",
+      "source_sha256": "b86f51acd12cb75913ca8e0666f0441fc4e876a3718d9677dd4076707f935f18",
+      "installed_source_sha256": "752734cecb49e4a1fad6e9e25e03d0140bcb28c68d31186a78dace68c6ed4779"
+    },
+    {
+      "source": "python/depth_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/depth_core.py",
+      "source_sha256": "3efd0df13d2d6834f2ff6290ff42e6368958aa4f937bf9fc680fe8194cfae811",
+      "installed_source_sha256": "2eb8eff6be2946d56407075c0b3a6293e798d0e305251306fabbd9e7c2d3b612"
+    },
+    {
+      "source": "python/depth_filter.py",
+      "destination": "src/nomad_perception/nomad_perception/real/depth_filter.py",
+      "source_sha256": "25803bf9c1d820ab40342f044fefe9103fe38abcc39445d89e1c5e93a42fd6a0",
+      "installed_source_sha256": "63af662024464eebc0ffd4c8fe0d6a924be112490fab2b615769e977b6ff75d9"
+    },
+    {
+      "source": "python/ground_reference/__init__.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/__init__.py",
+      "source_sha256": "87960ac92fe8681630589fc2e8feeaa7faa8bd875898bd0a9e71b095e60bda24",
+      "installed_source_sha256": "87960ac92fe8681630589fc2e8feeaa7faa8bd875898bd0a9e71b095e60bda24"
+    },
+    {
+      "source": "python/ground_reference/_geometry/__init__.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/_geometry/__init__.py",
+      "source_sha256": "532f924ec6d5f2cff0c15fc08a14d80a62e94786128af92722d3eb0d7743b8ea",
+      "installed_source_sha256": "532f924ec6d5f2cff0c15fc08a14d80a62e94786128af92722d3eb0d7743b8ea"
+    },
+    {
+      "source": "python/ground_reference/_geometry/cost_policy.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/_geometry/cost_policy.py",
+      "source_sha256": "77a937633c97658c36756a1785467ac608c2c55dd39a89347c03204aaee2443a",
+      "installed_source_sha256": "77a937633c97658c36756a1785467ac608c2c55dd39a89347c03204aaee2443a"
+    },
+    {
+      "source": "python/ground_reference/_geometry/quality_mapping_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/_geometry/quality_mapping_core.py",
+      "source_sha256": "1d3df74c17f422e4c850b4c9438eb15f09a6d2ce6a51b8ddcc12b5c5a3d6fa13",
+      "installed_source_sha256": "1d3df74c17f422e4c850b4c9438eb15f09a6d2ce6a51b8ddcc12b5c5a3d6fa13"
+    },
+    {
+      "source": "python/ground_reference/_geometry/stage1_geometry_layers.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/_geometry/stage1_geometry_layers.py",
+      "source_sha256": "21b5415e6114b9ab8df438a58b7bc4b2bb4e2965bd5db133b1c18e2037cb574e",
+      "installed_source_sha256": "21b5415e6114b9ab8df438a58b7bc4b2bb4e2965bd5db133b1c18e2037cb574e"
+    },
+    {
+      "source": "python/ground_reference/_geometry/traversability_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/_geometry/traversability_core.py",
+      "source_sha256": "b3398e3ff4474dc79bcb3ecede1bd2b243508e680869c053cc1206098f554d2a",
+      "installed_source_sha256": "b3398e3ff4474dc79bcb3ecede1bd2b243508e680869c053cc1206098f554d2a"
+    },
+    {
+      "source": "python/ground_reference/core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/core.py",
+      "source_sha256": "a0c895de849df9b494ec39b6334ab014c68117eec60c92bbc46a15cecaae1461",
+      "installed_source_sha256": "e53db552ea5926ce5c7d33c542a8011adf6a2cf3ee1153c836566b2eaf8a5fb9"
+    },
+    {
+      "source": "python/ground_reference/costmap_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/costmap_core.py",
+      "source_sha256": "99b78d4af20712976b8056a55a3afc34401d155cff3050071653d09ea660d05e",
+      "installed_source_sha256": "eb5789b5717150c0323511b7a3f085aa798b77a770838aa6b10ce9d384e14841"
+    },
+    {
+      "source": "python/ground_reference/fusion_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/fusion_core.py",
+      "source_sha256": "4048ef91131fafdb713172a71b56eac8b1aa0ec204f81ad4b118ec30d430b5f2",
+      "installed_source_sha256": "4048ef91131fafdb713172a71b56eac8b1aa0ec204f81ad4b118ec30d430b5f2"
+    },
+    {
+      "source": "python/ground_reference/provenance.json",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/provenance.json",
+      "source_sha256": "3d4fe9173d4c32a706d2e2637e80277b28c55cd0a71b42b8c45f52a7089048a5",
+      "installed_source_sha256": "ee926da62f06c75a7adf82e87ede6c6654c7c49bcc5fa0d2ab41816413cded9e"
+    },
+    {
+      "source": "python/ground_reference/settings.yaml",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/settings.yaml",
+      "source_sha256": "7b9146dc10adee476045ee100a6e4948f1c73b77b070464a7e4054a951e5b9f1",
+      "installed_source_sha256": "7b9146dc10adee476045ee100a6e4948f1c73b77b070464a7e4054a951e5b9f1"
+    },
+    {
+      "source": "python/ground_reference/slope_comparison_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/slope_comparison_core.py",
+      "source_sha256": "819b719f278fda49993f2cc00b910cecf030fa21c52ddc0fc2827da0998205ed",
+      "installed_source_sha256": "819b719f278fda49993f2cc00b910cecf030fa21c52ddc0fc2827da0998205ed"
+    },
+    {
+      "source": "python/ground_reference/slope_optimized_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_reference/slope_optimized_core.py",
+      "source_sha256": "d185f3c3def4b511c92baa4b8d02cce67c454935c60d736903c9b302cb6cba63",
+      "installed_source_sha256": "d185f3c3def4b511c92baa4b8d02cce67c454935c60d736903c9b302cb6cba63"
+    },
+    {
+      "source": "python/ground_slope_live.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ground_slope_live.py",
+      "source_sha256": "43033e0cda14140d42831cf95be0480212b05076eb3891c5474f8bb01656bd43",
+      "installed_source_sha256": "b1ff8e4c5d4de87d6e1d09d82432e1a5a8c0a1b032231fc6fba74bc5979c82a3"
+    },
+    {
+      "source": "python/map_core.py",
+      "destination": "src/nomad_perception/nomad_perception/real/map_core.py",
+      "source_sha256": "abc5c83f4cc8c962a2fc534773e742ad96af135303b704871e71fa982daec553",
+      "installed_source_sha256": "0b7ec48852a2eb5b88323a80c7d6b74ea440e69a86f624c6384f6caa9d805c2e"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/nomad_perception/real/node.py",
+      "source_sha256": null,
+      "installed_source_sha256": "85ba234fe796029b96df1fcfd5c9491bbd88197ab44d349a8610d3a7f93e6b5d"
+    },
+    {
+      "source": "vendor/oak_vio/oak_basalt_bridge.py",
+      "destination": "src/nomad_perception/nomad_perception/real/oak_basalt_bridge.py",
+      "source_sha256": "3c58448e2f3fcb819c0380ff0c517011b729f8046e9becc22eb86782fc40d829",
+      "installed_source_sha256": "f7cec73466e349841c49b671ca263ed9747ecb321b91bf50e0d11c6b65deea60"
+    },
+    {
+      "source": "vendor/oak_vio/oak_basalt_calibration.py",
+      "destination": "src/nomad_perception/nomad_perception/real/oak_basalt_calibration.py",
+      "source_sha256": "c1ad38f0104b70c037897676aa68bbf896255dfd11f8bf2a4efad88506385683",
+      "installed_source_sha256": "c1ad38f0104b70c037897676aa68bbf896255dfd11f8bf2a4efad88506385683"
+    },
+    {
+      "source": "python/observation_support.py",
+      "destination": "src/nomad_perception/nomad_perception/real/observation_support.py",
+      "source_sha256": "5fbf9835ca1888aecc87a221a8bf5677c6919308eedbba101e759412acc3a397",
+      "installed_source_sha256": "d2c795345c8db8bf1218bcafddeb32a3292309d4ab1fabaa8bb36fcc45002748"
+    },
+    {
+      "source": "python/pi5_pose.py",
+      "destination": "src/nomad_perception/nomad_perception/real/pi5_pose.py",
+      "source_sha256": "dbb89c6214eb2e2b8a6ae5e0405ede473c5ed406c33697a8500bf7c13ff9f80c",
+      "installed_source_sha256": "f055f674989a5eb0db4ae9b5f8bba52f23850075647d39e6f78d11931b963ea8"
+    },
+    {
+      "source": "python/planning_costs.py",
+      "destination": "src/nomad_perception/nomad_perception/real/planning_costs.py",
+      "source_sha256": "de0b3983772180c22a7130666e68146f447baa1e388e37c365ea4e6b97f68aa4",
+      "installed_source_sha256": "b15e2ebe99f01cc88852b7f589d9a3e88b5ace3ff7f53c47d2e5f955380d6fe8"
+    },
+    {
+      "source": "python/planning_transport.py",
+      "destination": "src/nomad_perception/nomad_perception/real/planning_transport.py",
+      "source_sha256": "0145d9868711ae7f42c06c3886d14f719b0e66df958062db3f7ecf2ed23a21eb",
+      "installed_source_sha256": "e595acd7a59e019e4190eb0a27bd85909a53355a9791ebbf1a15757c68517818"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/nomad_perception/real/publisher_lock.py",
+      "source_sha256": null,
+      "installed_source_sha256": "66551a0388ce7cbee4e4b242d71aa3211eae1e74957e08ce51dfb12dace3ae1c"
+    },
+    {
+      "source": "python/ros_cloud.py",
+      "destination": "src/nomad_perception/nomad_perception/real/ros_cloud.py",
+      "source_sha256": "cdc7145f1e607df35cc0cd3c497a395d0655a01875e41eb91abfd24eb4dfee5b",
+      "installed_source_sha256": "cdc7145f1e607df35cc0cd3c497a395d0655a01875e41eb91abfd24eb4dfee5b"
+    },
+    {
+      "source": "python/semantic_validation.py",
+      "destination": "src/nomad_perception/nomad_perception/real/semantic_validation.py",
+      "source_sha256": "893f23189597173f59393e25f25a96490ee6c3ef5e700e0f805d65e56990036e",
+      "installed_source_sha256": "8baee96e7b70367b6cfd4e30087dedb1ccabb620879531510d7c02fe0f5c5659"
+    },
+    {
+      "source": "python/stereo_rectification.py",
+      "destination": "src/nomad_perception/nomad_perception/real/stereo_rectification.py",
+      "source_sha256": "1cb02d16ba21fc9fbb0b7c188a10139c293618ff7f404dc3b59738da1f673643",
+      "installed_source_sha256": "6d7a4ea0d18aed859983eac6483434bde94e47c6368fce749b9307fdba2ee166"
+    },
+    {
+      "source": "python/vio_health.py",
+      "destination": "src/nomad_perception/nomad_perception/real/vio_health.py",
+      "source_sha256": "e595995572d34ede2ef92101c9c9387ff222e8874c66808fd23a5d1615ebaa60",
+      "installed_source_sha256": "e595995572d34ede2ef92101c9c9387ff222e8874c66808fd23a5d1615ebaa60"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/nomad_perception/real/worker_io.py",
+      "source_sha256": null,
+      "installed_source_sha256": "0be930552b93ef186f80fea44b58fc3d82a8efa228a9bd6fb3ef62b1b486ac77"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/test/real/__init__.py",
+      "source_sha256": null,
+      "installed_source_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "python/test_calibration_application.py",
+      "destination": "src/nomad_perception/test/real/test_calibration_application.py",
+      "source_sha256": "b2027102950599ef590b818d973e3ec3c22982600a14beee189fc133b2fed7a4",
+      "installed_source_sha256": "00594a6523117587e0fb39c00edad52758475ffa2c034fd6e74f51c56f9d7779"
+    },
+    {
+      "source": "python/test_capture_timing.py",
+      "destination": "src/nomad_perception/test/real/test_capture_timing.py",
+      "source_sha256": "1847571ff214479ed570fe7536db193fc860249dfa781a8b9cf9dfdd7e7a9c9a",
+      "installed_source_sha256": "e757e376e62ddf2f9fd6d0e03ee4c6ebae512df893f22959799f6d7938c599b9"
+    },
+    {
+      "source": "python/test_depth.py",
+      "destination": "src/nomad_perception/test/real/test_depth.py",
+      "source_sha256": "b0ff45dc82e6f066e043c4a491e34b0b4cf0b48c7598150cd3ccff55fa114cf9",
+      "installed_source_sha256": "b00d0983ebee1c9182bb1076a1b3f07e11a387afb366e0ba1ef9924279f78980"
+    },
+    {
+      "source": "python/test_depth_filter.py",
+      "destination": "src/nomad_perception/test/real/test_depth_filter.py",
+      "source_sha256": "454030caa5047d32cb30600771730f2d69e44be57d4042b2cb1c365bfb53088c",
+      "installed_source_sha256": "d7e5d2d2d321fdc32fc85b3197393ebd0f4f430dc5eba915b43a791d209ca7e1"
+    },
+    {
+      "source": "python/test_geometry.py",
+      "destination": "src/nomad_perception/test/real/test_geometry.py",
+      "source_sha256": "cd25a181e69e28613f3d2984b9cf64441de2d818629e2a523ee3d78f85bf0f9c",
+      "installed_source_sha256": "fb730003deb7e7f0c5139ac1c9e04c506a3c7b264c5ff304bfe1dd2bfb92212e"
+    },
+    {
+      "source": "python/test_ground_slope_live.py",
+      "destination": "src/nomad_perception/test/real/test_ground_slope_live.py",
+      "source_sha256": "9685009092228ba9093c463b245278eae87f688ee68bcd7010e4050302948657",
+      "installed_source_sha256": "b47a72ae789357ffd0191d88701e1c8c997ead925a0f8d526c0dffbbb4449004"
+    },
+    {
+      "source": "python/test_observation_support.py",
+      "destination": "src/nomad_perception/test/real/test_observation_support.py",
+      "source_sha256": "240b1ffc083320b8d32a3624912f97d02bbd8d8436bb51989dc35e18b7810adb",
+      "installed_source_sha256": "fe20cbbf36b6ee6a4c880b08ae6b0c0c0a78fb4a53d5014ef19ddc4dabac783b"
+    },
+    {
+      "source": "python/test_pi5_pose.py",
+      "destination": "src/nomad_perception/test/real/test_pi5_pose.py",
+      "source_sha256": "7cb66b3f787852b3ecb0fe3d11700898deb704ce11cbe2aaf28bd1307328f16c",
+      "installed_source_sha256": "8e80b2885639348149d6ed7e1261bfe13915332006cf9fbf3164ce40254e6be5"
+    },
+    {
+      "source": "python/test_planning_costs.py",
+      "destination": "src/nomad_perception/test/real/test_planning_costs.py",
+      "source_sha256": "2eb9889f5653519b7eed45c8d2e364dc814449034c54b5f94b08aed8baf52dfa",
+      "installed_source_sha256": "20af9304cde055bdcf8683c3ae9c08d17538baac9e7d90f1c53ddf2836b0819a"
+    },
+    {
+      "source": "python/test_planning_transport.py",
+      "destination": "src/nomad_perception/test/real/test_planning_transport.py",
+      "source_sha256": "5ae83e1bf37708daee405276a9cf01c9dad30fa8f5a74bd2075f8b9ec5629d50",
+      "installed_source_sha256": "37dcdbcba07baffac75deb401ccbe2f3a0f2becf373b1f2a8ce1fdcaae8b2777"
+    },
+    {
+      "source": null,
+      "destination": "src/nomad_perception/test/real/test_real_node_integration.py",
+      "source_sha256": null,
+      "installed_source_sha256": "39e2746bc4eba91a25b16321c0def964795ae200d142ee7fcfd163460fdb1aae"
+    },
+    {
+      "source": "python/test_rectification.py",
+      "destination": "src/nomad_perception/test/real/test_rectification.py",
+      "source_sha256": "94789ce73302f83219cf99e8ccd8f49a9eb0746bdc0d459c94caa2e1637cb54f",
+      "installed_source_sha256": "9e37b471797abe4d06e51dccecd01a9ce15283bfef283780c55ea1ca445a2b6a"
+    },
+    {
+      "source": "python/test_semantic_validation.py",
+      "destination": "src/nomad_perception/test/real/test_semantic_validation.py",
+      "source_sha256": "f0c641bd18b6ccb8c637dffeb73d3acd0556c567f41a0441b8882a40ecf98f48",
+      "installed_source_sha256": "cea18cd8da43d0d07c511cd02590a1764e003172f72c91fa3f94e46899a99d2d"
+    },
+    {
+      "source": "python/test_vio_health.py",
+      "destination": "src/nomad_perception/test/real/test_vio_health.py",
+      "source_sha256": "7ed399efa057d6ff1193e9b656df1d9ca4b8acede3ca0d28ad2c18be09505382",
+      "installed_source_sha256": "df44af2180dbe3dc8026c33cf55a2451f8e33359c1ccd6436bc9861b696ae174"
+    }
+  ],
+  "scope": "Live perception runtime, sensor input and verification only; no web UI or experiment recording/results.",
+  "changes": [
+    "package-relative imports and installed package resource paths",
+    "headless ROS entry and selected real launch profile",
+    "pure recording, replay and screen helpers removed; numerical algorithms preserved",
+    "external SDKs remain dependencies; no original experiment folder or personal interpreter path"
+  ],
+  "modified_existing_files": [
+    "docs/STRUCTURE.md",
+    "docs/실행안내.md",
+    "src/nomad_perception/README.md",
+    "src/nomad_perception/package.xml",
+    "src/nomad_perception/setup.py"
+  ]
+}

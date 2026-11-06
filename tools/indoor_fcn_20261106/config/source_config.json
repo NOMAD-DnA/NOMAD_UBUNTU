@@ -1,0 +1,86 @@
+{
+  "model_type": "fcn-resnet18-sun-512x400",
+  "num_labels": 21,
+  "id2label": {
+    "0": "other",
+    "1": "wall",
+    "2": "floor",
+    "3": "cabinet/shelves/bookshelf/dresser",
+    "4": "bed/pillow",
+    "5": "chair",
+    "6": "sofa",
+    "7": "table",
+    "8": "door",
+    "9": "window",
+    "10": "picture/tv/mirror",
+    "11": "blinds/curtain",
+    "12": "clothes",
+    "13": "ceiling",
+    "14": "books",
+    "15": "fridge",
+    "16": "person",
+    "17": "toilet",
+    "18": "sink",
+    "19": "lamp",
+    "20": "bathtub"
+  },
+  "label2id": {
+    "other": 0,
+    "wall": 1,
+    "floor": 2,
+    "cabinet/shelves/bookshelf/dresser": 3,
+    "bed/pillow": 4,
+    "chair": 5,
+    "sofa": 6,
+    "table": 7,
+    "door": 8,
+    "window": 9,
+    "picture/tv/mirror": 10,
+    "blinds/curtain": 11,
+    "clothes": 12,
+    "ceiling": 13,
+    "books": 14,
+    "fridge": 15,
+    "person": 16,
+    "toilet": 17,
+    "sink": 18,
+    "lamp": 19,
+    "bathtub": 20
+  },
+  "label_origin": "../model/classes.txt: original downloaded model archive, zero-based line order",
+  "input_contract": {
+    "tensor_name": "input_0",
+    "layout": "NCHW",
+    "dtype": "float32",
+    "width": 512,
+    "height": 400,
+    "channels": "RGB",
+    "resize": "nearest; direct full-image resize without crop or letterbox",
+    "pixel_scale": 0.00392156862745098,
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "output_contract": {
+    "tensor_name": "output_0",
+    "layout": "NCHW",
+    "class_count": 21,
+    "reduction": "channel argmax, then nearest-neighbor ID-mask resize to requested output dimensions"
+  },
+  "sources": [
+    "https://github.com/dusty-nv/jetson-inference/blob/master/data/networks/models.json",
+    "https://github.com/dusty-nv/jetson-inference/blob/master/c/segNet.cpp",
+    "https://github.com/dusty-nv/jetson-inference/blob/master/c/tensorConvert.cu"
+  ],
+  "notes": [
+    "Preprocessing contract is reproduced from official jetson-inference ONNX path; no measured local accuracy or throughput is asserted.",
+    "This downloaded model has 21 output labels, not the general 37-class SUN RGB-D taxonomy."
+  ]
+}

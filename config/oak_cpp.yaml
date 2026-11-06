@@ -1,0 +1,8 @@
+/oak:
+  ros__parameters:
+    fps: 10.0
+    imu_rate_hz: 200
+    stereo_queue_size: 8
+    imu_queue_size: 256
+    max_pending_pairs: 20
+    report_interval_s: 5.0

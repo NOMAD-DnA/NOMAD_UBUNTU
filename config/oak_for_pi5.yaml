@@ -1,0 +1,22 @@
+/oak:
+  ros__parameters:
+    driver:
+      i_enable_ir: false
+    left:
+      i_fps: 10.0
+      i_height: 480
+      i_width: 640
+    pipeline_gen:
+      i_enable_diagnostics: false
+      i_enable_vio: false
+      i_pipeline_type: DEPTH
+    right:
+      i_fps: 10.0
+      i_height: 480
+      i_width: 640
+    stereo:
+      i_fps: 1.0
+      i_left_rect_publish_topic: true
+      i_publish_topic: false
+      i_right_rect_publish_topic: true
+    use_sim_time: false

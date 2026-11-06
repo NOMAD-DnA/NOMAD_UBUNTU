@@ -1,0 +1,16 @@
+{
+  "source": "PC driver and SDK used by existing G2B acquisition",
+  "original_path": "/home/hyeonsu/nomad_oak_g2/live/lidar_g2_runtime",
+  "source_archive_sha256": "7321b8813ad596affd55db6386dca44409522538ba7da44d55a87f49ad7cf565",
+  "upstream_driver": "https://github.com/YDLIDAR/ydlidar_ros2_driver",
+  "upstream_sdk": "https://github.com/YDLIDAR/YDLidar-SDK",
+  "sdk_version": "1.2.20",
+  "frame": "g2_laser",
+  "topics": {
+    "/scan": "sensor_msgs/msg/LaserScan",
+    "/point_cloud": "sensor_msgs/msg/PointCloud"
+  },
+  "point_time_channel": "stamps",
+  "point_time_unit": "seconds from scan header stamp",
+  "parameters_reference": "existing selected 2026-10-30 G2B scan-axis settings"
+}

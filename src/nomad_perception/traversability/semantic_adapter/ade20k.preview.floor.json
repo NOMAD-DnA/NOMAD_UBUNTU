@@ -1,0 +1,812 @@
+{
+  "schema_version": 1,
+  "revision": "ade20k-to-field12-temporary-20261106-2",
+  "input_topic": "/nomad_preview/ade20k/class_ids",
+  "output_topic": "/perception/semantic/class_ids",
+  "image_contract": {
+    "width": 640,
+    "height": 360,
+    "encoding": "mono8",
+    "frame_id": "zed2_23472639_left_rectified_optical_frame"
+  },
+  "source_class_count": 150,
+  "unknown_target_id": 0,
+  "project_classes": [
+    "ignore",
+    "person",
+    "vehicle",
+    "wood",
+    "soil",
+    "gravel",
+    "paved",
+    "rock",
+    "leaves",
+    "vegetation",
+    "artificial",
+    "sky"
+  ],
+  "unavailable_target_ids": [
+    3,
+    5,
+    8
+  ],
+  "sources": [
+    "https://raw.githubusercontent.com/CSAILVision/sceneparsing/master/objectInfo150.txt",
+    "https://raw.githubusercontent.com/ros2/common_interfaces/humble/sensor_msgs/msg/Image.msg"
+  ],
+  "notes": [
+    "Temporary many-to-one remapping, not a trained 12-class model.",
+    "Source IDs are zero-based model IDs; the ADE objectInfo150 table is one-based.",
+    "road/sidewalk -> paved and earth/dirt track/land -> soil are test assumptions, not material recognition.",
+    "Whole tree -> vegetation. Wood/trunk/roots, gravel and fallen leaves have no dedicated source class.",
+    "Unknown raw IDs 150..255 and ambiguous source labels -> ignore (unknown, never free-space).",
+    "Camera acquisition stamp and optical frame are preserved, including old acquisition stamps.",
+    "Animal, water, sand, path, field, mountain/hill, bridge/pier and runway remain unknown.",
+    "2026-11-06 user policy: ADE floor 3 -> project paved 6, the lowest-cost configured ground class (semantic cost 0). This is a class/cost assignment, not material recognition or a guarantee of final cost 0; slope rejection and fusion remain active."
+  ],
+  "classes": [
+    {
+      "source_id": 0,
+      "source_name": "wall",
+      "target_id": 10
+    },
+    {
+      "source_id": 1,
+      "source_name": "building",
+      "target_id": 10
+    },
+    {
+      "source_id": 2,
+      "source_name": "sky",
+      "target_id": 11
+    },
+    {
+      "source_id": 3,
+      "source_name": "floor",
+      "target_id": 6
+    },
+    {
+      "source_id": 4,
+      "source_name": "tree",
+      "target_id": 9
+    },
+    {
+      "source_id": 5,
+      "source_name": "ceiling",
+      "target_id": 10
+    },
+    {
+      "source_id": 6,
+      "source_name": "road",
+      "target_id": 6
+    },
+    {
+      "source_id": 7,
+      "source_name": "bed ",
+      "target_id": 10
+    },
+    {
+      "source_id": 8,
+      "source_name": "windowpane",
+      "target_id": 10
+    },
+    {
+      "source_id": 9,
+      "source_name": "grass",
+      "target_id": 9
+    },
+    {
+      "source_id": 10,
+      "source_name": "cabinet",
+      "target_id": 10
+    },
+    {
+      "source_id": 11,
+      "source_name": "sidewalk",
+      "target_id": 6
+    },
+    {
+      "source_id": 12,
+      "source_name": "person",
+      "target_id": 1
+    },
+    {
+      "source_id": 13,
+      "source_name": "earth",
+      "target_id": 4
+    },
+    {
+      "source_id": 14,
+      "source_name": "door",
+      "target_id": 10
+    },
+    {
+      "source_id": 15,
+      "source_name": "table",
+      "target_id": 10
+    },
+    {
+      "source_id": 16,
+      "source_name": "mountain",
+      "target_id": 0
+    },
+    {
+      "source_id": 17,
+      "source_name": "plant",
+      "target_id": 9
+    },
+    {
+      "source_id": 18,
+      "source_name": "curtain",
+      "target_id": 10
+    },
+    {
+      "source_id": 19,
+      "source_name": "chair",
+      "target_id": 10
+    },
+    {
+      "source_id": 20,
+      "source_name": "car",
+      "target_id": 2
+    },
+    {
+      "source_id": 21,
+      "source_name": "water",
+      "target_id": 0
+    },
+    {
+      "source_id": 22,
+      "source_name": "painting",
+      "target_id": 10
+    },
+    {
+      "source_id": 23,
+      "source_name": "sofa",
+      "target_id": 10
+    },
+    {
+      "source_id": 24,
+      "source_name": "shelf",
+      "target_id": 10
+    },
+    {
+      "source_id": 25,
+      "source_name": "house",
+      "target_id": 10
+    },
+    {
+      "source_id": 26,
+      "source_name": "sea",
+      "target_id": 0
+    },
+    {
+      "source_id": 27,
+      "source_name": "mirror",
+      "target_id": 10
+    },
+    {
+      "source_id": 28,
+      "source_name": "rug",
+      "target_id": 10
+    },
+    {
+      "source_id": 29,
+      "source_name": "field",
+      "target_id": 0
+    },
+    {
+      "source_id": 30,
+      "source_name": "armchair",
+      "target_id": 10
+    },
+    {
+      "source_id": 31,
+      "source_name": "seat",
+      "target_id": 10
+    },
+    {
+      "source_id": 32,
+      "source_name": "fence",
+      "target_id": 10
+    },
+    {
+      "source_id": 33,
+      "source_name": "desk",
+      "target_id": 10
+    },
+    {
+      "source_id": 34,
+      "source_name": "rock",
+      "target_id": 7
+    },
+    {
+      "source_id": 35,
+      "source_name": "wardrobe",
+      "target_id": 10
+    },
+    {
+      "source_id": 36,
+      "source_name": "lamp",
+      "target_id": 10
+    },
+    {
+      "source_id": 37,
+      "source_name": "bathtub",
+      "target_id": 10
+    },
+    {
+      "source_id": 38,
+      "source_name": "railing",
+      "target_id": 10
+    },
+    {
+      "source_id": 39,
+      "source_name": "cushion",
+      "target_id": 10
+    },
+    {
+      "source_id": 40,
+      "source_name": "base",
+      "target_id": 0
+    },
+    {
+      "source_id": 41,
+      "source_name": "box",
+      "target_id": 10
+    },
+    {
+      "source_id": 42,
+      "source_name": "column",
+      "target_id": 10
+    },
+    {
+      "source_id": 43,
+      "source_name": "signboard",
+      "target_id": 10
+    },
+    {
+      "source_id": 44,
+      "source_name": "chest of drawers",
+      "target_id": 10
+    },
+    {
+      "source_id": 45,
+      "source_name": "counter",
+      "target_id": 10
+    },
+    {
+      "source_id": 46,
+      "source_name": "sand",
+      "target_id": 0
+    },
+    {
+      "source_id": 47,
+      "source_name": "sink",
+      "target_id": 10
+    },
+    {
+      "source_id": 48,
+      "source_name": "skyscraper",
+      "target_id": 10
+    },
+    {
+      "source_id": 49,
+      "source_name": "fireplace",
+      "target_id": 10
+    },
+    {
+      "source_id": 50,
+      "source_name": "refrigerator",
+      "target_id": 10
+    },
+    {
+      "source_id": 51,
+      "source_name": "grandstand",
+      "target_id": 10
+    },
+    {
+      "source_id": 52,
+      "source_name": "path",
+      "target_id": 0
+    },
+    {
+      "source_id": 53,
+      "source_name": "stairs",
+      "target_id": 10
+    },
+    {
+      "source_id": 54,
+      "source_name": "runway",
+      "target_id": 0
+    },
+    {
+      "source_id": 55,
+      "source_name": "case",
+      "target_id": 10
+    },
+    {
+      "source_id": 56,
+      "source_name": "pool table",
+      "target_id": 10
+    },
+    {
+      "source_id": 57,
+      "source_name": "pillow",
+      "target_id": 10
+    },
+    {
+      "source_id": 58,
+      "source_name": "screen door",
+      "target_id": 10
+    },
+    {
+      "source_id": 59,
+      "source_name": "stairway",
+      "target_id": 10
+    },
+    {
+      "source_id": 60,
+      "source_name": "river",
+      "target_id": 0
+    },
+    {
+      "source_id": 61,
+      "source_name": "bridge",
+      "target_id": 0
+    },
+    {
+      "source_id": 62,
+      "source_name": "bookcase",
+      "target_id": 10
+    },
+    {
+      "source_id": 63,
+      "source_name": "blind",
+      "target_id": 10
+    },
+    {
+      "source_id": 64,
+      "source_name": "coffee table",
+      "target_id": 10
+    },
+    {
+      "source_id": 65,
+      "source_name": "toilet",
+      "target_id": 10
+    },
+    {
+      "source_id": 66,
+      "source_name": "flower",
+      "target_id": 9
+    },
+    {
+      "source_id": 67,
+      "source_name": "book",
+      "target_id": 10
+    },
+    {
+      "source_id": 68,
+      "source_name": "hill",
+      "target_id": 0
+    },
+    {
+      "source_id": 69,
+      "source_name": "bench",
+      "target_id": 10
+    },
+    {
+      "source_id": 70,
+      "source_name": "countertop",
+      "target_id": 10
+    },
+    {
+      "source_id": 71,
+      "source_name": "stove",
+      "target_id": 10
+    },
+    {
+      "source_id": 72,
+      "source_name": "palm",
+      "target_id": 9
+    },
+    {
+      "source_id": 73,
+      "source_name": "kitchen island",
+      "target_id": 10
+    },
+    {
+      "source_id": 74,
+      "source_name": "computer",
+      "target_id": 10
+    },
+    {
+      "source_id": 75,
+      "source_name": "swivel chair",
+      "target_id": 10
+    },
+    {
+      "source_id": 76,
+      "source_name": "boat",
+      "target_id": 2
+    },
+    {
+      "source_id": 77,
+      "source_name": "bar",
+      "target_id": 10
+    },
+    {
+      "source_id": 78,
+      "source_name": "arcade machine",
+      "target_id": 10
+    },
+    {
+      "source_id": 79,
+      "source_name": "hovel",
+      "target_id": 10
+    },
+    {
+      "source_id": 80,
+      "source_name": "bus",
+      "target_id": 2
+    },
+    {
+      "source_id": 81,
+      "source_name": "towel",
+      "target_id": 10
+    },
+    {
+      "source_id": 82,
+      "source_name": "light",
+      "target_id": 10
+    },
+    {
+      "source_id": 83,
+      "source_name": "truck",
+      "target_id": 2
+    },
+    {
+      "source_id": 84,
+      "source_name": "tower",
+      "target_id": 10
+    },
+    {
+      "source_id": 85,
+      "source_name": "chandelier",
+      "target_id": 10
+    },
+    {
+      "source_id": 86,
+      "source_name": "awning",
+      "target_id": 10
+    },
+    {
+      "source_id": 87,
+      "source_name": "streetlight",
+      "target_id": 10
+    },
+    {
+      "source_id": 88,
+      "source_name": "booth",
+      "target_id": 10
+    },
+    {
+      "source_id": 89,
+      "source_name": "television receiver",
+      "target_id": 10
+    },
+    {
+      "source_id": 90,
+      "source_name": "airplane",
+      "target_id": 2
+    },
+    {
+      "source_id": 91,
+      "source_name": "dirt track",
+      "target_id": 4
+    },
+    {
+      "source_id": 92,
+      "source_name": "apparel",
+      "target_id": 10
+    },
+    {
+      "source_id": 93,
+      "source_name": "pole",
+      "target_id": 10
+    },
+    {
+      "source_id": 94,
+      "source_name": "land",
+      "target_id": 4
+    },
+    {
+      "source_id": 95,
+      "source_name": "bannister",
+      "target_id": 10
+    },
+    {
+      "source_id": 96,
+      "source_name": "escalator",
+      "target_id": 10
+    },
+    {
+      "source_id": 97,
+      "source_name": "ottoman",
+      "target_id": 10
+    },
+    {
+      "source_id": 98,
+      "source_name": "bottle",
+      "target_id": 10
+    },
+    {
+      "source_id": 99,
+      "source_name": "buffet",
+      "target_id": 10
+    },
+    {
+      "source_id": 100,
+      "source_name": "poster",
+      "target_id": 10
+    },
+    {
+      "source_id": 101,
+      "source_name": "stage",
+      "target_id": 10
+    },
+    {
+      "source_id": 102,
+      "source_name": "van",
+      "target_id": 2
+    },
+    {
+      "source_id": 103,
+      "source_name": "ship",
+      "target_id": 2
+    },
+    {
+      "source_id": 104,
+      "source_name": "fountain",
+      "target_id": 10
+    },
+    {
+      "source_id": 105,
+      "source_name": "conveyer belt",
+      "target_id": 10
+    },
+    {
+      "source_id": 106,
+      "source_name": "canopy",
+      "target_id": 10
+    },
+    {
+      "source_id": 107,
+      "source_name": "washer",
+      "target_id": 10
+    },
+    {
+      "source_id": 108,
+      "source_name": "plaything",
+      "target_id": 10
+    },
+    {
+      "source_id": 109,
+      "source_name": "swimming pool",
+      "target_id": 0
+    },
+    {
+      "source_id": 110,
+      "source_name": "stool",
+      "target_id": 10
+    },
+    {
+      "source_id": 111,
+      "source_name": "barrel",
+      "target_id": 10
+    },
+    {
+      "source_id": 112,
+      "source_name": "basket",
+      "target_id": 10
+    },
+    {
+      "source_id": 113,
+      "source_name": "waterfall",
+      "target_id": 0
+    },
+    {
+      "source_id": 114,
+      "source_name": "tent",
+      "target_id": 10
+    },
+    {
+      "source_id": 115,
+      "source_name": "bag",
+      "target_id": 10
+    },
+    {
+      "source_id": 116,
+      "source_name": "minibike",
+      "target_id": 2
+    },
+    {
+      "source_id": 117,
+      "source_name": "cradle",
+      "target_id": 10
+    },
+    {
+      "source_id": 118,
+      "source_name": "oven",
+      "target_id": 10
+    },
+    {
+      "source_id": 119,
+      "source_name": "ball",
+      "target_id": 10
+    },
+    {
+      "source_id": 120,
+      "source_name": "food",
+      "target_id": 0
+    },
+    {
+      "source_id": 121,
+      "source_name": "step",
+      "target_id": 10
+    },
+    {
+      "source_id": 122,
+      "source_name": "tank",
+      "target_id": 10
+    },
+    {
+      "source_id": 123,
+      "source_name": "trade name",
+      "target_id": 10
+    },
+    {
+      "source_id": 124,
+      "source_name": "microwave",
+      "target_id": 10
+    },
+    {
+      "source_id": 125,
+      "source_name": "pot",
+      "target_id": 10
+    },
+    {
+      "source_id": 126,
+      "source_name": "animal",
+      "target_id": 0
+    },
+    {
+      "source_id": 127,
+      "source_name": "bicycle",
+      "target_id": 2
+    },
+    {
+      "source_id": 128,
+      "source_name": "lake",
+      "target_id": 0
+    },
+    {
+      "source_id": 129,
+      "source_name": "dishwasher",
+      "target_id": 10
+    },
+    {
+      "source_id": 130,
+      "source_name": "screen",
+      "target_id": 10
+    },
+    {
+      "source_id": 131,
+      "source_name": "blanket",
+      "target_id": 10
+    },
+    {
+      "source_id": 132,
+      "source_name": "sculpture",
+      "target_id": 10
+    },
+    {
+      "source_id": 133,
+      "source_name": "hood",
+      "target_id": 10
+    },
+    {
+      "source_id": 134,
+      "source_name": "sconce",
+      "target_id": 10
+    },
+    {
+      "source_id": 135,
+      "source_name": "vase",
+      "target_id": 10
+    },
+    {
+      "source_id": 136,
+      "source_name": "traffic light",
+      "target_id": 10
+    },
+    {
+      "source_id": 137,
+      "source_name": "tray",
+      "target_id": 10
+    },
+    {
+      "source_id": 138,
+      "source_name": "ashcan",
+      "target_id": 10
+    },
+    {
+      "source_id": 139,
+      "source_name": "fan",
+      "target_id": 10
+    },
+    {
+      "source_id": 140,
+      "source_name": "pier",
+      "target_id": 0
+    },
+    {
+      "source_id": 141,
+      "source_name": "crt screen",
+      "target_id": 10
+    },
+    {
+      "source_id": 142,
+      "source_name": "plate",
+      "target_id": 10
+    },
+    {
+      "source_id": 143,
+      "source_name": "monitor",
+      "target_id": 10
+    },
+    {
+      "source_id": 144,
+      "source_name": "bulletin board",
+      "target_id": 10
+    },
+    {
+      "source_id": 145,
+      "source_name": "shower",
+      "target_id": 10
+    },
+    {
+      "source_id": 146,
+      "source_name": "radiator",
+      "target_id": 10
+    },
+    {
+      "source_id": 147,
+      "source_name": "glass",
+      "target_id": 10
+    },
+    {
+      "source_id": 148,
+      "source_name": "clock",
+      "target_id": 10
+    },
+    {
+      "source_id": 149,
+      "source_name": "flag",
+      "target_id": 10
+    }
+  ],
+  "floor_policy": {
+    "source_id": 3,
+    "source_name": "floor",
+    "target_id": 6,
+    "target_name": "paved",
+    "semantic_cost": 0,
+    "selection": "Lowest configured cost among project ground_class_ids on 2026-11-06",
+    "authority": "Explicit user request",
+    "material_recognition_verified": false,
+    "references": [
+      "https://raw.githubusercontent.com/CSAILVision/sceneparsing/master/objectInfo150.txt"
+    ]
+  }
+}

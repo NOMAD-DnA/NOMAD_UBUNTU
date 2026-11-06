@@ -1,0 +1,9 @@
+nomad_slope:
+  ros__parameters:
+    oak_topic: '/oak/depth/points'
+    scan_topic: '/scan'
+    fixed_frame: 'odom'
+    base_frame: 'base_link'
+    period_s: 0.5
+    max_age_s: 1.0
+    max_points: 25000

@@ -1,0 +1,27 @@
+{
+  "confirmed_for_recording": false,
+  "description": "Fill with measured calibration, topic contracts and experimentally selected limits before live use. Experimental only, not navigation.",
+  "topics": {
+    "labels": "/segformer/class_ids",
+    "depth": "/zed/zed_node/depth/depth_registered",
+    "camera_info": "/zed/zed_node/left/camera_info"
+  },
+  "zed_optical_frame": "zed_left_camera_optical_frame",
+  "T_zed_optical_from_lidar": null,
+  "calibration_provenance": null,
+  "image_alignment_confirmed": false,
+  "common_clock_confirmed": false,
+  "depth_definition": "optical_z_m",
+  "ground_class_ids": [],
+  "classes": {},
+  "max_point_label_dt_ms": null,
+  "max_label_depth_dt_ms": null,
+  "max_pose_gap_ms": 200,
+  "frame_wait_wall_s": 1.0,
+  "visibility_absolute_m": null,
+  "visibility_relative": null,
+  "boundary_margin_px": 2,
+  "dynamic_retention_s": null,
+  "grid_resolution_m": 0.12,
+  "save_evidence": false
+}
