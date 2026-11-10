@@ -20,7 +20,14 @@ for binary in "$root/build_external_cloud/external_stereo_cloud" "$root/build_ex
   [[ -x "$binary" ]] || { echo "MISSING: $binary" >&2; exit 1; }
 done
 for binary in "$ws/install/nomad_oak_cpp/lib/nomad_oak_cpp/oak_publisher" "$root/build_external_cloud/external_stereo_cloud"; do
-  grep -aFq 'oak-cloud-select-20261110-1' "$binary" || { echo "OAK_CLOUD_FEATURE_MISSING: $binary" >&2; exit 1; }
+  if [[ "$binary" = "$ws/install/nomad_oak_cpp/lib/nomad_oak_cpp/oak_publisher" ]]; then
+    # Depth capabilities remain stable when an IMU update changes the build ID.
+    for feature in 'enable_device_depth' '/oak/device_depth/image_rect' '/oak/device_depth/camera_info'; do
+      grep -aFq "$feature" "$binary" || { echo "OAK_CLOUD_FEATURE_MISSING: $binary" >&2; exit 1; }
+    done
+  else
+    grep -aFq 'oak-cloud-select-20261110-1' "$binary" || { echo "OAK_CLOUD_FEATURE_MISSING: $binary" >&2; exit 1; }
+  fi
 done
 printf 'ROLE=jetson\nMODEL=%s\nWORKSPACE=%s\n' "$model" "$ws"
 printf 'MODULES=OAK,ZED,LiDAR,semantic,traversability,costmap\n'

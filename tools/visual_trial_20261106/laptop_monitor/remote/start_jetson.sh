@@ -123,7 +123,14 @@ for binary in \
   [[ -x "$binary" ]] || fail "Existing executable missing: $binary"
 done
 for binary in "$ws/install/nomad_oak_cpp/lib/nomad_oak_cpp/oak_publisher" "$root/build_external_cloud/external_stereo_cloud"; do
-  grep -aFq 'oak-cloud-select-20261110-1' "$binary" || { echo "OAK_CLOUD_FEATURE_MISSING: $binary" >&2; exit 1; }
+  if [[ "$binary" = "$ws/install/nomad_oak_cpp/lib/nomad_oak_cpp/oak_publisher" ]]; then
+    # Depth capabilities remain stable when an IMU update changes the build ID.
+    for feature in 'enable_device_depth' '/oak/device_depth/image_rect' '/oak/device_depth/camera_info'; do
+      grep -aFq "$feature" "$binary" || { echo "OAK_CLOUD_FEATURE_MISSING: $binary" >&2; exit 1; }
+    done
+  else
+    grep -aFq 'oak-cloud-select-20261110-1' "$binary" || { echo "OAK_CLOUD_FEATURE_MISSING: $binary" >&2; exit 1; }
+  fi
 done
 # The external copy must already contain the approved single CameraInfo route.
 grep -Fq "('/zed/zed_node/left/camera_info', '/nomad_preview/zed/raw_camera_info')" "$launch" \
