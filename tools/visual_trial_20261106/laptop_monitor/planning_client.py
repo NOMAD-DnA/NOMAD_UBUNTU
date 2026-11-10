@@ -200,7 +200,7 @@ class PlanningClient(QtCore.QObject):
             self.start_planner()
         else:
             self.finished(code, QtCore.QProcess.NormalExit)
-            self.progress.emit("Pi4 시각 맞춤 실패 · 주소/비밀번호 확인")
+            self.progress.emit("Pi4 시각 맞춤·오차 확인 실패 · 연결 상태/시각 차이 확인")
 
     def clock_error(self, _error):
         self.finished(-1, QtCore.QProcess.CrashExit)

@@ -187,7 +187,7 @@ check_module() {
   printf '%s RUNNING pid=%s\n' "$name" "$pid"
 }
 
-# Sensor stage: original OAK 10Hz/IMU200, copied ZED RGB every 0.3s, native G2B5Hz.
+# Sensor stage: OAK 10Hz/IMU100 (oak_cpp.yaml), copied ZED RGB every 0.3s, native G2B5Hz.
 setsid env ROS_LOG_DIR="$run/oak/ros" bash "$ws/scripts/run_oak_cpp.sh" \
   -p enable_device_depth:=true -p device_depth_output_hz:=1.0 \
   -p rectified_calibration_json:="$root/config/oak_basalt_calib.json" \

@@ -107,7 +107,7 @@ def start_boards(
         clocks = {board: job.result() for board, job in clock_jobs.items()}
     stages["clock"] = clocks
     if not all(value.get("ok") for value in clocks.values()):
-        return result(False, "clock", "보드 시각 맞춤 실패. 비밀번호를 확인해 주세요. 센서는 시작하지 않았습니다.")
+        return result(False, "clock", "보드 시각 맞춤·오차 확인 실패. 연결 상태와 clock 단계의 사유를 확인해 주세요. 센서는 시작하지 않았습니다.")
 
     if not parallel("network", {
         "pi5": ("restore_network.sh", 40, True),

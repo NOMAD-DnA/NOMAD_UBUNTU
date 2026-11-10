@@ -18,15 +18,56 @@ REMOTE = r'''set -eu
 model=$(tr -d '\0' < /proc/device-tree/model)
 case "$model" in *'Raspberry Pi'*|*Jetson*|*Xavier*) ;; *) exit 21 ;; esac
 IFS= read -r nomad_password
+# Complete privilege authentication before the laptop captures the reference time.
+# Authentication after receiving the reference made the board clock lag by that wait.
+if [ -n "$nomad_password" ]; then
+  printf '%s\n' "$nomad_password" | sudo -k -S -p '' -v
+else
+  sudo -n -v
+fi
+unset nomad_password
 printf '%s\n' 'NOMAD_CLOCK_READY'
 IFS= read -r nomad_epoch
 case "$nomad_epoch" in ''|*[!0-9.]*|.*) exit 22 ;; esac
-if [ -n "$nomad_password" ]; then
-  printf '%s\n' "$nomad_password" | sudo -k -S -p '' date -u --set="@$nomad_epoch" '+CLOCK_SET=%s.%N'
-else
-  sudo -n date -u --set="@$nomad_epoch" '+CLOCK_SET=%s.%N'
-fi
+sudo -n date -u --set="@$nomad_epoch" '+CLOCK_SET=%s.%N' >/dev/null
+printf 'NOMAD_CLOCK_SAMPLE_READY\n'
+IFS= read -r nomad_probe
+[ "$nomad_probe" = NOMAD_CLOCK_PROBE ] || exit 23
+date -u '+CLOCK_SAMPLE=%s.%N'
 '''
+
+
+def assess_clock_sample(sample, sent_wall_ns, sent_monotonic_ns,
+                        received_wall_ns, received_monotonic_ns):
+    """Bound clock skew from a short read-only probe, without changing stamps.
+
+    A remote clock sample was taken between local send/receive.  Network and
+    command scheduling uncertainty is half that interval, not zero.
+    """
+    try:
+        seconds, fraction = sample.split(".")
+        if not seconds.isdigit() or len(fraction) != 9 or not fraction.isdigit():
+            raise ValueError("Invalid clock sample")
+        remote_ns = int(seconds) * 1_000_000_000 + int(fraction)
+        elapsed = received_monotonic_ns - sent_monotonic_ns
+        if elapsed < 0 or remote_ns <= 0:
+            raise ValueError("Invalid clock interval")
+        if abs((received_wall_ns - sent_wall_ns) - elapsed) > 50_000_000:
+            return dict(ok=False, reason="operator_clock_changed", state="FAILED")
+        midpoint_ns = sent_wall_ns + elapsed // 2
+        estimate_ns = remote_ns - midpoint_ns
+        uncertainty_ns = elapsed // 2
+        result = dict(offset_estimate_s=estimate_ns / 1e9,
+                      uncertainty_s=uncertainty_ns / 1e9,
+                      probe_round_trip_s=elapsed / 1e9)
+        # Keep residual skew below the existing 0.2s future-stamp tolerance.
+        bounded = abs(estimate_ns) + uncertainty_ns <= 150_000_000
+        result.update(ok=bounded,
+                      reason="clock_synchronized" if bounded else "clock_skew_or_probe_delay",
+                      state="SUCCEEDED" if bounded else "FAILED")
+        return result
+    except (ValueError, TypeError, AttributeError):
+        return dict(ok=False, reason="clock_sample_invalid", state="FAILED")
 
 
 def synchronize_clock(host, password, timeout_s=12):
@@ -79,10 +120,33 @@ def synchronize_clock(host, password, timeout_s=12):
                         raise OSError('Clock handshake closed')
                 else:
                     raise subprocess.TimeoutExpired('clock handshake',timeout_s)
-            stdout,_=process.communicate(timeout=max(.1,deadline-time.monotonic()))
-            ok=process.returncode==0 and any(s.startswith('CLOCK_SET=') for s in stdout.splitlines())
-            return {'ok':ok,'reason':'clock_synchronized' if ok else 'clock_set_failed',
-                    'state':'SUCCEEDED' if ok else 'FAILED'}
+                # Probe only after sudo/date has completed.  This interval
+                # excludes the clock-setting and authentication work.
+                while time.monotonic() < deadline:
+                    if not selector.select(max(0, deadline-time.monotonic())):
+                        raise subprocess.TimeoutExpired('clock probe ready', timeout_s)
+                    line = process.stdout.readline().strip()
+                    if line == 'NOMAD_CLOCK_SAMPLE_READY':
+                        break
+                    elif not line:
+                        raise OSError('Clock probe handshake closed')
+                else:
+                    raise subprocess.TimeoutExpired('clock probe ready', timeout_s)
+                probe_wall_ns = time.time_ns()
+                probe_monotonic_ns = time.monotonic_ns()
+                process.stdin.write('NOMAD_CLOCK_PROBE\n')
+                process.stdin.flush()
+                if not selector.select(max(0, deadline-time.monotonic())):
+                    raise subprocess.TimeoutExpired('clock probe', timeout_s)
+                sample_line = process.stdout.readline().strip()
+                received_monotonic_ns = time.monotonic_ns()
+                received_wall_ns = time.time_ns()
+            process.communicate(timeout=max(.1,deadline-time.monotonic()))
+            if process.returncode != 0 or not sample_line.startswith('CLOCK_SAMPLE='):
+                return dict(ok=False, reason='clock_set_failed', state='FAILED')
+            return assess_clock_sample(sample_line.partition('=')[2], probe_wall_ns,
+                                       probe_monotonic_ns, received_wall_ns,
+                                       received_monotonic_ns)
     except (OSError,ValueError,subprocess.TimeoutExpired):
         if process is not None and process.poll() is None:
             process.kill()
