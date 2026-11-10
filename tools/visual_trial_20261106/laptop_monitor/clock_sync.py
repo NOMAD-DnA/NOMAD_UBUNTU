@@ -21,7 +21,8 @@ IFS= read -r nomad_password
 # Complete privilege authentication before the laptop captures the reference time.
 # Authentication after receiving the reference made the board clock lag by that wait.
 if [ -n "$nomad_password" ]; then
-  printf '%s\n' "$nomad_password" | sudo -k -S -p '' -v
+  # Validation must cache credentials for the next sudo -n; do not use -k.
+  printf '%s\n' "$nomad_password" | sudo -S -p '' -v
 else
   sudo -n -v
 fi
@@ -86,6 +87,7 @@ def synchronize_clock(host, password, timeout_s=12):
     state = Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))/'nomad-trial'
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
     process = None
+    phase = "ssh_ready"
     deadline = time.monotonic()+timeout_s
     try:
         with tempfile.TemporaryDirectory(prefix='nomad-clock-') as temporary:
@@ -112,6 +114,7 @@ def synchronize_clock(host, password, timeout_s=12):
                         raise subprocess.TimeoutExpired('clock handshake',timeout_s)
                     line=process.stdout.readline()
                     if line.strip()=='NOMAD_CLOCK_READY':
+                        phase = 'clock_set'
                         epoch=time.time_ns()
                         process.stdin.write(f'{epoch//1000000000}.{epoch%1000000000:09d}\n')
                         process.stdin.flush()
@@ -132,6 +135,7 @@ def synchronize_clock(host, password, timeout_s=12):
                         raise OSError('Clock probe handshake closed')
                 else:
                     raise subprocess.TimeoutExpired('clock probe ready', timeout_s)
+                phase = 'clock_probe'
                 probe_wall_ns = time.time_ns()
                 probe_monotonic_ns = time.monotonic_ns()
                 process.stdin.write('NOMAD_CLOCK_PROBE\n')
@@ -147,11 +151,31 @@ def synchronize_clock(host, password, timeout_s=12):
             return assess_clock_sample(sample_line.partition('=')[2], probe_wall_ns,
                                        probe_monotonic_ns, received_wall_ns,
                                        received_monotonic_ns)
-    except (OSError,ValueError,subprocess.TimeoutExpired):
-        if process is not None and process.poll() is None:
-            process.kill()
-            process.communicate()
-        return {'ok':False,'reason':'clock_connection_failed','state':'FAILED'}
+    except (OSError,ValueError,subprocess.TimeoutExpired) as error:
+        stderr = ''
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            _, stderr = process.communicate()
+        lowered = (stderr or '').lower()
+        reason = 'clock_connection_failed'
+        if isinstance(error, subprocess.TimeoutExpired):
+            reason = 'clock_timeout'
+        elif 'sudo:' in lowered and 'a password is required' in lowered:
+            reason = 'clock_privilege_required'
+        elif 'sudo:' in lowered and any(text in lowered for text in
+                ('incorrect password', 'try again', 'no password was provided')):
+            reason = 'clock_privilege_authentication_failed'
+        elif 'permission denied' in lowered or 'authentication failed' in lowered:
+            reason = 'clock_authentication_failed'
+        elif phase == 'clock_set':
+            reason = 'clock_set_failed'
+        elif phase == 'clock_probe':
+            reason = 'clock_probe_failed'
+        # Return fixed classifications only; SSH/sudo stderr may contain secrets.
+        return dict(ok=False, reason=reason, state='FAILED', phase=phase,
+                    returncode=process.returncode if process is not None else None,
+                    error_type=type(error).__name__)
 
 
 def main():
