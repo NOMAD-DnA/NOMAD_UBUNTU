@@ -269,6 +269,9 @@ class NetworkDialog(QtWidgets.QDialog):
         self.busy(True)
         self.find_output = ''
         self.finder = QtCore.QProcess(self)
+        discovery_env = QtCore.QProcessEnvironment.systemEnvironment()
+        discovery_env.insert("NOMAD_BOARD_PASSWORD", self.ssh_password.text())
+        self.finder.setProcessEnvironment(discovery_env)
         self.finder.readyReadStandardOutput.connect(self.read_discovery)
         self.finder.finished.connect(self.discovery_finished)
         self.finder.errorOccurred.connect(self.discovery_error)
