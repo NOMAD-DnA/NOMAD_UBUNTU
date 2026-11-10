@@ -1,4 +1,4 @@
-"""Read-only laptop localization detail window. No sensor or process control."""
+"""Laptop localization comparison and an explicitly requested heading-reset action."""
 from __future__ import annotations
 
 import math
@@ -10,12 +10,20 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 from magnetometer_panel import MagnetometerPanel
+from localization_state import localization_summary
+from heading_control import REASON_LABELS as HEADING_REASONS
+from vio_control import REASON_LABELS as VIO_REASONS
 from module_logs import attach_module_logs, update_module_logs
 from render_utils import HistorySampler, history_signature, fit_axes_3d, set_text, set_style, stable_metadata
 
 
-SOURCES = ("vio", "fusion", "public")
-COLORS = {"vio": "#38bdf8", "fusion": "#fbbf24", "public": "#34d399"}
+SOURCES = ("gnss", "vio_compare", "public", "fusion", "vio")
+COLORS = {"gnss": "#f472b6", "vio_compare": "#38bdf8", "fusion": "#fbbf24",
+          "public": "#34d399", "vio": "#a78bfa"}
+SOURCE_LABELS = {"gnss": "GNSS", "vio_compare": "VIO · 로컬 비교", "fusion": "내부 융합 · IMU 기준",
+                 "public": "융합 위치", "vio": "원본 VIO · 고유 좌표계"}
+LEGEND_LABELS = {"gnss": "GNSS", "vio_compare": "VIO (local)", "fusion": "Fusion (IMU)",
+                 "public": "Fusion", "vio": "VIO (raw frame)"}
 TEXT = "#e2e8f0"
 MUTED = "#94a3b8"
 WARNING = "#fbbf24"
@@ -38,6 +46,51 @@ def _text(value):
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)[:250]
+
+
+_COMMON_CONTROL_REASONS = {
+    "authentication_failed": "Pi5 인증에 실패했습니다.",
+    "host_key_check_failed": "Pi5 SSH 호스트 키를 확인해야 합니다.",
+    "ssh_unreachable": "Pi5에 접속할 수 없습니다.",
+    "local_ssh_failed": "PC의 SSH 연결을 시작하지 못했습니다.",
+    "timeout": "Pi5 접속 또는 응답 시간이 초과됐습니다.",
+    "wrong_board": "접속한 장치가 설정한 Pi5가 아닙니다.",
+    "workspace_unavailable": "Pi5 워크스페이스를 찾을 수 없습니다.",
+    "environment_unavailable": "Pi5 ROS 환경을 찾을 수 없습니다.",
+    "profile_unavailable": "Pi5 시험 설정을 찾을 수 없습니다.",
+    "invalid_pi5_address_or_options": "Pi5 주소 또는 요청 설정을 확인해 주세요.",
+    "local_control_error": "PC의 요청 처리 중 오류가 발생했습니다.",
+    "invalid_remote_result": "Pi5의 응답 형식을 확인할 수 없습니다.",
+    "vio_identity_mismatch": "VIO 실행 정보가 현재 프로세스와 일치하지 않습니다.",
+    "fusion_identity_mismatch": "융합기 실행 정보가 현재 프로세스와 일치하지 않습니다.",
+    "vio_restart_unconfirmed": "VIO 재실행 완료를 확인하지 못했습니다.",
+    "heading_reset_unconfirmed": "방향 초기화 완료를 확인하지 못했습니다.",
+    "missing_or_ambiguous_vio_result": "VIO 재실행 결과를 확인하지 못했습니다.",
+    "missing_or_ambiguous_heading_result": "방향 초기화 결과를 확인하지 못했습니다.",
+}
+
+
+def _control_reason(value, labels):
+    text = str(value or "")
+    return labels.get(text, labels.get(text.upper(), _COMMON_CONTROL_REASONS.get(text, text)))
+
+
+def _action_result_text(result, action):
+    if not isinstance(result, Mapping):
+        return str(result or "")
+    ok = result.get("ok", result.get("success")) is True
+    if action == "heading":
+        if ok:
+            return "현재 위치 유지 · 방향 초기화 완료"
+        detail = str(result.get("message") or _control_reason(result.get("reason"), HEADING_REASONS))
+        return "방향 초기화 실패" + (" · " + detail if detail else "")
+    if ok:
+        detail = _control_reason(result.get("reason"), VIO_REASONS)
+        if result.get("fusion_preserved") is True:
+            detail += " · 마지막 유효 위치·방향 유지"
+        return "VIO 재실행 완료" + (" · " + detail if detail else "")
+    detail = str(result.get("message") or _control_reason(result.get("reason"), VIO_REASONS))
+    return "VIO 재실행 실패" + (" · " + detail if detail else "")
 
 
 def _flatten(event):
@@ -178,7 +231,10 @@ class _Card(QtWidgets.QGroupBox):
 
 
 class LocalizationWindow(QtWidgets.QMainWindow):
-    """A passive detail view updated by the owning monitor's visible-window timer."""
+    """Uses the owning monitor's single receiver and visible-window timer."""
+
+    heading_reset_requested = QtCore.pyqtSignal()
+    vio_restart_requested = QtCore.pyqtSignal()
 
     def __init__(self, parent=None, components=None):
         super().__init__(parent)
@@ -203,12 +259,20 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         self._samplers = {source: HistorySampler(4000) for source in SOURCES}
         self._source_signatures = {}
         self._fit_initialized = False
+        self._visible_legend_sources = None
         central = QtWidgets.QWidget(self)
         root = QtWidgets.QVBoxLayout(central)
         root.setContentsMargins(14, 12, 14, 10)
         self.summary = QtWidgets.QLabel("위치추정 데이터 대기")
         self.summary.setStyleSheet("font-size:16px; font-weight:600;")
         root.addWidget(self.summary)
+        self.mode_detail = QtWidgets.QLabel("현재 출력에 사용하는 입력 대기")
+        self.mode_detail.setWordWrap(True)
+        self.mode_detail.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        root.addWidget(self.mode_detail)
+        self.input_states = QtWidgets.QLabel("VIO: 미수신 · GNSS: 미수신")
+        self.input_states.setWordWrap(True)
+        root.addWidget(self.input_states)
         self.connections = QtWidgets.QLabel("Pi5 SSH: — · Jetson SSH: —")
         self.connections.setStyleSheet(f"color:{MUTED}; font-size:11px;")
         root.addWidget(self.connections)
@@ -229,6 +293,21 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         reset.clicked.connect(self.reset_view)
         controls.addWidget(reset)
         plot_layout.addLayout(controls)
+        selections = QtWidgets.QGridLayout()
+        selections.setHorizontalSpacing(14)
+        selections.addWidget(QtWidgets.QLabel("표시"), 0, 0)
+        selections.addWidget(QtWidgets.QLabel("내부 진단"), 1, 0)
+        self.source_checks = {}
+        for index, source in enumerate(SOURCES):
+            check = QtWidgets.QCheckBox(SOURCE_LABELS[source])
+            check.setChecked(source not in ("fusion", "vio"))
+            check.setStyleSheet(f"color:{COLORS[source]};")
+            check.toggled.connect(self._selection_changed)
+            self.source_checks[source] = check
+            row, column = (0, index + 1) if index < 3 else (1, index - 2)
+            selections.addWidget(check, row, column)
+        selections.setColumnStretch(4, 1)
+        plot_layout.addLayout(selections)
         self.figure = Figure(facecolor="#111827")
         self.figure.subplots_adjust(left=.01, right=.98, bottom=.03, top=.98)
         self.canvas = FigureCanvasQTAgg(self.figure)
@@ -244,11 +323,10 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         self.lines = {}
         self.markers = {}
         for source in SOURCES:
-            self.lines[source], = self.ax.plot([], [], [], color=COLORS[source], lw=1.6, label=source.upper())
+            self.lines[source], = self.ax.plot([], [], [], color=COLORS[source], lw=1.6, label=LEGEND_LABELS[source])
             self.markers[source], = self.ax.plot([], [], [], color=COLORS[source], marker="o", ms=4)
-        legend = self.ax.legend(loc="upper left", facecolor="#1e293b", edgecolor="#334155", fontsize=9)
-        for label in legend.get_texts():
-            label.set_color(TEXT)
+            self.lines[source].set_visible(False)
+            self.markers[source].set_visible(False)
         self.ax.set_xlim(-1, 1)
         self.ax.set_ylim(-1, 1)
         self.ax.set_zlim(-1, 1)
@@ -256,7 +334,7 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         self.canvas.mpl_connect("button_release_event", self._release)
         self.canvas.mpl_connect("scroll_event", self._scroll)
         plot_layout.addWidget(self.canvas, 1)
-        self.pose_info = QtWidgets.QLabel("VIO —   |   FUSION —   |   PUBLIC —")
+        self.pose_info = QtWidgets.QLabel("GNSS · VIO · 융합 로컬 좌표 대기")
         self.pose_info.setWordWrap(True)
         self.pose_info.setStyleSheet(f"color:{MUTED}; font-size:11px;")
         plot_layout.addWidget(self.pose_info)
@@ -279,6 +357,24 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         right_layout.addWidget(self.features)
         self.magnetometer = MagnetometerPanel(self)
         right_layout.addWidget(self.magnetometer)
+        self.heading_reset = QtWidgets.QPushButton("지자계로 방향 초기화")
+        self.heading_reset.setEnabled(False)
+        self.heading_reset.clicked.connect(self._request_heading_reset)
+        self.vio_restart = QtWidgets.QPushButton("VIO 재실행")
+        self.vio_restart.setEnabled(False)
+        self.vio_restart.clicked.connect(self._request_vio_restart)
+        actions = QtWidgets.QHBoxLayout()
+        actions.addWidget(self.heading_reset, 2)
+        actions.addWidget(self.vio_restart, 1)
+        right_layout.addLayout(actions)
+        self.heading_reset_note = QtWidgets.QLabel("방향 초기화 조건 확인 중 · 원본 VIO는 변경하지 않습니다.")
+        self.heading_reset_note.setWordWrap(True)
+        self.heading_reset_note.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        right_layout.addWidget(self.heading_reset_note)
+        self.vio_restart_note = QtWidgets.QLabel("융합기가 실행 중이면 마지막 유효 위치·방향에서 이어갑니다.")
+        self.vio_restart_note.setWordWrap(True)
+        self.vio_restart_note.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        right_layout.addWidget(self.vio_restart_note)
         cards = QtWidgets.QHBoxLayout()
         self.gnss = _Card("GNSS", (("fix", "Fix"), ("solution", "측위 상태"), ("satellites", "위성 수"),
                                   ("h_accuracy", "수평 표준편차"), ("v_accuracy", "수직 정확도"),
@@ -326,57 +422,176 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         self._fit(self._last_snapshot.get("histories", {}), force=True)
         self.canvas.draw_idle()
 
+    def _selection_changed(self):
+        self._signature = None
+        self._plot(self._last_snapshot)
+
+    def _selected_points(self, histories, source):
+        if not self.source_checks[source].isChecked():
+            return []
+        return [p for p in self._samplers[source].sample(histories.get(source, ()))
+                if all(_number(p.get(k)) is not None for k in ("x", "y", "z"))]
+
     def _fit(self, histories, force=False):
-        bounds = []
-        for source in SOURCES:
-            history = histories.get(source, ())
-            bounds.extend(p for p in self._samplers[source].sample(history)
-                          if all(_number(p.get(k)) is not None for k in ("x", "y", "z")))
+        bounds = [p for source in SOURCES for p in self._selected_points(histories, source)]
         self._fit_initialized = fit_axes_3d(self.ax, bounds, force=force, initialized=self._fit_initialized)
 
     def _plot(self, snapshot):
         histories = snapshot.get("histories", {})
         signature, details, frames = [], [], []
+        visible_sources = []
+        frame_ids = set()
         for source in SOURCES:
             history = histories.get(source, ())
             age = _age(snapshot, "pose", source)
             stale = age is not None and age > 1.
-            signature.append((history_signature(history), stale))
-            freshness = "미수신" if not history else _age_description(age, 1.)[0]
-            rate = self._rate(snapshot, source)
-            details.append(f"{source.upper()} {len(history):,}개 · {rate} · {freshness}")
-            if history:
-                frames.append(f"{source.upper()}: {history[-1].get('frame_id') or '미확인'}")
-        self.pose_info.setText("\n".join(details))
-        frame_ids = {histories[source][-1].get("frame_id") for source in SOURCES if histories.get(source)}
-        note = "서로 다른 좌표계 · 정렬 없이 수신값 표시" if len(frame_ids) > 1 else "수신 좌표 그대로 표시"
-        self.frame_info.setText(note + "\n" + " · ".join(frames))
-        set_style(self.frame_info, f"color:{WARNING if len(frame_ids) > 1 else MUTED}; font-size:11px;")
+            selected = self.source_checks[source].isChecked()
+            points = self._selected_points(histories, source)
+            signature.append((history_signature(history), stale, selected))
+            if not selected:
+                continue
+            freshness = "로컬 좌표 대기 · 기준 좌표/위치 미수신" if not points else _age_description(age, 1.)[0]
+            details.append(f"{SOURCE_LABELS[source]} {len(history):,}개 · {self._rate(snapshot, source)} · {freshness}")
+            if points:
+                visible_sources.append(source)
+                source_frames = {p.get("frame_id") for p in points}
+                frame_ids.update(source_frames)
+                frames.append(f"{SOURCE_LABELS[source]}: {', '.join(str(f or '미확인') for f in sorted(source_frames, key=str))}")
+        set_text(self.pose_info, "\n".join(details) if details else "표시할 위치를 선택하세요.")
+        mixed = len(frame_ids) > 1
+        raw_selected = self.source_checks["vio"].isChecked()
+        if raw_selected:
+            note = "원본 VIO는 고유 좌표계입니다. 로컬 비교 VIO와 방향·원점이 다를 수 있습니다."
+        else:
+            note = "GNSS·VIO 비교·융합: 같은 로컬 좌표 기준 · 원본 VIO 수치는 유지합니다."
+        if mixed:
+            note = "주의: 서로 다른 좌표계가 함께 표시됩니다. 겹친 위치를 직접 비교하지 마세요. " + note
+        if not visible_sources:
+            note = "좌표계 미수신 · 유효한 실제 위치가 들어오면 표시합니다."
+        set_text(self.frame_info, note + ("\n" + " · ".join(frames) if frames else ""))
+        set_style(self.frame_info, f"color:{WARNING if mixed or raw_selected else MUTED}; font-size:11px;")
         signature = tuple(signature)
         if signature == self._signature or self._dragging:
             return
         self._signature = signature
-        for source in SOURCES:
-            history = histories.get(source, ())
-            source_key = (history_signature(history), signature[SOURCES.index(source)][1])
+        for index, source in enumerate(SOURCES):
+            source_key = signature[index]
             if self._source_signatures.get(source) == source_key:
                 continue
             self._source_signatures[source] = source_key
-            points = self._samplers[source].sample(history)
-            points = [p for p in points if all(_number(p.get(k)) is not None for k in ("x", "y", "z"))]
+            points = self._selected_points(histories, source)
+            visible = bool(points)
+            self.lines[source].set_visible(visible)
+            self.markers[source].set_visible(visible)
             self.lines[source].set_data_3d(*[[float(p[k]) for p in points] for k in ("x", "y", "z")])
             self.markers[source].set_data_3d(*[[float(points[-1][k])] if points else [] for k in ("x", "y", "z")])
-            age = _age(snapshot, "pose", source)
-            stale = age is not None and age > 1.
+            stale = source_key[1]
             self.lines[source].set_alpha(.4 if stale else 1.)
-            self.lines[source].set_linestyle("--" if stale else "-")
+            self.lines[source].set_linestyle("--" if stale or source == "vio" else "-")
+        legend_sources = tuple(visible_sources)
+        if legend_sources != self._visible_legend_sources:
+            legend = self.ax.get_legend()
+            if legend is not None:
+                legend.remove()
+            if legend_sources:
+                legend = self.ax.legend([self.lines[s] for s in legend_sources],
+                                        [LEGEND_LABELS[s] for s in legend_sources],
+                                        loc="upper left", facecolor="#1e293b", edgecolor="#334155", fontsize=9)
+                for label in legend.get_texts():
+                    label.set_color(TEXT)
+            self._visible_legend_sources = legend_sources
         if self.auto_fit.isChecked():
             self._fit(histories)
-        # Only the artists/limits change. User-selected camera elevation/azimuth stay intact.
+        # Only artists/limits change. The user's rotation is preserved.
         self.canvas.draw_idle()
+
+    def _heading_gate(self, snapshot, state):
+        ui = snapshot.get("heading_ui", {})
+        if snapshot.get("replay"):
+            return False, "기록 재생 중에는 방향을 초기화할 수 없습니다."
+        if ui.get("spectator"):
+            return False, "관전 중에는 방향을 초기화할 수 없습니다."
+        if ui.get("no_ssh"):
+            return False, "보드 연결이 없어 방향을 초기화할 수 없습니다."
+        if snapshot.get("vio_ui", {}).get("busy"):
+            return False, "VIO 재실행 요청 처리 중"
+        if ui.get("busy"):
+            return False, "방향 초기화 요청 처리 중"
+        if not state.get("can_reset_heading"):
+            return False, _control_reason(state.get("reset_reason") or "VIO 단독·유효 지자계 조건을 기다립니다.", HEADING_REASONS)
+        if not ui.get("enabled"):
+            return False, _control_reason(ui.get("reason") or "운영 PC의 보드 연결을 기다립니다.", HEADING_REASONS)
+        return True, _control_reason(ui.get("reason") or "현재 위치를 유지하고 로컬 출력 방향을 지자계에 맞춥니다.", HEADING_REASONS)
+
+    def _request_heading_reset(self):
+        state = localization_summary(self._last_snapshot)
+        enabled, _ = self._heading_gate(self._last_snapshot, state)
+        if enabled:
+            self.heading_reset.setEnabled(False)
+            self.vio_restart.setEnabled(False)
+            self.heading_reset_requested.emit()
+
+    def _vio_restart_gate(self, snapshot):
+        ui = snapshot.get("vio_ui", {})
+        heading_ui = snapshot.get("heading_ui", {})
+        if snapshot.get("replay"):
+            return False, "기록 재생 중에는 VIO를 재실행할 수 없습니다."
+        if ui.get("spectator") or heading_ui.get("spectator"):
+            return False, "관전 중에는 VIO를 재실행할 수 없습니다."
+        if ui.get("no_ssh") or heading_ui.get("no_ssh"):
+            return False, "보드 연결이 없어 VIO를 재실행할 수 없습니다."
+        if heading_ui.get("busy"):
+            return False, "방향 초기화 요청 처리 중"
+        if ui.get("busy"):
+            return False, "VIO 재실행 요청 처리 중"
+        if not ui.get("enabled"):
+            return False, _control_reason(ui.get("reason") or "운영 PC의 보드 연결을 기다립니다.", VIO_REASONS)
+        return True, _control_reason(ui.get("reason") or "VIO만 재실행하며 카메라·융합은 유지합니다.", VIO_REASONS)
+
+    def _request_vio_restart(self):
+        enabled, _ = self._vio_restart_gate(self._last_snapshot)
+        if enabled:
+            self.vio_restart.setEnabled(False)
+            self.heading_reset.setEnabled(False)
+            self.vio_restart_requested.emit()
+
+    def _update_vio_restart(self, snapshot):
+        ui = snapshot.get("vio_ui", {})
+        enabled, reason = self._vio_restart_gate(snapshot)
+        self.vio_restart.setEnabled(enabled)
+        self.vio_restart.setToolTip(reason)
+        result = ui.get("result")
+        result_text = _action_result_text(result, "vio") if result else ""
+        if ui.get("fusion_continuity") is True:
+            continuity = "융합기가 실행 중이면 마지막 유효 위치·방향에서 이어갑니다."
+        elif ui.get("fusion_continuity") is False:
+            continuity = "융합기가 없으면 새 원점에서 시작합니다."
+        else:
+            continuity = "융합기가 실행 중이면 마지막 유효 위치·방향에서 이어갑니다."
+        note = "원본 VIO 궤적은 초기화됩니다. " + continuity
+        set_text(self.vio_restart_note, (result_text + "\n" if result_text else "") + reason + "\n" + note)
+
+    def _update_mode(self, snapshot):
+        state = localization_summary(snapshot)
+        set_text(self.summary, "현재 위치: " + str(state.get("label") or "입력 대기"))
+        set_style(self.summary, "font-size:16px; font-weight:600; color:" + str(state.get("color") or TEXT) + ";")
+        set_text(self.mode_detail, "사용 입력: " + str(state.get("source") or "미확인") + " · " +
+                 str(state.get("detail") or "사용 입력 확인 중"))
+        self.summary.setToolTip(str(state.get("detail") or ""))
+        set_text(self.input_states, "VIO: " + str(state.get("vio_text") or "미수신") + " · GNSS: " +
+                 str(state.get("gnss_text") or "미수신") + "\n" +
+                 str(state.get("orientation_text") or "방향 기준 미수신"))
+        enabled, reason = self._heading_gate(snapshot, state)
+        self.heading_reset.setEnabled(enabled)
+        self.heading_reset.setToolTip(reason)
+        result = snapshot.get("heading_ui", {}).get("result")
+        result_text = _action_result_text(result, "heading") if result else ""
+        set_text(self.heading_reset_note, (result_text + "\n" if result_text else "") +
+                 reason + " · 원본 VIO는 변경하지 않습니다.")
 
     @staticmethod
     def _rate(snapshot, source):
+        source = "vio" if source == "vio_compare" else source
         for board in ("pi", "pi5", "jetson"):
             rates = snapshot.get("rates", {}).get(board, {})
             value = _number(rates.get(source)) if isinstance(rates, Mapping) else None
@@ -389,16 +604,8 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         update_module_logs(self, snapshot, "localization")
         self._last_snapshot = snapshot
         self._plot(snapshot)
-        statuses = snapshot.get("statuses", {})
-        state = statuses.get("localization", {})
-        status_age = _age(snapshot, "status", "localization")
-        if isinstance(state, Mapping) and state:
-            self.summary.setText(f"위치추정 · {_text(state.get('state'))} · {_age_description(status_age, 2.)[0]}")
-            self.summary.setToolTip(str(state.get("detail", "")))
-        else:
-            self.summary.setText("위치추정 · 상태 미수신")
-        set_style(self.summary, "font-size:16px; font-weight:600; color:" +
-                  (STALE if status_age is not None and status_age > 2. else TEXT) + ";")
+        self._update_mode(snapshot)
+        self._update_vio_restart(snapshot)
         ssh = snapshot.get("ssh", {})
         connections = []
         for board, title in (("pi", "Pi5"), ("jetson", "Jetson")):

@@ -29,6 +29,7 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 from matplotlib.transforms import Affine2D
 from heading_indicator import HeadingIndicator
+from localization_state import localization_summary, comparison_samples, flatten as localization_fields
 from relay import CaptureOrder, LatestPacketBuffer, owns_stream
 from module_logs import LogHistory
 from render_utils import HistorySampler, history_signature, fit_axes_3d, stable_metadata
@@ -303,6 +304,42 @@ class SlopeSwitchWorker(QtCore.QThread):
             value = switch_slope_mode(self.host, self.mode, self.password)
         except Exception:
             value = {"ok": False, "state": "UNCONFIRMED", "mode": None, "reason": "local_control_error"}
+        finally:
+            self.password = ""
+        self.result.emit(value)
+
+
+class HeadingResetWorker(QtCore.QThread):
+    result = QtCore.pyqtSignal(dict)
+
+    def __init__(self, host, password, parent=None):
+        super().__init__(parent)
+        self.host, self.password = host, password
+
+    def run(self):
+        try:
+            from heading_control import reset_heading
+            value = reset_heading(self.host, self.password)
+        except Exception:
+            value = {"ok": False, "state": "UNCONFIRMED", "reason": "local_control_error"}
+        finally:
+            self.password = ""
+        self.result.emit(value)
+
+
+class VioRestartWorker(QtCore.QThread):
+    result = QtCore.pyqtSignal(dict)
+
+    def __init__(self, host, password, parent=None):
+        super().__init__(parent)
+        self.host, self.password = host, password
+
+    def run(self):
+        try:
+            from vio_control import restart_vio
+            value = restart_vio(self.host, self.password)
+        except Exception:
+            value = {"ok": False, "state": "VIO_RESTART_FAILED", "reason": "local_control_error"}
         finally:
             self.password = ""
         self.result.emit(value)
@@ -693,7 +730,15 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.started = time.time()
         if self.replay_mode:
             self.started = float(self.reader.metadata.get("started_wall_s", self.started))
-        self.histories = {source: deque(maxlen=MAX_POSES) for source in POSE_SOURCES}
+        self.histories = {source: deque(maxlen=MAX_POSES) for source in (*POSE_SOURCES, "gnss", "vio_compare")}
+        self._comparison_epoch = None
+        self._raw_vio_epoch = None
+        self.heading_worker = None
+        self.heading_reset_in_progress = False
+        self.heading_reset_result = None
+        self.vio_restart_in_progress = False
+        self.vio_restart_result = None
+        self.vio_restart_worker = None
         self._plot_samplers = {source: HistorySampler(4000) for source in POSE_SOURCES}
         self._plot_signatures = {}
         self._fit_initialized = False
@@ -837,6 +882,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.ssh_label = QtWidgets.QLabel()
         self.ssh_label.setStyleSheet("color:#94a3b8; font-size:11px;")
         layout.addWidget(self.status_label)
+        self.localization_mode_label = QtWidgets.QLabel("위치 모드 · 입력 대기")
+        self.localization_mode_label.setWordWrap(True)
+        layout.addWidget(self.localization_mode_label)
         layout.addWidget(self.rate_label)
         layout.addWidget(self.ssh_label)
         self.relay_label = QtWidgets.QLabel()
@@ -1012,7 +1060,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 "statuses": self.statuses, "rates": self.rates, "telemetry": self.telemetry,
                 "module_logs": self.module_logs,
                 "ssh": self.ssh_progress, "now": self.now(), "wall_now": self.wall_now(),
-                "replay": self.replay_mode,
+                "replay": self.replay_mode, "heading_ui": self.heading_ui(), "vio_ui": self.vio_ui(),
                 "active_model": self.active_model, "active_cloud_source": self.active_cloud_source,
                 "slope_cpu_history": self.slope_cpu_history, "forward_axis": self.forward_axis,
                 "heading_note": self.heading_note, "trial_stop_result": self.trial_stop_result,
@@ -1049,11 +1097,179 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             window = Window(parent=self, components={"ImagePanel": ImagePanel, "MapPanel": MapPanel,
                                                      "grid_geometry": grid_geometry,
                                                      "rotate_vector": rotate_vector})
+            if part == "localization":
+                window.heading_reset_requested.connect(self.reset_heading_from_magnetometer)
+                window.vio_restart_requested.connect(self.restart_vio)
             self.developer_windows[part] = window
         window.update_snapshot(self.developer_snapshot())
         window.show()
         window.raise_()
         window.activateWindow()
+
+    def heading_ui(self):
+        snapshot = {"now": self.now(), "received": self.received,
+                    "telemetry": self.telemetry, "statuses": self.statuses, "replay": self.replay_mode}
+        summary = localization_summary(snapshot)
+        reason = summary["reset_reason"]
+        live = not self.replay_mode and not self.spectator_mode and not self.args.no_ssh
+        if self.replay_mode:
+            reason = "기록 재생은 읽기 전용입니다."
+        elif self.spectator_mode:
+            reason = "관전 PC는 읽기 전용입니다. 운용 PC에서 초기화하세요."
+        elif self.args.no_ssh:
+            reason = "보드 제어 연결이 없습니다."
+        elif self.trial_stop_result is not None:
+            reason = "시험을 다시 시작한 뒤 초기화하세요."
+        elif self.heading_reset_in_progress:
+            reason = "Pi5 방향 초기화 결과 확인 중입니다."
+        elif self.vio_restart_in_progress:
+            reason = "VIO 재실행 결과 확인 중입니다."
+        return {"enabled": bool(live and self.trial_stop_result is None and
+                                 not self.heading_reset_in_progress and not self.vio_restart_in_progress and summary["can_reset_heading"]),
+                "busy": self.heading_reset_in_progress, "result": self.heading_reset_result,
+                "reason": reason, "spectator": self.spectator_mode, "no_ssh": self.args.no_ssh}
+
+    def vio_ui(self):
+        live = not self.replay_mode and not self.spectator_mode and not self.args.no_ssh
+        enabled = bool(live and self.trial_stop_result is None and not self.vio_restart_in_progress
+                       and not self.heading_reset_in_progress)
+        snapshot = {"now": self.now(), "received": self.received,
+                    "telemetry": self.telemetry, "statuses": self.statuses}
+        summary = localization_summary(snapshot)
+        reason = "융합기가 살아 있으면 마지막 유효 위치·방향에 VIO를 이어 붙입니다."
+        if not live:
+            reason = "관전·기록 재생·SSH 없는 화면은 읽기 전용입니다."
+        elif self.trial_stop_result is not None:
+            reason = "시험을 시작한 뒤 VIO를 재실행하세요."
+        elif self.heading_reset_in_progress:
+            reason = "방향 초기화 결과를 확인 중입니다."
+        elif self.vio_restart_in_progress:
+            reason = "VIO 재실행 결과를 확인 중입니다."
+        return {"enabled": enabled, "busy": self.vio_restart_in_progress,
+                "result": self.vio_restart_result, "reason": reason,
+                "spectator": self.spectator_mode, "no_ssh": self.args.no_ssh,
+                "fusion_continuity": summary["diagnostics_fresh"] or summary["status_fresh"]}
+
+    def restart_vio(self):
+        if not self.vio_ui()["enabled"]:
+            return
+        password = os.environ.get("NOMAD_BOARD_PASSWORD1") or os.environ.get("NOMAD_BOARD_PASSWORD")
+        if not password:
+            password, accepted = QtWidgets.QInputDialog.getText(
+                self, "VIO 재실행", "Pi5 SSH 비밀번호", QtWidgets.QLineEdit.Password)
+            if not accepted or not password:
+                return
+        self.vio_restart_in_progress = True
+        self.vio_restart_result = None
+        worker = VioRestartWorker(self.args.pi_host, password, self)
+        self.vio_restart_worker = worker
+        worker.result.connect(self.on_vio_restarted)
+        worker.finished.connect(self.on_vio_restart_finished)
+        worker.start()
+
+    @QtCore.pyqtSlot(dict)
+    def on_vio_restarted(self, value):
+        self.vio_restart_result = {**value, "completed_wall_s": self.wall_now()}
+        # VIO native coordinates start a new trajectory. The living fusion is
+        # untouched; its new epoch reattaches sensor poses at its last state.
+        if value.get("ok") is True:
+            self.clear_raw_vio_history()
+        self.write_state()
+
+    def clear_raw_vio_history(self):
+        self.histories["vio"].clear()
+        self.received.pop("pose:vio", None)
+        self._plot_signatures.pop("vio", None)
+        self.lines["vio"].set_data_3d([], [], [])
+        self.markers["vio"].set_data_3d([], [], [])
+        self.plot_dirty = True
+
+    @QtCore.pyqtSlot()
+    def on_vio_restart_finished(self):
+        self.vio_restart_in_progress = False
+        if self.vio_restart_result is None:
+            self.vio_restart_result = {"ok": False, "state": "VIO_RESTART_FAILED",
+                                       "reason": "worker_ended_without_result"}
+        self.write_state()
+
+    def reset_heading_from_magnetometer(self):
+        # Only a user click in the live operator window can create this worker.
+        ui = self.heading_ui()
+        if not ui["enabled"]:
+            return
+        password = os.environ.get("NOMAD_BOARD_PASSWORD1") or os.environ.get("NOMAD_BOARD_PASSWORD")
+        if not password:
+            password, accepted = QtWidgets.QInputDialog.getText(
+                self, "Pi5 방향 초기화", "Pi5 SSH 비밀번호", QtWidgets.QLineEdit.Password)
+            if not accepted or not password:
+                return
+        self.heading_reset_in_progress = True
+        self.heading_reset_result = None
+        worker = HeadingResetWorker(self.args.pi_host, password, self)
+        self.heading_worker = worker
+        worker.result.connect(self.on_heading_reset_result)
+        worker.finished.connect(self.on_heading_reset_finished)
+        worker.start()
+
+    @QtCore.pyqtSlot(dict)
+    def on_heading_reset_result(self, value):
+        # The remote module decides whether an independent MAG heading is usable.
+        # Never rotate received poses in the GUI as a substitute for its response.
+        self.heading_reset_result = {**value, "completed_wall_s": self.wall_now()}
+        self.write_state()
+
+    @QtCore.pyqtSlot()
+    def on_heading_reset_finished(self):
+        self.heading_reset_in_progress = False
+        if self.heading_reset_result is None:
+            self.heading_reset_result = {"ok": False, "state": "UNCONFIRMED",
+                                         "reason": "worker_ended_without_result"}
+        self.write_state()
+
+    def update_comparison_samples(self, event, received_at):
+        values = localization_fields(event)
+        raw_epoch = values.get("vio_epoch")
+        try:
+            if not isinstance(raw_epoch, bool) and raw_epoch is not None:
+                raw_epoch = int(raw_epoch)
+                if raw_epoch >= 0:
+                    key = (event.get("_source_session", "legacy"), raw_epoch)
+                    if self._raw_vio_epoch is not None and key != self._raw_vio_epoch:
+                        self.clear_raw_vio_history()
+                    self._raw_vio_epoch = key
+        except (ValueError, TypeError, OverflowError):
+            pass
+        epoch = values.get("viewer_epoch")
+        if isinstance(epoch, bool) or not isinstance(values.get("viewer_frame"), str) or not values["viewer_frame"].strip():
+            return
+        try:
+            epoch = int(epoch)
+            if epoch < 0:
+                return
+        except (ValueError, TypeError, OverflowError):
+            return
+        session = event.get("_source_session", "legacy")
+        key = (session, epoch, values.get("viewer_frame"))
+        if key != self._comparison_epoch:
+            for source in ("gnss", "vio_compare"):
+                self.histories[source].clear()
+                self.received.pop("pose:" + source, None)
+            self._comparison_epoch = key
+        for sample in comparison_samples(event):
+            source = sample["source"]
+            history = self.histories[source]
+            if history and sample["t"] <= history[-1]["t"]:
+                continue
+            # Collector time is preserved. Relaying cached diagnostics must not
+            # make an old GNSS measurement appear to arrive at the current time.
+            age = max(0., float(event["t"]) - sample["t"])
+            measured_age = event.get("measurement_age_s", 0.)
+            if finite_number(measured_age):
+                age += max(0., measured_age)
+            if sample["t"] > float(event["t"]) + .1:
+                continue
+            history.append(sample)
+            self.received["pose:" + source] = received_at - age
 
     def ensure_log_reader(self, board, host):
         # One low-rate external log reader per board, only on the operator PC.
@@ -1526,6 +1742,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                     self.planning_message.setText(gpp + " | " + lpp + " | " + output_summary(clean))
                 else:
                     self.telemetry[source] = json.loads(encoded)
+                    if source == "fusion":
+                        self.update_comparison_samples(event, received_at)
                     if source == "slope_cpu":
                         cpu = event.get("cpu", {})
                         mode = event.get("active_mode")
@@ -1661,6 +1879,11 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.status_label.setText("시험 종료 완료 · 화면에 마지막 결과 유지" if self.trial_stop_result.get("ok") else
                                       "시험 종료 일부 미확인 · 종료 재시도 가능")
         self.status_label.setToolTip("\n".join(f"{k}: {v['detail']}" for k, v in self.statuses.items()))
+        mode = localization_summary({"now": self.now(), "received": self.received,
+                                     "statuses": self.statuses, "telemetry": self.telemetry})
+        self.localization_mode_label.setText("위치 모드 · " + mode["label"] + "  |  " + mode["orientation_text"])
+        self.localization_mode_label.setStyleSheet("font-size:13px; font-weight:600; color:" + mode["color"] + ";")
+        self.localization_mode_label.setToolTip(mode["detail"])
         summaries = []
         for board in ("pi", "jetson"):
             rates = self.rates.get(board)
@@ -1786,6 +2009,11 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         if self.planning_client is not None:
             self.planning_client.stop()
             self.footer.setText("Pi4 플래너 연결 종료 중…")
+            QtCore.QTimer.singleShot(150, self.close)
+            event.ignore()
+            return
+        if self.heading_reset_in_progress or self.vio_restart_in_progress:
+            self.footer.setText("Pi5 위치추정 제어 응답을 확인 중입니다. 잠시 후 닫아주세요.")
             QtCore.QTimer.singleShot(150, self.close)
             event.ignore()
             return

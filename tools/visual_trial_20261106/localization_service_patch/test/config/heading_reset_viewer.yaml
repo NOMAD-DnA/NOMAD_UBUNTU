@@ -1,0 +1,27 @@
+fusion:
+  ros__parameters:
+    use_sim_time: false
+    vio_topic: /synthetic/viewer/vio
+    gps_topic: /synthetic/viewer/fix
+    quality_topic: /synthetic/viewer/quality
+    mag_topic: /synthetic/viewer/mag
+    imu_topic: /synthetic/viewer/imu
+    frame_id: fusion_map
+    local_frame_id: fusion_odom
+    raw_local_frame_id: fusion_vio_odom
+    body_frame_id: oak_imu_frame
+    datum_mode: first_fix
+    antenna_in_imu: [0.3, 0.1, 0.0]
+    base_to_imu_translation_m: [0.2, 0.1, 0.0]
+    base_to_imu_quaternion: [1.0, 0.0, 0.0, 0.0]
+    base_to_imu_extrinsics_confirmed: true
+    reference_from_zed_quaternion: [1.0, 0.0, 0.0, 0.0]
+    mag_calibration_confirmed: false
+    zed_to_reference_rotation_confirmed: false
+    allow_uncalibrated_heading: true
+    vio_stale_s: 0.5
+    gps_max_age_s: 1.0
+    quality_max_age_s: 1.0
+    publish_hz: 20.0
+    solve_hz: 2.0
+    auto_restart: false

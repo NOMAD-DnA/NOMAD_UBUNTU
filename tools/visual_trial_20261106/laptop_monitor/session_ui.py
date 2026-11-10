@@ -122,7 +122,9 @@ class RecordingMixin:
                 "active_cloud_source": getattr(self, "active_cloud_source", None),
                 "active_slope_mode": getattr(self, "active_slope_mode", None),
                 "slope_cpu_history": cpu_history,
-                "trial_stop_result": self.trial_stop_result, "ssh": self.ssh_progress}
+                "trial_stop_result": self.trial_stop_result, "ssh": self.ssh_progress,
+                "heading_reset_result": getattr(self, "heading_reset_result", None),
+                "vio_restart_result": getattr(self, "vio_restart_result", None)}
 
     def record_view(self):
         if self.recorder is None or self.replay_mode:
@@ -291,6 +293,12 @@ class RecordingMixin:
                 if isinstance(offset, (int, float)) and math.isfinite(offset):
                     entry["received"] = 1_000_000. + offset
                 self.slope_cpu_history[mode] = entry
+            self.heading_reset_result = event.get("heading_reset_result")
+            restart_result = event.get("vio_restart_result")
+            if (isinstance(restart_result, dict) and restart_result.get("ok") is True and
+                    restart_result != self.vio_restart_result):
+                self.clear_raw_vio_history()
+            self.vio_restart_result = restart_result
             ssh = event.get("ssh")
             if isinstance(ssh, dict):
                 self.ssh_progress = ssh
@@ -344,6 +352,10 @@ class RecordingMixin:
         self.images.clear()
         self.latest_qimages.clear()
         self.telemetry.clear()
+        self._comparison_epoch = None
+        self._raw_vio_epoch = None
+        self.heading_reset_result = None
+        self.vio_restart_result = None
         self.module_logs = {part: LogHistory(128) for part in self.module_logs}
         self.image_dirty.clear()
         self.capture_order = CaptureOrder()
