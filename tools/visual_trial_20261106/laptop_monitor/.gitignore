@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.mplconfig/
+.ssh-runtime-*/
+.module-log-ssh-*/
+.planning-ssh-*/
+known_hosts
+initialization_*.json
+initialization_waiting.png
+*.nomad
+*.nomad-*
+*.log
+recordings/

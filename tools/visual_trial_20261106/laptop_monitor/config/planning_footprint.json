@@ -1,0 +1,7 @@
+{
+  "half_length": 0.2,
+  "half_width": 0.1,
+  "center_offset": -0.15,
+  "reference": "OAK IMU",
+  "source": "Pi4 planning_output.yaml observed_guard; verified 2026-11-09"
+}
