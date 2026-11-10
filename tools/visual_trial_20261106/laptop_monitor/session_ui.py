@@ -4,13 +4,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
-import os
 from pathlib import Path
 import time
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
-from session_recording import SessionReader, SessionRecorder
+from session_recording import SessionReader, SessionRecorder, recording_directory
 
 
 def timestamp_label(seconds):
@@ -152,7 +151,7 @@ class RecordingMixin:
         if self.recorder is not None:
             self.stop_recording()
             return
-        root = Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "nomad-trial/recordings"
+        root = recording_directory()
         destination = root / (time.strftime("%Y%m%d_%H%M%S") + f"_{time.time_ns() % 1_000_000:06d}.nomad")
         self._record_started = time.monotonic()
         try:
@@ -231,7 +230,7 @@ class RecordingMixin:
         self.record_label.setStyleSheet("color:#fca5a5;" if failed else "color:#7dd3fc;")
 
     def open_recording_file(self):
-        root = str(Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "nomad-trial/recordings")
+        root = str(recording_directory())
         path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "주행 기록 열기", root, "NOMAD 주행 기록 (*.nomad)")
         if not path:
             return
@@ -250,8 +249,7 @@ class RecordingMixin:
 
     def open_recording_folder(self):
         status = self.recorder.status() if self.recorder is not None else self.recording_result
-        path = Path(status["path"]).parent if status else (
-            Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "nomad-trial/recordings")
+        path = Path(status["path"]).parent if status else recording_directory()
         path.mkdir(parents=True, exist_ok=True)
         QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
 

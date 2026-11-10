@@ -24,6 +24,17 @@ READ_CHUNK_BYTES = 16 * 1024 * 1024
 CLOSE_TIMEOUT_S = 5.0
 
 
+def recording_directory():
+    """Use the shared trial folder, retaining explicit XDG and portable installs."""
+    if "XDG_STATE_HOME" in os.environ:
+        return (Path(os.environ["XDG_STATE_HOME"]).expanduser() /
+                "nomad-trial" / "recordings")
+    integration_root = Path(__file__).resolve().parent.parent.parent
+    if integration_root.name == "NOMAD_모듈별_통합_20261104":
+        return integration_root / "주행기록"
+    return Path.home() / ".local" / "state" / "nomad-trial" / "recordings"
+
+
 class RecordingError(ValueError):
     """The selected file is not a supported, readable NOMAD recording."""
 

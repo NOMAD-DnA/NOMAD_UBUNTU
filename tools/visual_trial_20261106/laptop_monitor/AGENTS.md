@@ -11,4 +11,4 @@
 - 지도/영상은 보간하거나 현재 좌표를 임의 변경하지 않는다. 시간 이동 때 미래 프레임·경로·로그를 초기화한다.
 - 주행 기록 `*.nomad`, 로그·영상·캐시·초기화 스냅샷·known_hosts·비밀번호·토큰·키를 커밋하지 않는다. finder 비밀번호도 GUI 입력 또는 환경에서만 받는다.
 - 변경 범위에 맞는 오프라인 회귀 검사와 UI 확인을 한다. 테스트 가상 입력을 실제 주행 결과로 표현하지 않는다.
-- 공유폴더의 기존 GUI 폴더에서 `bash run_app.sh`로 실행한다. Git 백업본의 실행 진입점은 저장소 루트의 `bash scripts/run_live_trial_gui.sh`다. 기록 위치는 `~/.local/state/nomad-trial/recordings/`가 기본이며 필수 표시 config는 인접 `../config/oak_basalt_calib.json`을 유지한다.
+- 공유폴더의 기존 GUI 폴더에서 `bash run_app.sh`로 실행한다. Git 백업본의 실행 진입점은 저장소 루트의 `bash scripts/run_live_trial_gui.sh`다. 공유폴더 앱의 기록 위치는 통합 상위 폴더의 `주행기록/`가 기본이다. 명시적인 `XDG_STATE_HOME`은 기존처럼 그 아래 `nomad-trial/recordings/`를 우선하고, 공유폴더 구조가 없는 Git 배포본은 `~/.local/state/nomad-trial/recordings/`를 사용한다. 필수 표시 config는 인접 `../config/oak_basalt_calib.json`을 유지한다.

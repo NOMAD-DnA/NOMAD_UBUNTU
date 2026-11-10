@@ -17,6 +17,8 @@ import sys
 
 from PyQt5 import QtCore, QtGui, QtWidgets
 
+from session_recording import recording_directory
+
 BASE_DIR = Path(__file__).resolve().parent
 STATE_ROOT = (Path(os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local/state"))) / "nomad-trial").expanduser().resolve()
 FINDER = BASE_DIR / "scripts/find_ssh_boards.sh"
@@ -631,7 +633,7 @@ class Launcher(QtWidgets.QMainWindow):
         if self.process is not None or self.viewer is not None:
             return
         filename, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "NOMAD 시험 기록 열기", str(STATE_ROOT), "NOMAD 시험 기록 (*.nomad)")
+            self, "NOMAD 시험 기록 열기", str(recording_directory()), "NOMAD 시험 기록 (*.nomad)")
         if filename:
             self.launch_replay(Path(filename))
 
