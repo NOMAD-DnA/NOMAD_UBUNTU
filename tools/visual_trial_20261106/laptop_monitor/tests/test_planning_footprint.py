@@ -20,15 +20,15 @@ class GeometryTest(unittest.TestCase):
     def test_front_rear_reference_is_not_rectangle_center(self):
         f = load_footprint()
         np.testing.assert_allclose(f.corners(2., 3., 0.),
-            [[2.05, 3.1], [2.05, 2.9], [1.65, 2.9], [1.65, 3.1]])
+            [[2.025, 3.05], [2.025, 2.95], [1.825, 2.95], [1.825, 3.05]])
         np.testing.assert_allclose(f.corners(2., 3., math.pi/2),
-            [[1.9, 3.05], [2.1, 3.05], [2.1, 2.65], [1.9, 2.65]])
+            [[1.95, 3.025], [2.05, 3.025], [2.05, 2.825], [1.95, 2.825]])
 
     def test_grid_rotation_translation_and_outside_indices(self):
         f = load_footprint()
         g = dict(resolution=.2, width=2, height=2, origin=dict(x=0., y=0.))
         cells = set(f.cells(.03, .04, 0., g, 0.))
-        self.assertEqual(cells, {(x, y) for x in (-2, -1, 0) for y in (-1, 0)})
+        self.assertEqual(cells, {(x, y) for x in (-1, 0) for y in (-1, 0)})
         rotated = dict(g, origin=dict(x=10., y=20.))
         self.assertEqual(set(f.cells(9.96, 20.03, math.pi/2, rotated, math.pi/2)), cells)
         np.testing.assert_allclose(cell_polygons([(0, 0)], rotated, math.pi/2)[0],
@@ -53,7 +53,7 @@ class OverlayTest(unittest.TestCase):
         self.window.deleteLater()
         self.app.processEvents()
 
-    def test_overlay_uses_full_camera_attitude_and_exact_physical_size(self):
+    def test_overlay_uses_full_camera_attitude_and_exact_configured_size(self):
         s = self.snapshot
         s['forward_axis'] = (0, 0, -1)
         pose = s['histories']['public'][0]
@@ -62,7 +62,7 @@ class OverlayTest(unittest.TestCase):
         p = self.window.map
         p.redraw()
         np.testing.assert_allclose(p._footprint_artist.get_xy()[:4],
-            [[9.55, 21.1], [9.55, 20.9], [9.15, 20.9], [9.15, 21.1]])
+            [[9.525, 21.05], [9.525, 20.95], [9.325, 20.95], [9.325, 21.05]])
         self.assertTrue(p._footprint_artist.get_visible())
         self.assertGreater(len(p._cell_artist.get_paths()), 0)
         # No red/blocked inference from image colours.
