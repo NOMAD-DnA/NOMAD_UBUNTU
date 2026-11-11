@@ -945,6 +945,19 @@ int main(int argc, char* argv[]) {
             catch(const std::invalid_argument&) { refused=true; }
             expect(refused,"unvalidated ground/raw stability modes refused");
         }
+#ifdef NOMAD_ENABLE_PLANNING
+        for (const std::string mode : {"bench","monitor"}) {
+            rclcpp::NodeOptions options;
+            options.parameter_overrides({{"mode",mode},{"planning.headless",true},
+                {"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true}});
+            bool refused=false;
+            try { auto node=std::make_shared<nomad::ControllerNode>(options); }
+            catch(const std::invalid_argument& error) {
+                refused=std::string(error.what()).find("planning.headless")!=std::string::npos;
+            }
+            expect(refused,"headless planning outside commission mode refused at startup");
+        }
+#endif
         { RosRig stability(true,false,true,true,false,{
             {"stability.enabled",true},{"stability.geometry_verified",true},{"stability.frame_verified",true},
             {"stability.track_m",.25},{"stability.wheelbase_m",.335},{"stability.cg_height_m",.15},

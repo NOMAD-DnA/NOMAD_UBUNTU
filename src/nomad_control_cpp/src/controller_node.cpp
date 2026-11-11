@@ -210,6 +210,9 @@ private:
     // 팀의 nomad_interfaces를 사용합니다. 별도의 동명 메시지를 임의 생성하지 않습니다.
     void setupPlanning() {
         planning_headless_=parameter<bool>("planning.headless",false);
+        // Headless planning drives the raw commission controller only; other modes have no raw controller.
+        if(planning_headless_&&!commissioning_)
+            throw std::invalid_argument("planning.headless requires mode=commission");
         planning_resume_after_stop_=parameter<bool>("planning.resume_after_stop",false);
         planning_start_hold_s_=parameter<double>("planning.start_hold_s",0.75);
         planning_restart_cooldown_s_=parameter<double>("planning.restart_cooldown_s",1.0);
