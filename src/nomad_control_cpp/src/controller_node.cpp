@@ -379,7 +379,9 @@ private:
             if(activeState()!=TrialState::Stopped){
                 stopAndRelease("unexpected raw state during planning wait; reset required");
             }else if(!activeHealthy(steady,ros)||!driver_ready){
-                planning_wait_reason_=!driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting";
+                const string issue=raw_controller_->telemetryIssue();
+                planning_wait_reason_=!driver_ready?"driver endpoints unavailable; waiting":
+                    issue!="READY"&&issue!="NO_TELEMETRY"?issue:"telemetry unavailable; waiting";
                 releaseMotor();logPlanningWait(planning_wait_reason_,steady,ros);
             }else if(supervisor_.resumePending()&&!planning_guard_->target(ros,steady)){
                 pausePlanning("planning input expired; waiting for fresh command",steady,ros);
@@ -819,6 +821,7 @@ private:
         const auto& s = message.state;
         const double stamp = static_cast<double>(message.header.stamp.sec) + message.header.stamp.nanosec * 1e-9;
         const TelemetrySample sample{stamp, s.speed, s.current_motor, s.current_input, s.voltage_input, s.fault_code};
+        const bool was_running = activeState() == TrialState::Running;
         if (commissioning_) raw_controller_->observe(sample, steadySeconds(), now().seconds());
         else controller_->observe(sample, steadySeconds(), now().seconds());
         last_raw_erpm_ = s.speed;
@@ -826,7 +829,9 @@ private:
         last_current_ = s.current_motor;
         last_fault_ = s.fault_code;
         logRawTransition();
-        if (activeState() == TrialState::Fault) releaseMotor();
+        // Fault, or a non-critical stop such as a current spike: release now, not on the next tick.
+        if (activeState() == TrialState::Fault || (was_running && activeState() != TrialState::Running))
+            releaseMotor();
     }
 
     void publishScalar(const rclcpp::Publisher<Scalar>::SharedPtr& publisher, double value) {
@@ -853,7 +858,7 @@ private:
     void controlTick() {
         const double steady_now = steadySeconds();
         const double ros_now = now().seconds();
-        const bool driver_ready = exclusiveDriverReady(false);
+        bool driver_ready = exclusiveDriverReady(false);
 #ifdef NOMAD_ENABLE_PLANNING
         if(planning_guard_&&last_tick_ros_&&ros_now<*last_tick_ros_-1e-3){
             planning_guard_->rebaseClock();
@@ -861,6 +866,9 @@ private:
         }
         last_tick_ros_=ros_now;
         tickPlanning(steady_now,ros_now);
+        // A planning start() forces a fresh graph check; reuse it so the raw tick does not see
+        // the older cached value and stop the run it just started.
+        driver_ready = exclusiveDriverReady(false);
 #endif
         if (!stabilityReady() && activeState()==TrialState::Running) {
             stopAndRelease(stability_decision_.reason);
@@ -881,7 +889,10 @@ private:
         logRawTransition();
         if(activeState()!=TrialState::Running){
 #ifdef NOMAD_ENABLE_PLANNING
-            supervisor_.onRawNotRunning(planning_headless_);
+            if(supervisor_.active()&&planning_headless_&&planning_resume_after_stop_&&
+               raw_controller_->planningWaitActive())
+                pausePlanning(raw_controller_->reason(),steady_now,ros_now);
+            else supervisor_.onRawNotRunning(planning_headless_);
 #else
             supervisor_.onRawNotRunning(false);
 #endif

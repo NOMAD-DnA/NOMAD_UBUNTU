@@ -286,7 +286,7 @@ public:
             // 수신 status는 10Hz이므로 두 번의 발행까지 진행한 뒤 두 상태를 함께 검사합니다.
             pump(.25);
         }
-        else if(failure=="hard overspeed") {telemetry_erpm_=2501.0;pump(.13);}
+        else if(failure=="hard overspeed") {telemetry_erpm_=2501.0;pump(.25);} // same two-status window as VESC fault
         else throw runtime_error("unknown measured-speed safety case");
         const int stopped=moving_messages_;
         expect(status_.value("planning_reset_required",false)&&!status_.value("autonomous_active",true),
@@ -312,7 +312,7 @@ public:
         planner_speed_=.2;const int before=moving_messages_;pump(.1);
         expect(moving_messages_==before,"zero-to-motion restart observes cooldown and dwell");
         pump(.5);expect(moving_messages_>before,"motion resumes after continuous stable stream");
-        telemetry_erpm_=1400;pump(.35);
+        telemetry_erpm_=1400;pump(.5); // 0.2 s rule + telemetry + 10 Hz status publication
         expect(status_.value("planning_reset_required",false),"autonomy sustained measured overspeed latches stop");
         expect(!status_.at("planning_requested_erpm").is_number()||status_.at("planning_requested_erpm").get<double>()!=1400,
                "requested and measured ERPM remain distinct");

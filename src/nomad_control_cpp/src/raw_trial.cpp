@@ -124,8 +124,11 @@ void RawTrialController::invalidateTelemetry(const string& reason, bool recovera
         const bool wait = planning_recovery_ && recoverable;
         stop(reason, !wait);
         planning_wait_ = wait;
-    } else if (planning_recovery_ && state_ == TrialState::Stopped && !recoverable) {
-        stop(reason, true); // Physical faults during a pause must still latch.
+    } else if (planning_recovery_ && !recoverable &&
+               (state_ == TrialState::Stopped || state_ == TrialState::Idle)) {
+        // Physical faults during a pause, or before headless planning auto-starts, must
+        // still latch so a clean sample cannot start the motor without RESET.
+        stop(reason, true);
     } else if (state_ == TrialState::Monitor || state_ == TrialState::Idle) reason_ = reason;
 }
 
@@ -258,7 +261,14 @@ bool RawTrialController::update(RawAxis axis, double erpm, double servo, double 
 }
 
 bool RawTrialController::pausePlanning(const string& reason, double steady_now, double ros_now) {
-    if (!planning_recovery_ || !checkClock(steady_now, ros_now) || state_ == TrialState::Fault) return false;
+    if (!planning_recovery_ || state_ == TrialState::Fault) return false;
+    if (!checkClock(steady_now, ros_now)) {
+        // An invalid clock value faulted. A backwards step was rebased by checkClock and has
+        // already moved a running trial to a planning wait; keep that wait instead of failing.
+        if (state_ == TrialState::Fault) return false;
+        if (state_ == TrialState::Stopped) planning_wait_ = true;
+        return true;
+    }
     // A stalled control loop is reported as such but, like a missing input, only pauses.
     if (state_ == TrialState::Running && last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
         stop(format("raw control timer stalled %.2f s", steady_now - *last_tick_)); planning_wait_ = true;

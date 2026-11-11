@@ -983,6 +983,26 @@ void testCriticalAndNonCriticalSplit() {
         Rig bad = running();
         expect(bad.controller.tick(std::numeric_limits<double>::quiet_NaN(), bad.ros, true).kind == nomad::OutputKind::Release &&
                bad.controller.state() == TrialState::Fault, "invalid clock value still latches"); }
+    {   // Review fix: a backwards step first seen by pausePlanning pauses instead of failing.
+        Rig r = running(); r.steady += .02; r.ros -= 2.0;
+        expect(r.controller.pausePlanning("planning input expired", r.steady, r.ros) &&
+               r.controller.state() == TrialState::Stopped && r.controller.planningWaitActive(),
+               "pausePlanning after a backwards clock step keeps a soft wait");
+        send(r, 0, 0, 0, 16.3, 0);
+        expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "and resumes on fresh telemetry"); }
+    {   // Review fix: critical faults before headless auto-start latch instead of being forgotten.
+        Rig idle; idle.prime(); idle.controller.setPlanningRecovery(true);
+        send(idle, 0, 0, 0, 16.3, 3);
+        expect(idle.controller.state() == TrialState::Fault, "fault code while idle latches in headless mode");
+        for (int i = 0; i < 15; ++i) send(idle, 0, 0, 0, 16.3, 0, .05);
+        expect(!idle.start(nomad::RawAxis::Manual, 0, .5, 0), "clean samples cannot auto-start after an idle fault");
+        expect(idle.controller.reset(idle.steady, idle.ros) && idle.controller.state() == TrialState::Idle,
+               "RESET clears the idle fault once stationary");
+        Rig soft; soft.prime(); soft.controller.setPlanningRecovery(true);
+        send(soft, 0, 33.0, 0, 16.3, 0);
+        expect(soft.controller.state() == TrialState::Idle, "a current spike while idle does not latch");
+        Rig manual; manual.prime(); send(manual, 0, 0, 0, 16.3, 3);
+        expect(manual.controller.state() == TrialState::Idle, "manual mode keeps idle faults as a reason only"); }
 }
 } // namespace
 
