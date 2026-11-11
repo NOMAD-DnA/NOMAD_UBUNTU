@@ -1,8 +1,10 @@
 // 실제 노드 구현을 가짜 VESC와 같은 executor에서 시험합니다. 시험 토픽은 고유 namespace에 격리합니다.
 #include "nomad_control_cpp/controller_node.hpp"
 #include "json.hpp"
+#ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
 #include <nomad_interfaces/msg/vehicle_state.hpp>
+#endif
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <cmath>
