@@ -21,6 +21,12 @@ class Tests(unittest.TestCase):
   rc,text=self.render();self.assertEqual(rc,0);self.assertIn('192.168.3.142',text)
  def test_bad_saved_address_stops_profile_generation(self):
   rc,text=self.render('{"pi4":"$(touch /tmp/unexpected)"}');self.assertNotEqual(rc,0);self.assertEqual(text,'')
+ def test_laptop_network_selects_fixed_pi4_by_wlan0_subnet(self):
+  peers={'pi4':'192.168.3.142','pi5':'192.168.3.156','jetson':'192.168.1.152','networks':[{'cidr':'172.20.10.0/28','pi4':'172.20.10.14','pi5':'172.20.10.13','jetson':'172.20.10.12'}]}
+  rc,text=self.render(json.dumps(peers));self.assertEqual(rc,0);ET.fromstring(text);self.assertIn('<address>172.20.10.14</address>',text);self.assertNotIn('192.168.3.142',text)
+ def test_other_network_keeps_classroom_pi4(self):
+  peers={'pi4':'192.168.3.142','pi5':'192.168.3.156','jetson':'192.168.1.152','networks':[{'cidr':'10.42.0.0/24','pi4':'10.42.0.14','pi5':'10.42.0.15','jetson':'10.42.0.16'}]}
+  rc,text=self.render(json.dumps(peers));self.assertEqual(rc,0);self.assertIn('<address>192.168.3.142</address>',text);self.assertNotIn('10.42.0.14',text)
  def test_embedded_profile_functions_match(self):
   def function(name):return (BASE/name).read_text().split('nomad_write_planning_output_profile() (',1)[1].split('\n)\n',1)[0]
   for name in ('start_jetson.sh','start_pi_vio_fusion.sh'):self.assertEqual(function(name),function('planning_output_profile.sh'))
