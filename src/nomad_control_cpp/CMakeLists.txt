@@ -136,7 +136,8 @@ if(NOMAD_BUILD_ROS2)
       ament_target_dependencies(controller_ros_tests nomad_interfaces)
     endif()
     add_test(NAME controller_ros_integration COMMAND controller_ros_tests)
-    set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 60)
+    # The full suite runs about 62 s on a desktop PC; leave margin for slower machines.
+    set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150)
     if(NOMAD_ENABLE_PLANNING)
       # Device-free contract: launch the already built production node once.
       add_executable(test_module_pause_contract test/test_module_pause_contract.cpp)

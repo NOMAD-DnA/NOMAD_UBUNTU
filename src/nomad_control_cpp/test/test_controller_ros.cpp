@@ -288,12 +288,24 @@ public:
         }
         else if(failure=="hard overspeed") {telemetry_erpm_=2501.0;pump(.25);} // same two-status window as VESC fault
         else throw runtime_error("unknown measured-speed safety case");
+        // Current policy (09 auto-resume profile, 11-11 critical split): operator STOP and
+        // physical faults latch until RESET; LPP input loss and telemetry loss only pause.
+        const bool critical=failure=="operator STOP"||failure=="VESC fault"||failure=="hard overspeed";
         const int stopped=moving_messages_;
-        expect(status_.value("planning_reset_required",false)&&!status_.value("autonomous_active",true),
-               ("measured-speed mode preserves latched stop for "+failure).c_str());
-        send_planning_=true;send_telemetry_=true;telemetry_erpm_=0;telemetry_fault_=0;pump(.25);
-        expect(moving_messages_==stopped&&status_.value("planning_reset_required",false),
-               ("fresh commands cannot undo "+failure+" without reset").c_str());
+        if(critical){
+            expect(status_.value("planning_reset_required",false)&&!status_.value("autonomous_active",true),
+                   ("measured-speed mode preserves latched stop for "+failure).c_str());
+            send_planning_=true;send_telemetry_=true;telemetry_erpm_=0;telemetry_fault_=0;pump(.25);
+            expect(moving_messages_==stopped&&status_.value("planning_reset_required",false),
+                   ("fresh commands cannot undo "+failure+" without reset").c_str());
+        }else{
+            expect(!status_.value("planning_reset_required",true)&&!status_.value("autonomous_active",true),
+                   ("measured-speed mode pauses without latching for "+failure).c_str());
+            send_planning_=true;send_telemetry_=true;telemetry_erpm_=0;telemetry_fault_=0;pump(.35);
+            expect(moving_messages_>stopped&&status_.value("autonomous_active",false)&&
+                   !status_.value("planning_reset_required",true),
+                   ("fresh commands resume after "+failure+" without reset").c_str());
+        }
     }
 
     void runStableHeadlessStart() {
