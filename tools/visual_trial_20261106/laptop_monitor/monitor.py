@@ -759,6 +759,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.vio_restart_worker = None
         self.controller_reset_in_progress = False
         self.controller_reset_worker = None
+        self.controller_reset_text = ""
         self._plot_samplers = {source: HistorySampler(4000) for source in POSE_SOURCES}
         self._plot_signatures = {}
         self._fit_initialized = False
@@ -1103,7 +1104,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                                 "arm_enabled": self.output_arm.isEnabled(),
                                 "disarm_enabled": self.output_disarm.isEnabled(),
                                 "reset_enabled": self.controller_reset_enabled(),
-                                "reset_busy": self.controller_reset_in_progress}}
+                                "reset_busy": self.controller_reset_in_progress,
+                                "reset_result": self.controller_reset_text}}
 
     def open_developer_window(self, part):
         if part == "perception":
@@ -1455,7 +1457,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             if not accepted:
                 return
         self.controller_reset_in_progress = True
-        self.planning_message.setText("제어기 복구 요청 중 · Pi4 응답 대기")
+        self.controller_reset_text = time.strftime("%H:%M:%S") + " 제어기 복구 요청 중 · Pi4 응답 대기"
         worker = ControllerResetWorker(self.planning_host.text().strip(), password or None, self)
         self.controller_reset_worker = worker
         worker.result.connect(self.on_controller_reset)
@@ -1464,8 +1466,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(dict)
     def on_controller_reset(self, value):
+        # Own field: planning telemetry rewrites planning_message several times a second.
         from controller_reset import describe
-        self.planning_message.setText(describe(value))
+        self.controller_reset_text = time.strftime("%H:%M:%S") + " " + describe(value)
 
     def on_controller_reset_finished(self):
         self.controller_reset_in_progress = False
@@ -2098,6 +2101,13 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         if self.planning_client is not None:
             self.planning_client.stop()
             self.footer.setText("Pi4 플래너 연결 종료 중…")
+            QtCore.QTimer.singleShot(150, self.close)
+            event.ignore()
+            return
+        if self.controller_reset_in_progress or (self.controller_reset_worker is not None and
+                                                  self.controller_reset_worker.isRunning()):
+            # Never destroy the running reset QThread; it ends within its 40 s SSH timeout.
+            self.footer.setText("Pi4 제어기 복구 응답을 확인 중입니다. 잠시 후 닫아주세요.")
             QtCore.QTimer.singleShot(150, self.close)
             event.ignore()
             return

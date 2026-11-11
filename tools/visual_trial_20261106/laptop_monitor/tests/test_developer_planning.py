@@ -247,6 +247,12 @@ class PlanningDeveloperViewTest(unittest.TestCase):
         window.update_snapshot(snapshot)
         self.assertFalse(window.reset_button.isEnabled())
         self.assertIn("복구 중", window.reset_button.text())
+        snapshot["planning_ui"].update(reset_busy=False, reset_result="12:00:00 제어기 복구 완료",
+                                       message="GPP · 새 플래너 상태")
+        window.update_snapshot(snapshot)
+        self.assertEqual(window.reset_result.text(), "12:00:00 제어기 복구 완료")
+        self.assertFalse(window.reset_result.isHidden())
+        self.assertIn("새 플래너 상태", window.status.text())
 
     def test_spectator_and_no_ssh_never_invoke_controller_or_enable_goal_selection(self):
         window = self.window()
