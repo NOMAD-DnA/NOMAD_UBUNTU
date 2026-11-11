@@ -345,6 +345,24 @@ class VioRestartWorker(QtCore.QThread):
         self.result.emit(value)
 
 
+class ControllerResetWorker(QtCore.QThread):
+    result = QtCore.pyqtSignal(dict)
+
+    def __init__(self, host, password, parent=None):
+        super().__init__(parent)
+        self.host, self.password = host, password
+
+    def run(self):
+        try:
+            from controller_reset import reset_controller
+            value = reset_controller(self.host, self.password)
+        except Exception:
+            value = {"ok": False, "reason": "local_control_error", "message": ""}
+        finally:
+            self.password = ""
+        self.result.emit(value)
+
+
 class BufferedImageLabel(QtWidgets.QLabel):
     """Paint the retained frame without QLabel pixmap size-hint relayouts."""
     def __init__(self, text=""):
@@ -739,6 +757,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.vio_restart_in_progress = False
         self.vio_restart_result = None
         self.vio_restart_worker = None
+        self.controller_reset_in_progress = False
+        self.controller_reset_worker = None
         self._plot_samplers = {source: HistorySampler(4000) for source in POSE_SOURCES}
         self._plot_signatures = {}
         self._fit_initialized = False
@@ -1081,7 +1101,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                                 "send_enabled": self.goal_send.isEnabled(),
                                 "cancel_enabled": self.goal_cancel.isEnabled(),
                                 "arm_enabled": self.output_arm.isEnabled(),
-                                "disarm_enabled": self.output_disarm.isEnabled()}}
+                                "disarm_enabled": self.output_disarm.isEnabled(),
+                                "reset_enabled": self.controller_reset_enabled(),
+                                "reset_busy": self.controller_reset_in_progress}}
 
     def open_developer_window(self, part):
         if part == "perception":
@@ -1408,6 +1430,46 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             return
         if self.planning_client.send({"cmd": "disarm"}, timing=click_timing, origin="output_stop_button"):
             self.planning_message.setText("출력 정지 요청 · Pi4 응답 대기")
+
+    def controller_reset_enabled(self):
+        return (not self.spectator_mode and not self.args.no_ssh and not self.replay_mode and
+                not self.controller_reset_in_progress and bool(self.planning_host.text().strip()))
+
+    def reset_controller(self):
+        """Operator-confirmed clear of a critical controller latch on Pi4 (~/reset)."""
+        if not self.controller_reset_enabled():
+            return
+        answer = QtWidgets.QMessageBox.question(
+            self, "제어기 복구",
+            "Pi4 제어기의 치명 잠금(고장 코드·전압·과속·과전류·바퀴 걸림·운영자 STOP 등)을 풉니다.\n\n"
+            "· 차가 0.5초 이상 멈춰 있어야 받아들여집니다.\n"
+            "· 잠금 원인을 확인하고 해결한 뒤 누르세요.\n"
+            "· 출력 허용 상태에서 플래너 명령이 오면 복구 직후 바로 다시 출발합니다.\n\n계속할까요?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No, QtWidgets.QMessageBox.No)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return
+        password = os.environ.get("NOMAD_BOARD_PASSWORD1") or os.environ.get("NOMAD_BOARD_PASSWORD")
+        if not password:
+            password, accepted = QtWidgets.QInputDialog.getText(
+                self, "제어기 복구", "Pi4 SSH 비밀번호 (키 로그인이면 비워 두고 확인)", QtWidgets.QLineEdit.Password)
+            if not accepted:
+                return
+        self.controller_reset_in_progress = True
+        self.planning_message.setText("제어기 복구 요청 중 · Pi4 응답 대기")
+        worker = ControllerResetWorker(self.planning_host.text().strip(), password or None, self)
+        self.controller_reset_worker = worker
+        worker.result.connect(self.on_controller_reset)
+        worker.finished.connect(self.on_controller_reset_finished)
+        worker.start()
+
+    @QtCore.pyqtSlot(dict)
+    def on_controller_reset(self, value):
+        from controller_reset import describe
+        self.planning_message.setText(describe(value))
+
+    def on_controller_reset_finished(self):
+        self.controller_reset_in_progress = False
+        self.controller_reset_worker = None
 
     def stop_trial(self):
         if self.spectator_mode or self.args.no_ssh or not self.args.enable_trial_control:

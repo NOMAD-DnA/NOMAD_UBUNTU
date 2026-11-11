@@ -233,19 +233,37 @@ class PlanningDeveloperViewTest(unittest.TestCase):
         self.assertEqual(window.findChildren(QtCore.QProcess), [])
         self.assertEqual(window.findChildren(QtCore.QThread), [])
 
+    def test_controller_reset_button_follows_snapshot_and_calls_monitor(self):
+        window = self.window()
+        _, _, snapshot = fixture()
+        controller = SimpleNamespace(reset_controller=Mock())
+        window.controller = controller
+        snapshot["planning_ui"].update(spectator=False, no_ssh=False, reset_enabled=True, reset_busy=False)
+        window.update_snapshot(snapshot)
+        self.assertTrue(window.reset_button.isEnabled())
+        window.reset_button.click()
+        controller.reset_controller.assert_called_once_with()
+        snapshot["planning_ui"].update(reset_enabled=False, reset_busy=True)
+        window.update_snapshot(snapshot)
+        self.assertFalse(window.reset_button.isEnabled())
+        self.assertIn("복구 중", window.reset_button.text())
+
     def test_spectator_and_no_ssh_never_invoke_controller_or_enable_goal_selection(self):
         window = self.window()
         _, _, snapshot = fixture()
         denied = Mock(side_effect=AssertionError("read-only developer view attempted control"))
         window.controller = SimpleNamespace(connect_planner=denied, send_goal=denied,
                                             cancel_goal=denied, select_goal=denied,
-                                            arm_output=denied, disarm_output=denied)
+                                            arm_output=denied, disarm_output=denied,
+                                            reset_controller=denied)
         for mode in ("spectator", "no_ssh"):
             snapshot["planning_ui"].update(spectator=mode == "spectator", no_ssh=mode == "no_ssh")
             window.update_snapshot(snapshot)
-            for name in ("connect_planner", "send_goal", "cancel_goal", "arm_output", "disarm_output"):
+            for name in ("connect_planner", "send_goal", "cancel_goal", "arm_output", "disarm_output",
+                         "reset_controller"):
                 window._action(name)
             window._select_goal(30., 30., "odom")
+            self.assertFalse(window.reset_button.isEnabled())
             self.assertFalse(window.connect_button.isEnabled())
             self.assertFalse(window.send_button.isEnabled())
             self.assertFalse(window.cancel_button.isEnabled())
