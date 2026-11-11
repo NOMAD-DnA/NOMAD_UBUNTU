@@ -4,6 +4,7 @@
 #include "nomad_control_cpp/stability_guard.hpp"
 #include "nomad_control_cpp/planning_command.hpp"
 #include "nomad_control_cpp/planning_start_gate.hpp"
+#include "nomad_control_cpp/planning_supervisor.hpp"
 #include "nomad_control_cpp/planning_speed_feedback.hpp"
 #include "nomad_control_cpp/control_limits.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
@@ -265,13 +266,13 @@ private:
                     if(auto target=planning_guard_->target(ros,steady))
                         planning_start_gate_->update(steady,target->erpm,min(limits::kPlanningReceiveLeaseS,c.valid_for-max(0.0,ros-c.stamp)));
                     else planning_start_gate_->reset(steady,true);
-                    if(planning_soft_stopped_)planning_resume_pending_=true;
+                    supervisor_.onFreshCommand();
                 }
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
-                if(autonomous_active_&&!planning_guard_->target(now().seconds(),steadySeconds())) {
+                if(supervisor_.active()&&!planning_guard_->target(now().seconds(),steadySeconds())) {
                     stopAndRelease("planning stopped or invalid");
                 }
             });
@@ -298,15 +299,15 @@ private:
             if(!planningReady(steady,ros))return false;
             const bool ok=raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),
                 0,steady,ros,exclusiveDriverReady());
-            if(ok){autonomous_active_=true;autonomous_heartbeat_=steady-max(0.0,ros-rclcpp::Time(request.stamp).seconds());commissioning_axis_=4;}
+            if(ok){supervisor_.activate();autonomous_heartbeat_=steady-max(0.0,ros-rclcpp::Time(request.stamp).seconds());commissioning_axis_=4;}
             return ok;
         },[&]{
             const double steady=steadySeconds();
-            if(!autonomous_active_)return false;
+            if(!supervisor_.active())return false;
             if(steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS){activeStop("operator heartbeat expired");return false;}
             autonomous_heartbeat_=steady-max(0.0,now().seconds()-rclcpp::Time(request.stamp).seconds());return true;
         },limits::kWifiManualCommandMaxAgeS);
-        if(!response.accepted&&!autonomous_active_)response.reason="autonomy requires one fresh planner and verified m/s/rad calibration; stop manual control first";
+        if(!response.accepted&&!supervisor_.active())response.reason="autonomy requires one fresh planner and verified m/s/rad calibration; stop manual control first";
     }
     void resetPlanningSpeedFeedback() {
         if(planning_speed_feedback_)planning_speed_feedback_->reset();
@@ -323,10 +324,10 @@ private:
     }
     string planningStartReason(double steady) const {
         if(!planning_measured_speed_control_)return planning_start_gate_->reason(steady);
-        if(headless_blocked_)return activeReason();
-        if(planning_soft_stopped_)return planning_wait_reason_;
+        if(supervisor_.blocked())return activeReason();
+        if(supervisor_.softStopped())return planning_wait_reason_;
         if(planning_feedback_reducing_)return "measured overspeed; reducing speed command";
-        return autonomous_active_?"measured speed tracking":"waiting for fresh command and measured speed";
+        return supervisor_.active()?"measured speed tracking":"waiting for fresh command and measured speed";
     }
     void logPlanningWait(const string& reason,double steady,double ros) {
         RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),1000,
@@ -337,70 +338,71 @@ private:
             raw_controller_->telemetryReceiveAge(steady),raw_controller_->telemetryStampAge(ros),
             graph_telemetry_publishers_,graph_speed_subscribers_,graph_current_subscribers_,graph_servo_subscribers_,
             graph_speed_publishers_,graph_current_publishers_,graph_servo_publishers_,graph_other_publishers_,
-            static_cast<int>(last_fault_),last_current_,last_voltage_,static_cast<int>(headless_blocked_));
+            static_cast<int>(last_fault_),last_current_,last_voltage_,static_cast<int>(supervisor_.blocked()));
     }
     // A missing module/endpoint/telemetry sample releases output and waits. Actual
     // physical faults, clock/timer failures and explicit operator STOP stay latched.
     void pausePlanning(const string& reason,double steady,double ros) {
-        if(headless_blocked_ || activeState()==TrialState::Fault){
-            if(!headless_blocked_)activeStop(activeReason());
-            autonomous_active_=false;planning_soft_stopped_=false;planning_resume_pending_=false;
+        if(supervisor_.blocked() || activeState()==TrialState::Fault){
+            if(!supervisor_.blocked())activeStop(activeReason());
+            supervisor_.onPauseWhileFaulted();
             releaseMotor();return;
         }
         if(!raw_controller_->pausePlanning(reason,steady,ros)){
             const auto fault=activeReason();stopAndRelease(fault);
             logPlanningWait(fault,steady,ros);return;
         }
-        autonomous_active_=false;planning_resume_pending_=false;planning_wait_reason_=reason;
+        planning_wait_reason_=reason;
         planning_guard_->clear();planning_start_gate_->reset(steady,true);
         resetPlanningSpeedFeedback();planning_overspeed_since_.reset();
-        if(activeState()==TrialState::Stopped){planning_soft_stopped_=true;logRawTransition();}
+        const bool raw_stopped=activeState()==TrialState::Stopped;
+        supervisor_.onPaused(raw_stopped);
+        if(raw_stopped)logRawTransition();
         closeManualSession();releaseMotor();
         logPlanningWait(reason,steady,ros);
     }
     void tickPlanning(double steady,double ros) {
-        if(planning_headless_ && planning_resume_after_stop_ && !headless_blocked_){
+        if(planning_headless_ && planning_resume_after_stop_ && !supervisor_.blocked()){
             const bool driver_ready=exclusiveDriverReady(false);
             if(activeState()==TrialState::Fault || graph_competing_publishers_){
                 const auto fault=activeState()==TrialState::Fault?activeReason():"competing command/telemetry publisher";
                 stopAndRelease(fault);logPlanningWait(fault,steady,ros);return;
             }
-            if(autonomous_active_ && (raw_controller_->planningWaitActive() || !activeHealthy(steady,ros) || !driver_ready)){
+            if(supervisor_.active() && (raw_controller_->planningWaitActive() || !activeHealthy(steady,ros) || !driver_ready)){
                 pausePlanning(!driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting",steady,ros);return;
             }
         }
-        if(planning_headless_&&planning_resume_after_stop_&&planning_soft_stopped_&&!headless_blocked_){
+        if(planning_headless_&&planning_resume_after_stop_&&supervisor_.softStopped()&&!supervisor_.blocked()){
             const bool driver_ready=exclusiveDriverReady(false);
             if(activeState()!=TrialState::Stopped){
                 stopAndRelease("unexpected raw state during planning wait; reset required");
             }else if(!activeHealthy(steady,ros)||!driver_ready){
                 planning_wait_reason_=!driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting";
                 releaseMotor();logPlanningWait(planning_wait_reason_,steady,ros);
-            }else if(planning_resume_pending_&&!planning_guard_->target(ros,steady)){
+            }else if(supervisor_.resumePending()&&!planning_guard_->target(ros,steady)){
                 pausePlanning("planning input expired; waiting for fresh command",steady,ros);
-            }else if(planning_resume_pending_&&planningReady(steady,ros)&&stabilityReady()){
+            }else if(supervisor_.resumePending()&&planningReady(steady,ros)&&stabilityReady()){
                 if(planning_measured_speed_control_){
                     const auto next=planning_guard_->target(ros,steady);
                     if(next&&raw_controller_->resumePlanning(next->erpm,next->servo,steady,ros,driver_ready)){
-                        planning_soft_stopped_=false;planning_resume_pending_=false;
-                        autonomous_active_=true;commissioning_axis_=4;
+                        supervisor_.activate();commissioning_axis_=4;
                         resetPlanningSpeedFeedback();logRawTransition();
                     }
                 }else if(planning_start_gate_->ready(steady)&&activeStationary(steady,ros)&&
                          raw_controller_->reset(steady,ros)){
-                    planning_soft_stopped_=false;planning_resume_pending_=false;logRawTransition();
+                    supervisor_.onResetResume();logRawTransition();
                 }
             }
         }
-        if(planning_headless_&&!headless_blocked_&&!autonomous_active_&&
+        if(planning_headless_&&!supervisor_.blocked()&&!supervisor_.active()&&
            activeState()==TrialState::Idle&&planningReady(steady,ros)&&
            (planning_measured_speed_control_||planning_start_gate_->ready(steady))&&stabilityReady()){
             if(raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),0,
                                       steady,ros,exclusiveDriverReady())){
-                autonomous_active_=true;commissioning_axis_=4;resetPlanningSpeedFeedback();
+                supervisor_.activate();commissioning_axis_=4;resetPlanningSpeedFeedback();
             }
         }
-        if(!autonomous_active_)return;
+        if(!supervisor_.active())return;
         const auto target=planning_guard_->target(ros,steady);
         // Legacy mode keeps its original limit. The measured-speed profile reduces
         // the speed request and recovers automatically instead of latching a stop.
@@ -450,8 +452,8 @@ private:
         msg.ready=commissioning_&&fresh&&driver_ready&&planning_guard_->calibrated()&&
             options_.hardware_timeout_verified&&raw_options_.setup_acknowledged&&
             (!stability_enabled_||stability_decision_.allowed)&&!msg.fault&&
-            (!planning_headless_||!headless_blocked_);
-        msg.detail=string(autonomous_active_?"LPP":"MANUAL/IDLE")+"; steering measurement unavailable; "+activeReason();
+            (!planning_headless_||!supervisor_.blocked());
+        msg.detail=string(supervisor_.active()?"LPP":"MANUAL/IDLE")+"; steering measurement unavailable; "+activeReason();
         vehicle_state_pub_->publish(msg);
     }
 #endif
@@ -565,7 +567,7 @@ private:
         }
         if(request.axis==Commissioning::Request::AUTONOMOUS){onAutonomous(request,response);return;}
 #endif
-        if(autonomous_active_&&request.action!=Commissioning::Request::STOP){
+        if(supervisor_.active()&&request.action!=Commissioning::Request::STOP){
             response.accepted=false;response.reason="autonomy owns output; STOP before manual control";return;
         }
         // STOP은 axis/목표 필드 없이도 종료된 세션을 기록해야 합니다.
@@ -720,7 +722,7 @@ private:
         const bool accepted = raw_controller_->reset(steady, ros);
 #ifdef NOMAD_ENABLE_PLANNING
         if(accepted&&planning_headless_){
-            headless_blocked_=false;planning_soft_stopped_=false;planning_resume_pending_=false;planning_guard_->clear();
+            supervisor_.onReset();planning_guard_->clear();
             planning_start_gate_->reset(steady,true);planning_overspeed_since_.reset();resetPlanningSpeedFeedback();
         }
 #endif
@@ -728,13 +730,14 @@ private:
         return accepted;
     }
     void activeStop(const string& reason) {
-        autonomous_active_=false;
 #ifdef NOMAD_ENABLE_PLANNING
-        if(planning_headless_){headless_blocked_=true;planning_soft_stopped_=false;planning_resume_pending_=false;}
+        supervisor_.onStop(planning_headless_);
         if(planning_start_gate_)planning_start_gate_->reset(steadySeconds(),true);
         resetPlanningSpeedFeedback();
         planning_overspeed_since_.reset();
         if(planning_guard_)planning_guard_->clear();
+#else
+        supervisor_.onStop(false);
 #endif
         if (commissioning_) { raw_controller_->stop(reason); logRawTransition(); }
         else controller_->stop(reason);
@@ -850,7 +853,7 @@ private:
         if (commissioning_) {
             double minimum_drive_erpm=0;
 #ifdef NOMAD_ENABLE_PLANNING
-            if(autonomous_active_&&planning_measured_speed_control_&&!planning_feedback_reducing_)
+            if(supervisor_.active()&&planning_measured_speed_control_&&!planning_feedback_reducing_)
                 minimum_drive_erpm=planning_min_running_erpm_;
 #endif
             const auto output = raw_controller_->tick(steady_now, ros_now, driver_ready,minimum_drive_erpm);
@@ -863,11 +866,10 @@ private:
         logRawTransition();
         if(activeState()!=TrialState::Running){
 #ifdef NOMAD_ENABLE_PLANNING
-            if(planning_headless_&&autonomous_active_){
-                headless_blocked_=true;planning_soft_stopped_=false;planning_resume_pending_=false;
-            }
+            supervisor_.onRawNotRunning(planning_headless_);
+#else
+            supervisor_.onRawNotRunning(false);
 #endif
-            autonomous_active_=false;
         }
         if (!activeManual()) closeManualSession();
         if (steady_now - last_status_at_ < 0.1) return;
@@ -962,20 +964,21 @@ private:
             data["steering_min"] = calibration_.steering_min_rad;
             data["steering_max"] = calibration_.steering_max_rad;
         }
-        data["autonomous_active"]=autonomous_active_;
+        data["autonomous_active"]=supervisor_.active();
 #ifdef NOMAD_ENABLE_PLANNING
         data["planning_supported"]=true;
         data["planning_calibration_verified"]=planning_calibration_.verified;
         data["planning_headless"]=planning_headless_;
         data["planning_resume_after_stop"]=planning_resume_after_stop_;
-        data["planning_soft_stopped"]=planning_soft_stopped_;
+        data["planning_soft_stopped"]=supervisor_.softStopped();
         data["planning_estimated_execution"]=planning_allow_estimated_&&!planning_calibration_.verified;
-        data["planning_reset_required"]=headless_blocked_;
+        data["planning_reset_required"]=supervisor_.blocked();
+        data["planning_supervisor_state"]=planningSupervisorStateName(supervisor_.state());
         data["planning_ready"]=planningReady(steady_now,ros_now);
         data["planning_reason"]=planning_guard_->targetReason(ros_now,steady_now);
         data["planning_start_reason"]=planningStartReason(steady_now);
         data["planning_start_ready"]=planning_measured_speed_control_?
-            (planningReady(steady_now,ros_now)&&fresh&&!headless_blocked_):planning_start_gate_->ready(steady_now);
+            (planningReady(steady_now,ros_now)&&fresh&&!supervisor_.blocked()):planning_start_gate_->ready(steady_now);
         data["planning_measured_speed_control"]=planning_measured_speed_control_;
         data["planning_minimum_running_erpm"]=planning_min_running_erpm_;
         data["planning_running_target_erpm"]=planning_running_target_;
@@ -989,9 +992,9 @@ private:
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
             RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
                 "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f start_gate=%s reset_required=%d",
-                autonomous_active_?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
+                supervisor_.active()?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
-                planningStartReason(steady_now).c_str(),static_cast<int>(headless_blocked_));
+                planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()));
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
         data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
@@ -1003,7 +1006,7 @@ private:
     }
 
     bool commissioning_ = false;
-    bool autonomous_active_=false;
+    PlanningSupervisor supervisor_; // who owns LPP output: idle/active/soft-stopped/resume-pending/blocked
 #ifdef NOMAD_ENABLE_PLANNING
     PlanningCalibration planning_calibration_;
     unique_ptr<PlanningCommandGuard> planning_guard_;
@@ -1016,8 +1019,8 @@ private:
     optional<double> planning_feedback_tick_;
     double planning_start_hold_s_=.75,planning_restart_cooldown_s_=1,planning_min_start_erpm_=0,planning_feedback_limit_erpm_=0;
     optional<double> planning_overspeed_since_;
-    bool planning_headless_=false,planning_allow_estimated_=false,headless_blocked_=false;
-    bool planning_resume_after_stop_=false,planning_soft_stopped_=false,planning_resume_pending_=false;
+    bool planning_headless_=false,planning_allow_estimated_=false;
+    bool planning_resume_after_stop_=false;
     rclcpp::Subscription<nomad_interfaces::msg::DriveCommand>::SharedPtr planning_sub_;
     rclcpp::Publisher<nomad_interfaces::msg::VehicleState>::SharedPtr vehicle_state_pub_;
     double autonomous_heartbeat_=0,planning_speed_=NAN,planning_angle_=NAN;
