@@ -1,0 +1,6 @@
+NOMAD GUI 시작 · 2026-11-07
+
+바탕화면 NOMAD GUI 시작: Pi 연결 → 브라우저 → 수동 제어 시작.
+바탕화면 NOMAD GUI 미리보기: Pi 없이 새 화면을 확인합니다.
+접속 설정은 scripts/connection.json이며 연결 설정.cmd로 변경합니다.
+최신 전체 안내는 RELEASE.ko.txt, Pi 적용은 PI_UPDATE.ko.txt를 보세요.

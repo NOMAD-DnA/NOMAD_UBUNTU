@@ -1,0 +1,67 @@
+{
+  "status": "initial_calibration_not_ground_validated",
+  "user_confirmed": {
+    "gui_straight": 0.5,
+    "gui_0_6": "right turn",
+    "gui_0_4": "left turn",
+    "radius_m": 0.055
+  },
+  "speed_source": "dd.mp4, sequential wheels, constant target 1000 ERPM",
+  "erpm_per_mps": 3721.882617894008,
+  "steering_model": "Ideal Ackermann equivalent from relative photo wheel angles; rear steer sign; raw servo=1-GUI.",
+  "assumptions": [
+    "0.5 wheel-relative angles treated as zero; individual toe not measured.",
+    "Image projection angles used as approximate physical angles.",
+    "Ideal no-slip Ackermann model; mechanical geometry not independently verified."
+  ],
+  "limits_note": "0.25 m/s and 0.3 rad are initial software limits, not measured vehicle maxima.",
+  "physical_feedback_sign_verified": false,
+  "calibration_verified": false,
+  "pi_deployed": false,
+  "points": [
+    {
+      "lpp_rad": -0.316084,
+      "raw_servo": 0.0
+    },
+    {
+      "lpp_rad": -0.28698,
+      "raw_servo": 0.1
+    },
+    {
+      "lpp_rad": -0.232742,
+      "raw_servo": 0.2
+    },
+    {
+      "lpp_rad": -0.158033,
+      "raw_servo": 0.3
+    },
+    {
+      "lpp_rad": -0.090229,
+      "raw_servo": 0.4
+    },
+    {
+      "lpp_rad": 0.0,
+      "raw_servo": 0.5
+    },
+    {
+      "lpp_rad": 0.048711,
+      "raw_servo": 0.6
+    },
+    {
+      "lpp_rad": 0.122977,
+      "raw_servo": 0.7
+    },
+    {
+      "lpp_rad": 0.199302,
+      "raw_servo": 0.8
+    },
+    {
+      "lpp_rad": 0.302963,
+      "raw_servo": 0.9
+    },
+    {
+      "lpp_rad": 0.408553,
+      "raw_servo": 1.0
+    }
+  ]
+}

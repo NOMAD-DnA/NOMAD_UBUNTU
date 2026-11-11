@@ -1,0 +1,45 @@
+Pi 전원을 켠 뒤 새 버전 반영
+
+현재 상태: 2026-11-07 Pi 업로드·Release 빌드·ROS 연동 검사·실제 telemetry 연결 완료.
+아래는 향후 재설치 시 참고 절차이며 지금 다시 실행할 필요가 없습니다.
+원래 NOMAD Pi의 기존 설치를 갱신하는 절차입니다. 새 Pi에는 ROS 2 Humble, VESC 드라이버/vesc_msgs,
+기존 commission_session 서비스와 펌웨어 점검 스크립트를 먼저 준비해야 합니다.
+
+1. GUI에서 STOP하고 브라우저 조종을 종료합니다.
+2. Windows PowerShell에서 배포 폴더로 이동한 뒤 소스를 전송합니다.
+   (user와 IP는 연결 설정에 맞게 바꿉니다.)
+
+   scp .\nomad_control_cpp-source.tar.gz user@192.168.3.142:/home/user/nomad_control_cpp-source.tar.gz
+   ssh user@192.168.3.142
+
+3. Pi SSH 터미널에서 기존 소스/실행 파일을 백업하고 서비스를 정지합니다.
+
+   cd ~/nomad_cpp_ws
+   mkdir -p release_backups
+   tar -czf release_backups/before-gui-20261107-$(date +%Y%m%d-%H%M%S).tar.gz src/nomad_control_cpp install
+   bash commission_session/stop.sh
+
+4. 소스를 반영하고 Release 빌드를 합니다. 완료 전에는 GUI를 다시 시작하지 않습니다.
+
+   tar -xzf ~/nomad_control_cpp-source.tar.gz -C ~/nomad_cpp_ws/src
+   source /opt/ros/humble/setup.bash
+   source ~/vesc_ws/install/setup.bash
+   cd ~/nomad_cpp_ws
+   CMAKE_BUILD_PARALLEL_LEVEL=2 colcon build --base-paths src/nomad_control_cpp --packages-select nomad_control_cpp --cmake-args -DCMAKE_BUILD_TYPE=Release
+
+5. 장치 출력 없는 핵심 테스트만 실행합니다. 실패 시 서비스를 다시 시작하지 않습니다.
+
+   ctest --test-dir build/nomad_control_cpp --output-on-failure -R 'raw_commissioning_contract|gui_http_contract|trial_state_machine'
+
+6. Windows의 NOMAD GUI 시작으로 다시 연결합니다. 웹 화면은 Ctrl+F5로 새로고침합니다.
+   새 화면 확인: '조향 · 0~1', 세 버튼 '0.0 / 0.5 / 1.0', '연결 및 제어 설정'.
+   서비스 연결만으로 START 명령을 전송하지 않습니다.
+
+실패 시 복구
+서비스를 정지한 상태에서 release_backups에 만든 해당 백업을 작업 폴더에 다시 풉니다.
+   cd ~/nomad_cpp_ws
+   tar -xzf release_backups/<실제 백업 파일명>.tar.gz
+그 후 이전 실행 파일로 연결합니다. 새 소스로 빌드를 다시 하기 전에는 실패 원인을 확인하세요.
+
+최종 Pi 검증에서 확인할 항목은 새 GUI 연결, START 전 속도 0, 사용자 직접 START/STOP,
+기존과 같은 0~1 조향 전달입니다. 이번 오프라인 작업에서 확인했다고 기록하지 않았습니다.

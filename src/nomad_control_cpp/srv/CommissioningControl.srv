@@ -1,0 +1,21 @@
+# 보정 전 장치 단위 시험·수동 제어. m/s 또는 rad의 보정 완료를 의미하지 않습니다.
+uint8 START=1
+uint8 UPDATE=2
+uint8 STOP=3
+uint8 MOTOR=1
+uint8 STEERING=2
+# MANUAL은 duration_s=0으로 연속 제어합니다. START의 motor_erpm은 반드시 0입니다.
+uint8 MANUAL=3
+# AUTONOMOUS는 GUI 세션 승인/heartbeat만 담당합니다. 목표는 DriveCommand에서 받습니다.
+uint8 AUTONOMOUS=4
+uint8 action
+uint8 axis
+builtin_interfaces/Time stamp
+string session
+uint64 sequence
+float64 motor_erpm
+float64 servo_position
+float64 duration_s
+---
+bool accepted
+string reason

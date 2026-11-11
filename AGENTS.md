@@ -31,6 +31,10 @@ cd ~/nomad_ws
 | `src/nomad_gazebo/scripts/generate_world.py` | authoring 스냅샷 → 지형 메시·텍스처·월드 SDF |
 | `src/nomad_gazebo/scripts/generate_vehicle.py` | 센서 YAML → 차량 SDF/URDF/메타데이터 |
 | `src/nomad_sim/`, `src/mvsim/` | 이전 MVSim 코드와 현재 맵의 원본. 기본 Gazebo 빌드 대상 아님 |
+| `src/nomad_control_cpp/` | 실차 LPP→VESC 제어·Qt GUI·시험 기록. 해당 README와 YAML이 현재 차량 설정 기준 |
+| `src/nomad_interfaces/` | LPP·제어 등 팀 모듈의 공통 ROS 메시지 |
+
+실차 제어는 ROS Humble에서 확인한 별도 경로이며 `use_sim_time=false`다. Gazebo `/cmd_vel`에 자동 연결하지 않는다. `vesc_msgs`와 VESC 드라이버는 외부 의존성이므로 기존 `.nomad/build.sh`의 시뮬레이션 빌드 대상을 임의로 확장하지 않는다. `src/nomad_control_cpp`의 날짜가 붙은 시험 문서보다 현재 README·설정 YAML을 우선한다. 개인 SSH·연결 설정, 바이너리·로그는 커밋하지 않는다.
 
 생성된 SDF/URDF/OBJ만 손으로 고치면 다음 생성 때 사라진다. 지속적 변경은 생성기와 `config/sensors.yaml` 또는 `assets/authoring`에 넣고 다시 생성한다. `generate_world.py --map-package src/nomad_sim`은 MVSim 원본을 다시 들여오는 **의도적인 맵 동기화**에서만 쓴다. 우연히 재생성해서 기존 배치를 바꾸지 않는다.
 

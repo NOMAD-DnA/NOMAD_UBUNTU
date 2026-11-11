@@ -1,0 +1,77 @@
+LPP/GPP 연결 · 로컬 구현 · 2026-11-08
+
+사용자가 확인한 기존 인터페이스를 사용합니다.
+GPP 경로 → LPP/명령 선택기 → DriveCommand → controller_node → 기존 VESC 드라이버.
+GPP의 경로 점들을 모터에 직접 출력하지 않습니다.
+
+입력: /nomad/planning/drive_command (nomad_interfaces/msg/DriveCommand)
+  header.stamp: ROS 시스템 시각. 실제 생성 시각을 계속 갱신.
+  header.frame_id: base_link
+  target_speed: m/s (비조향 축 기준 전진 속도)
+  target_steering_angle: rad (전진 좌회전이 양수인 등가 자전거 조향각)
+  valid_for: 기본 0.3초, 최대 0.5초
+  stop_requested: 정지 요청
+  Reliable / Volatile / depth 1, 송신자는 하나. 권장 20~50Hz.
+  음수 속도(후진)는 이번 어댑터가 거절합니다.
+  양수 ERPM이 base_link의 새 전방인지 반드시 대조해야 합니다.
+  반대라면 현재 전진 전용 raw 경로에 맞지 않으므로 verified=true로 켜지 말고 구동 부호 경로를 먼저 수정해야 합니다.
+후륜 조향의 실제 타이어각과 등가 조향각 부호를 혼동하지 마세요.
+
+기존 수동 제어
+  ERPM 0~1850 → VESC 내부 speed PID
+  서보 위치 0~1 → VESC 서보 PWM
+  m/s·km/h 화면 숫자는 영상 기반 비례 추정 표시.
+  서보 0~1 전 범위 동작 확인과 rad 보정은 서로 다른 정보입니다.
+
+변환 설정: config/planning.yaml
+  ERPM = target_speed * planning.erpm_per_mps
+  servo = planning.servo_zero + target_steering_angle * planning.servo_per_rad
+  speed feedback = raw_erpm * planning.feedback_erpm_sign / planning.erpm_per_mps
+  servo_per_rad에는 등가 조향각의 좌우 부호를 한 번만 반영합니다.
+  feedback_erpm_sign은 새 전방으로 이동할 때 측정한 telemetry 부호에 따라 +1/-1.
+  max_mps/max_rad는 확인된 물리 단위 범위입니다.
+  calibration_verified는 위 값들의 실제 차량 보정이 끝난 뒤에만 true.
+  현재 값은 false/0입니다. 가상 6000 ERPM/(m/s), +/-0.5rad 등을 자동 적용하지 않습니다.
+  선형 보정이 맞지 않는 조향은 여러 점을 측정한 후 구간별 변환으로 확장해야 합니다.
+
+권한과 정지
+  Qt의 'LPP 자율 제어 시작'으로 세션을 명시적으로 시작해야 합니다.
+  기존 CommissioningControl의 AUTONOMOUS=4는 승인/heartbeat 전용입니다.
+  자동 모드의 speed/servo GUI 필드는 목표로 사용하지 않습니다.
+  제어 노드 하나가 출력하며 수동 세션과 LPP 세션은 동시에 소유할 수 없습니다.
+  모드 전환은 STOP 후 새 START. LPP 수신만으로 자동 시작하지 않습니다.
+  명령 생성시각의 lease 또는 수신 중단 0.35초 중 먼저 만료되는 조건에 정지.
+  반복 stamp는 유효기간을 늘리지 않음. 같은 stamp의 STOP은 우선.
+  GUI 승인 heartbeat는 발행시각 기준 2초. 전역 STOP은 어떤 모드든 해제.
+  기존 telemetry, 출력 독점, 타이머 지연, 전류, 정체, 램프 제한은 유지.
+  STOP은 0A coast이며 경사 제동/정차 유지 기능은 아닙니다.
+
+상태 출력: /nomad/control/vehicle_state (nomad_interfaces/msg/VehicleState)
+  검증된 환산값 + 유효 telemetry일 때 speed_valid=true.
+  실제 조향 센서가 없으므로 steering_valid=false, steering_angle=0(무효값).
+  서보 명령을 실측 각도로 속여 보내지 않습니다.
+  LPP가 실측 조향을 필수로 요구하면 이 입력만으로는 계획 시작이 안 됩니다.
+  현재 팀의 allow_unmeasured_steering_trial 경로 사용 여부는 Pi 연동 시 확인해야 합니다.
+
+Pi 빌드 (이번에는 Pi 전원 OFF이므로 실행하지 않음)
+  팀의 실제 nomad_interfaces 패키지가 동일 colcon workspace에 있어야 합니다.
+  /opt/ros/humble/setup.bash 및 VESC 의존 workspace를 source한 뒤:
+  colcon build --packages-up-to nomad_control_cpp --cmake-args -DCMAKE_BUILD_TYPE=Release -DNOMAD_ENABLE_PLANNING=ON
+  source install/setup.bash
+  ROS_DOMAIN_ID=188 ROS_LOCALHOST_ONLY=1 colcon test --packages-select nomad_control_cpp
+  colcon test-result --verbose
+  실제 드라이버가 없는 격리 도메인에서 가짜 VESC 통합 테스트부터 실행합니다.
+  운영 controller 실행 인자에 기존 commission parameter 파일 뒤로
+  --params-file <설치된 config/planning.yaml>을 추가합니다.
+  로컬 scripts/run_controller_ready.sh에는 해당 파일이 추가되어 있습니다.
+  Pi의 commission_session/run_controller.sh 교체는 빌드/시험 완료 후 수행합니다.
+  준비 스크립트의 검증/명시적 setup 플래그를 임의로 우회하지 않습니다.
+  GPP/LPP와 Control은 같은 ROS_DOMAIN_ID와 통신 가능한 DDS 설정이 필요합니다.
+  현재 기존 실행기는 도메인187/localhost-only 구성입니다.
+  다른 보드의 LPP를 사용할 때는 해당 통신 설정도 변경·검증해야 합니다.
+
+완료 / 미완료
+  로컬: Qt C++ GUI, 기존 웹 키보드 입력, 단위 변환/lease 검사, ROS 연결 코드.
+  검증: Qt Windows/Debian 빌드 및 가짜 HTTP 시험, ROS 비의존 CTest.
+  미완료: Pi ROS 빌드, 실제 LPP/VESC 연동, 실제 물리 단위 보정, 운영 실행기 교체.
+  기존 Pi 실행 프로그램과 수동 GUI 바로가기는 교체하지 않았습니다.

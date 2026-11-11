@@ -1,0 +1,32 @@
+2026-11-08 로컬 구현 결과
+
+사용자 확인
+- LPP 출력은 기존 /nomad/planning/drive_command, nomad_interfaces/msg/DriveCommand와 동일.
+- Pi/shared 전원 OFF. 이번에는 로컬 작업 진행, Pi 배포하지 않음.
+
+구현
+- 기존 웹 GUI에 마우스/키보드 선택, W/S 및 화살표 속도, A/D 서보 조작, Esc/Space STOP.
+- C++ Qt6 Widgets/Network 네이티브 GUI. HTML을 감싼 창이 아님.
+- 수동/LPP 모드 선택, 입력 방식 선택, VESC ERPM·전압·전류 표시.
+- 수동 속도0~1850 ERPM, 서보0~1 유지. 영상 기반 m/s·km/h 표시 유지.
+- LPP m/s·rad → ERPM·서보 변환, 명령 lease/중복 stamp/STOP/수동 소유권 중재 코드.
+- GUI 승인 세션은 START 없이 자동으로 생기지 않으며 LPP와 수동이 동시 출력하지 않음.
+- VehicleState 조향 측정 없음은 steering_valid=false로 전달.
+- config/planning.yaml 기본은 미보정(false/0). 가상 계수로 차량을 움직이지 않음.
+- Linux 현지 Qt 소스 빌드 실행기, Windows Qt DLL 포함 배포 실행기.
+
+검증
+- Windows 및 Debian에서 Qt Release 빌드.
+- 가짜 HTTP 제어기로 18개 Qt 입력/STOP/모드 전환 검사 통과.
+- Windows 실제 Qt 플랫폼 화면 렌더 확인 (output/nomad-qt-preview-windows.png는 가짜 telemetry 화면).
+- ROS 비의존 CTest 11개 통과: 변환/lease, raw 상태 머신, HTTP, 웹 입력 등.
+- Linux 기존 실행기 가짜 SSH/HTTP 검사 16개 통과. 새 shell 문법/설정 검사 통과.
+- ROS 통합 시험에 LPP 입력/출력 독점/만료/수동 복귀 검사를 추가했으나 실행 못함.
+
+남은 실기기 작업
+- Pi에서 팀 nomad_interfaces와 NOMAD_ENABLE_PLANNING=ON ROS 빌드 및 통합 시험.
+- 물리 단위 환산과 새 전방/등가 조향 부호 실차 확인.
+- LPP의 미측정 조향 상태 처리, 도메인/DDS 및 실행기 설정 확인.
+- 새 Pi 프로그램 배포·실제 telemetry 연동. 기존 Pi 프로그램은 그대로 유지.
+
+사용/빌드 설명: desktop/README.ko.txt, AUTONOMY_GUIDE.ko.txt

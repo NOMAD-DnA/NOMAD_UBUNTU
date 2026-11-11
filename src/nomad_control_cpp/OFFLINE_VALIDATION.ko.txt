@@ -1,0 +1,53 @@
+NOMAD 오프라인 검증 결과 · 2026-11-08
+
+범위: Pi/shared/VESC에 연결하지 않고 로컬 C++/Qt/가짜 HTTP 및 상태 머신을 검사함.
+Pi 프로그램은 교체하지 않았고 차량 명령을 전송하지 않았음.
+
+수정
+1. 정상 시각의 새 LPP STOP stamp를 기록하여 뒤늦은 이전 이동 명령을 거절.
+2. Qt가 motor_max_erpm 누락/0/1850 초과 등 비정상 상한을 받으면 시작 차단.
+3. PlanningCalibration/StabilityConfig를 const 참조로 받아 불필요한 전달 복사 제거.
+   제어 주기, PID gain, ERPM/서보 범위, 출력 램프 및 timeout은 변경하지 않음.
+
+실행 결과
+- Windows CTest 11/11 통과.
+  변환 704개, raw 제어 505개, trial 상태 머신 193개, HTTP 20개,
+  조향 기록 19개, 안정성 모델 27개, 웹 GUI 196개 + 직접 서보/키보드 검사.
+- LPP: 고정 seed 무작위 입력 20,000건, 유효 출력 295건, 실패 0.
+  범위/부호/유효기간, NaN/무한대, 중복 stamp, STOP 우선, 미래 시각,
+  과거 명령 재수신, 미보정 차단을 검사.
+- Windows 및 Debian Qt Release 빌드 성공, HTTP/입력 검사 각각 32개 통과.
+  키보드/마우스/LPP 전환, 포커스 이탈, UPDATE 거절, 서버 토큰 교체,
+  늦은 START 응답 뒤 STOP 유지, STOP 응답 거절과 재시도,
+  상태 응답 1.8초 지연/timeout, 재연결 후 자동 재시작 차단 포함.
+- Debian ASan+UBSan Debug 빌드: CTest 10/10 통과, sanitizer 오류 보고 없음.
+  Debian에 Node가 없어 웹 JS 검사는 이 묶음에서 제외됨. Windows CTest에서 실행함.
+- Linux 실행기: 가짜 SSH/HTTP 검사 16개 통과.
+- PowerShell 실행 스크립트 7개, Bash 스크립트 12개 문법 검사 통과.
+- 핵심 제어 C++ cppcheck exhaustive 검사: warning/performance/portability 진단 없음.
+- ROS/Qt 어댑터 cppcheck 제한 검사: 해당 범주의 진단 없음.
+  ROS/Qt 헤더를 갖춘 완전한 정적/컴파일 검사는 아니며 ROS 빌드를 대신하지 않음.
+  전체 외부 라이브러리 포함 검사는 json.hpp 매크로 해석 오류 등이 발생해 중단하고
+  자체 코드 중심으로 분석함. 외부 라이브러리 전체 무결성 통과로 주장하지 않음.
+
+재실행
+  Windows: powershell -ExecutionPolicy Bypass -File test/Offline-Windows.ps1
+  Debian/WSL: bash test/offline_linux.sh
+  전제: CMake, C++ compiler, Qt6 개발 패키지, Ninja, Python3 설치.
+  Windows 웹 검사에는 Node 필요. 기본 Windows Qt 위치 C:/msys64/ucrt64/bin.
+
+실행 기록
+  build/Testing/Temporary/LastTest.log
+  build-desktop/Testing/Temporary/LastTest.log
+  build-sanitize/Testing/Temporary/LastTest.log
+  build-desktop-linux/Testing/Temporary/LastTest.log
+  상위 output/nomad-cppcheck-core.txt, nomad-cppcheck-adapters.txt
+
+남은 검증 (통과로 표시하지 않음)
+- 현재 PC에 ROS2 Humble/실제 nomad_interfaces/vesc_msgs 빌드 환경이 없어
+  controller_node ROS 빌드와 추가한 ROS 통합 시험은 미실행.
+- 실제 ARM Pi 성능, Wi-Fi 지연, VESC 설정/출력/telemetry, 조향 기구,
+  m/s·rad 실측 보정, 실제 LPP 상호 연결, 지상/경사 제동은 미검증.
+- 합성 시험의 수치는 실차 보정값이 아니며 planning.yaml은 미보정 상태 유지.
+
+갱신물: Qt Windows/Linux zip, 바탕화면 Qt 바로가기의 실행 파일, 제어 소스 tar.gz.

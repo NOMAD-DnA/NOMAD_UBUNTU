@@ -1,0 +1,11 @@
+# commissioning.yaml, planning.yaml 뒤에 적용하는 자율주행 전용 프로필.
+nomad_vesc_trial:
+  ros__parameters:
+    planning.headless: true
+    planning.resume_after_stop: true
+    planning.measured_speed_control: true
+    # 양수 LPP 요청: max(이 값, 요청 ERPM). 0/STOP은 출력 해제.
+    # 일반 주행 최종 송신에도 적용하며, 측정 과속 감속 시에는 예외입니다.
+    planning.minimum_running_erpm: 1000.0
+    planning.feedback_limit_erpm: 1200.0
+    planning.allow_estimated_calibration: true

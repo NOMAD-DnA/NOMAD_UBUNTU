@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOMAD · 차량 수동 조종</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,"Malgun Gothic",sans-serif;color:#e8eef5;background:#0c121b}*{box-sizing:border-box}body{margin:0}main{max-width:1100px;margin:auto;padding:26px 24px}header{position:sticky;top:0;z-index:5;background:#0c121b;padding:12px 0;display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}.brand{font-size:25px;font-weight:800;letter-spacing:3px}.sub,.small{color:#9eafc3;font-size:12px;line-height:1.7}.sub{margin-top:5px}.badge{padding:8px 14px;border:1px solid #435369;border-radius:30px;color:#b8cadf;font-size:13px}h1{font-size:28px;margin:12px 0}p{line-height:1.7}.muted{color:#9eafc3}.notice{padding:14px 18px;background:#242119;border:1px solid #706039;border-radius:12px;color:#e9cf95;font-size:14px;margin:20px 0}.grid{display:grid;grid-template-columns:1.15fr 1fr;gap:20px}.card{background:#141e2b;border:1px solid #28384b;border-radius:16px;padding:24px}h2{font-size:17px;margin:0 0 18px}.row{display:flex;align-items:center;justify-content:space-between;gap:12px}.control{margin:28px 0}.control label{font-size:15px;font-weight:600}input[type=number]{width:108px;background:#0c1420;border:1px solid #485a70;color:#eff5fb;border-radius:8px;padding:10px;font-size:18px;font-variant-numeric:tabular-nums}input[type=range]{width:100%;height:30px;margin:18px 0 4px;accent-color:#6bd8c3;cursor:pointer}input:disabled{opacity:.45;cursor:not-allowed}.range-labels{display:flex;justify-content:space-between;color:#9eafc3;font-size:12px}.metrics{display:grid;grid-template-columns:1fr 1fr;gap:10px}.metric{background:#0e1723;border-radius:10px;padding:14px}.metric span{font-size:12px;color:#9eafc3;display:block}.metric strong{font-size:24px;display:block;margin-top:8px;font-variant-numeric:tabular-nums}.checks{font-size:13px;line-height:2;margin:18px 0}.ok{color:#71dcc3}.bad{color:#f3b06b}button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:13px 18px;font-weight:700}button:disabled{opacity:.4;cursor:not-allowed}.start{background:#73dec7;color:#10251f;width:100%;margin:8px 0 10px;touch-action:none;user-select:none}.start.active{background:#ffe092}.stop{background:#c63547;color:white;width:100%;font-size:20px;padding:16px}.quick-stop{background:#c63547;color:white;width:100%;margin-top:8px;padding:8px}.secondary{background:#293b50;color:#e2ebf6}.actions,.presets{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}.actions button,.presets button{flex:1}.presets button{font-size:12px;padding:10px 6px}.guide{background:#0e1723;border:1px solid #365266;border-radius:10px;padding:14px 16px;font-size:13px;line-height:1.8}.guide ol{padding-left:20px;margin:8px 0}.guide li{margin:5px 0}.reason{font-size:12px;line-height:1.7;overflow-wrap:anywhere;background:#0e1723;padding:12px;border-radius:8px;min-height:58px}footer{font-size:12px;color:#8ea2b8;line-height:1.8;margin-top:22px}progress{width:100%;height:8px;accent-color:#71dcc3}#message{min-height:38px;color:#e9cf95;font-size:13px;line-height:1.6;margin-top:12px}[hidden]{display:none!important}@media(max-width:740px){.grid{grid-template-columns:1fr}main{padding:18px 15px}.card{padding:20px}h1{font-size:24px}}
+</style>
+<style>
+:root{font-family:"Segoe UI","Malgun Gothic",sans-serif;background:#0b1019;color:#eaf0f8}main{max-width:1180px;padding:24px 32px}.brand{font-size:21px;letter-spacing:4px}.sub{font-size:11px;letter-spacing:1px}.badge{color:#82e6cd;background:#122822;border-color:#2e5b50}header{margin-bottom:22px;padding:12px 0;gap:20px}header>div:last-child{display:flex;align-items:center;gap:12px}.quick-stop{width:auto;margin:0;padding:11px 20px}.hero{display:flex;justify-content:space-between;align-items:center;gap:24px;margin:18px 0 24px}.eyebrow{color:#79dcca;font-size:11px;letter-spacing:2px;font-weight:700}h1{font-size:30px;margin:8px 0}.hero p{margin:0;font-size:13px;color:#9eafc3}.mode-pill{border:1px solid #394963;border-radius:8px;padding:10px 14px;white-space:nowrap;font-size:12px;color:#b8c8df}.grid{grid-template-columns:minmax(0,1.25fr) minmax(300px,.85fr);gap:20px}.card{padding:25px;border-radius:18px;background:#131c29;border-color:#26354a}.card h2{font-size:16px}.number-tag{color:#6bcfbb;font-size:11px;letter-spacing:2px;margin-right:9px}.status-banner{background:#162638;border:1px solid #304961;border-radius:12px;padding:17px 20px;margin-bottom:20px}.status-banner strong{display:block;font-size:17px}.status-banner p{font-size:13px;color:#b7c8dd;margin:5px 0 0}.start{padding:17px;font-size:17px;margin:0 0 8px}.control{margin:24px 0 10px;padding:19px;background:#0d1521;border:1px solid #26364b;border-radius:12px}.control label{font-size:15px}input[type=number]{font-size:22px;text-align:right;width:128px}input[type=range]{height:36px;margin:20px 0 8px}.range-labels{font-variant-numeric:tabular-nums}.unit-readout{font-size:16px;color:#82e6cd;line-height:1.8;margin:10px 0 4px;font-variant-numeric:tabular-nums}.small{font-size:12px}.metrics{gap:12px}.metric{border:1px solid #26354a;padding:16px}.metric strong{font-size:29px}.checks{border-top:1px solid #2b3a4e;padding-top:15px}.stop{margin-top:15px}.notice{font-size:12px;padding:10px 14px;margin:12px 0}.reason{margin:12px 0;font-size:12px}details{border-top:1px solid #2a3a4d;margin-top:18px;padding-top:14px}summary{cursor:pointer;color:#afc2db;font-size:13px;font-weight:600}details p{margin:10px 0}.guide{border:0;background:transparent;padding:0}.presets{gap:8px}.presets button{padding:11px 6px}.actions{margin-top:12px}.network-panel{padding:16px;border:1px solid #bb7654;border-radius:10px;background:#332218}.network-panel a{color:#87e6d2}.footer-note{padding:16px 0;color:#8ca0ba;font-size:12px}#stabilityHelp{color:#e7c48e}#message:empty{min-height:0;margin:0}@media(max-width:760px){main{padding:16px}.grid{grid-template-columns:1fr}.hero{display:block}.mode-pill{display:inline-block;margin-top:12px}header>div:last-child{gap:6px}.badge{padding:8px;font-size:11px}.quick-stop{padding:10px}.card{padding:18px}h1{font-size:25px}}
+</style>
+<main>
+<header><div><div class="brand">NOMAD</div><div class="sub">VEHICLE CONTROL</div></div><div><div class="badge" id="connection">연결 확인 중</div><button id="quickStop" class="quick-stop">STOP · Esc</button></div></header>
+<div class="hero"><div><div class="eyebrow">MANUAL CONTROL</div><h1>차량 조종</h1><p>시작을 누른 뒤 슬라이더로 조종하세요. 종료할 때는 STOP.</p></div><span class="mode-pill">NOMAD CONTROL</span></div>
+<div id="offlineHelp" class="network-panel" hidden>HTML 파일을 직접 열면 차량에 연결되지 않습니다. 바탕화면의 <b>NOMAD GUI 시작</b>을 실행하거나 <a href="http://127.0.0.1:8765/">연결된 GUI 열기</a>를 사용하세요.</div>
+<div class="status-banner"><strong id="readinessTitle">차량 연결 확인 중</strong><p id="readinessDetail">Pi와 VESC 상태를 확인하고 있습니다.</p></div>
+<div class="grid">
+<section class="card"><h2><span class="number-tag">01</span>수동 조작</h2>
+<button class="secondary" id="calMode" disabled style="width:100%;margin-bottom:12px">조향각 보정 모드 열기</button>
+<section id="calPanel" hidden class="guide" style="padding:14px;border:1px solid #34546a;margin-bottom:18px">
+<strong>조향만 조금씩 · 명령 자동 기록 · 모터 목표 0</strong>
+<div class="control" style="margin-top:14px">
+<label for="calRange">조향 시험 최대 범위 · 중립에서의 서보 변화량</label>
+<input id="calRange" aria-label="조향 시험 최대 범위" type="range" min="0.005" max="0.5" step="0.0025" value="0.1375" disabled>
+<p id="calRangeValue" class="unit-readout"></p>
+<button id="calRangeApply" class="secondary" disabled>범위만 적용 · 움직이지 않음</button>
+<p id="calRangeStatus" class="small" role="status">정지 중에 설정합니다. 적용 후 한 단계 버튼으로 시험하세요.</p>
+<p class="small">실제 각도(°)가 아닌 서보 명령 범위입니다. 양쪽을 같은 폭으로 설정하며, 넓은 범위는 조향 전용 시험에만 사용합니다. 걸림·힘주는 소리가 생기면 즉시 STOP 후 범위를 줄이세요. 재시작하면 기본 범위로 돌아갑니다.</p>
+</div>
+<p class="small">한 번에 최대 3초간 조향만 움직입니다. 종료 후 저장된 기록을 확인하세요. ± 버튼은 서보 명령의 증감이며 실제 좌우 방향은 바퀴를 보고 확인하세요. 현재 허용 범위 안에서만 움직입니다.</p>
+<div class="row"><label for="calStepSize">한 단계 서보 변화량</label><select id="calStepSize" aria-label="서보 변화량"><option value="0.005">0.005 · 기본</option><option value="0.0025">0.0025 · 미세</option><option value="0.01">0.010</option></select></div>
+<div class="presets"><button id="calMinus" class="secondary" disabled>− 한 단계</button><button id="calPlus" class="secondary" disabled>+ 한 단계</button></div>
+<p id="calCommand" class="unit-readout">서보 명령 확인 중</p>
+<p id="calStatus" class="small">조향 시험이 끝난 뒤 측정값을 입력하세요.</p>
+<p id="calAutoStatus" class="small" role="status">승인된 단계별 서보 요청을 Pi에 자동 기록합니다. 실제 바퀴 각도는 센서값이 없어 미측정으로 저장합니다.</p>
+<label class="small"><input id="calMeasured" type="checkbox"> 실측각을 알고 있는 경우에만 각도 추가 입력</label>
+<div id="calAngleInputs" hidden>
+<p class="small">차체 직진 방향을 0°로, 바퀴 방향이 왼쪽이면 + / 오른쪽이면 −로 입력하세요. 좌·우 바퀴는 차체 기준입니다. 입력 rad 눈금이 아니라 실제 측정한 각도입니다.</p>
+<div class="row"><label for="calLeft">왼쪽 바퀴 실측각 · °</label><input id="calLeft" type="number" aria-label="왼쪽 바퀴 실측각" required min="-85" max="85" step="0.1" placeholder="예: 12.5"></div>
+<div class="row" style="margin-top:10px"><label for="calRight">오른쪽 바퀴 실측각 · °</label><input id="calRight" type="number" aria-label="오른쪽 바퀴 실측각" required min="-85" max="85" step="0.1" placeholder="예: 10.5"></div>
+</div>
+<label class="small" style="display:block;margin-top:10px">관찰 메모 · 선택 <input id="calNote" type="text" maxlength="160" placeholder="예: 부드럽게 움직임 / 왼쪽 한계 후보" style="width:100%;box-sizing:border-box"></label>
+<label id="calMeasuredConfirm" hidden class="small" style="display:block;margin-top:12px"><input id="calConfirmed" type="checkbox"> 바퀴·조향 정지를 눈으로 확인하고 위 각도를 직접 측정했습니다.</label>
+<div class="actions"><button id="calSave" class="secondary" disabled>현재 명령에 메모 저장</button><button id="calLoad" class="secondary">기록 새로고침</button></div>
+<p id="calSaveStatus" class="small" role="status">저장한 기록은 주행 보정에 자동 적용되지 않습니다.</p>
+<details><summary>저장된 명령·측정 기록 보기</summary><div style="overflow-x:auto"><table style="width:100%;font-size:12px;text-align:left"><thead><tr><th>시각</th><th>종류</th><th>서보 요청/명령</th><th>왼쪽 °</th><th>오른쪽 °</th><th>메모</th></tr></thead><tbody id="calRows"></tbody></table></div></details>
+</section>
+<div class="row" style="margin-bottom:14px"><label for="inputMode">조작 방식</label><select id="inputMode"><option value="mouse">마우스</option><option value="keyboard">키보드</option></select></div><p id="keyboardHelp" class="small" hidden>W/S 또는 ↑/↓: 속도 ±50 ERPM · A/D 또는 ←/→: 서보값 ±0.02 · Esc/Space: STOP</p>
+<button class="start" id="hold" disabled>수동 제어 시작</button>
+<div class="small" id="startHelp">시작 전에는 차량을 움직이지 않습니다.</div>
+<div class="control"><div class="row"><label id="speedLabel" for="speed">속도 목표 · ERPM</label><input id="speedNumber" aria-label="속도 목표 숫자" type="number" required min="0" max="0.4" step="0.01" value="0"></div><input id="speed" aria-label="속도 목표" type="range" min="0" max="0.4" step="0.01" value="0"><div class="range-labels"><span id="speedMin">0</span><span id="speedMax">연결 확인 중</span></div><p id="speedUnits" class="unit-readout">— ERPM ≈ — m/s · — km/h</p></div>
+<p id="lowSpeedWarning" class="notice" role="status" hidden>이 범위는 멈추거나 끊겨 회전할 수 있습니다.</p>
+<div class="control"><div class="row"><label id="steeringLabel" for="steering">조향 · 0~1</label><input id="steeringNumber" aria-label="조향 숫자" type="number" required min="0" max="1" step="0.001" value="0.5" disabled></div><input id="steering" aria-label="조향" type="range" min="0" max="1" step="0.001" value="0.5" disabled><div class="range-labels"><span id="steeringMin">0.000</span><span id="degrees">서보 0.500</span><span id="steeringMax">1.000</span></div><div id="steeringPresets" class="presets" hidden><button type="button" class="secondary" id="servoLow" disabled>− 방향</button><button type="button" class="secondary" id="servoCenter" disabled>0.5</button><button type="button" class="secondary" id="servoHigh" disabled>+ 방향</button></div></div>
+<div id="durationRow" class="row"><label for="duration">1회 시험 시간</label><div><input id="duration" type="number" required min="0.5" max="5" step="0.5" value="2"> <span class="small">초 / 최대 5초</span></div></div>
+<div class="actions"><button class="secondary" id="zero">모터 해제 · 속도 0</button><button class="secondary" id="reset" disabled>정지 확인 후 재준비</button></div>
+<div id="message" role="status" aria-live="polite"></div>
+<details><summary>조작 안내</summary><div id="rawGuide" class="guide" hidden><ol><li>수동 제어 시작을 누르면 속도 0으로 시작합니다.</li><li>속도와 조향 슬라이더로 조종합니다.</li><li>끝낼 때 STOP. 연결 복구 후에도 직접 다시 시작합니다.</li></ol></div><p id="motorControlHelp" class="small" hidden></p><p id="observedStartHelp" class="small" hidden></p><p id="speedReferenceNote" class="small" hidden>영상 기준: 반지름 5.5cm, 한쪽 바퀴 18.03초에 14회전, 목표 1000 ERPM 가정. 다른 ERPM은 비례 추정이며 저속에서는 오차가 큽니다. 실제 차량 이동 속도 보정은 미완료입니다.</p><p id="steeringHelp" class="small"></p></details>
+</section>
+<section class="card"><h2><span class="number-tag">02</span>차량 상태 <span class="badge" id="state">—</span></h2>
+<div class="metrics"><div class="metric"><span>현재 VESC 회전수 · ERPM</span><strong id="erpm">—</strong></div><div class="metric"><span id="speedMetricLabel">제어기 속도 명령 · ERPM</span><strong id="measuredSpeed">—</strong></div><div class="metric"><span>입력 전압 · V</span><strong id="voltage">—</strong></div><div class="metric"><span>모터 전류 · A</span><strong id="current">—</strong></div></div>
+<div class="row small" style="margin-top:20px"><span id="remainingLabel">수동 제어 상태</span><span id="remaining">대기</span></div><progress id="progress" max="5" value="0"></progress>
+<button class="stop" id="stop">STOP · 구동 해제</button><p class="small" id="stopHelp">STOP은 모터 출력 해제입니다. 능동 제동이 아닙니다.</p>
+<details><summary>연결 및 제어 설정</summary><p id="stabilityHelp" class="small"></p><div class="checks" id="checks">telemetry 대기 중</div><p class="reason" id="reason">제어기를 기다리고 있습니다.</p><p id="networkProfileHelp" class="notice" hidden></p><div class="metrics"><div class="metric" id="servoTargetMetric" hidden><span>조향 목표</span><strong id="servoTarget">—</strong></div><div class="metric" id="servoCommandMetric" hidden><span>조향 출력 명령</span><strong id="servoCommand">—</strong></div></div><p id="servoCommandHelp" class="small" hidden></p><p id="notice" class="small">보정 상태 확인 중</p><p id="measurementNote" class="small"></p></details>
+</section></div>
+<div class="footer-note"><b>NOMAD GUI 시작</b>으로 연결 · Esc / Space로 출력 해제</div>
+</main>
+<script>
+'use strict';
+// 고정된 요소 참조를 재사용하고 준비 상태가 바뀔 때만 체크 목록을 다시 만듭니다.
+const elements=new Map();
+const $=id=>{if(!elements.has(id))elements.set(id,document.getElementById(id));return elements.get(id);};
+// 같은 상태를 100ms마다 다시 그리지 않도록 값이 바뀐 텍스트만 갱신합니다.
+function setText(id,value){const element=$(id);if(element.textContent!==value)element.textContent=value;}
+function attribute(id,name,value){const element=$(id);if(element.getAttribute(name)!==String(value))element.setAttribute(name,value);}
+let status={},token='',serverTime=0,lastPoll=0,raw=false,ready=false,session=null,startAttempt=null,heartbeat=null,checksSignature='';
+let stopGuard=null,stopGeneration=0,pollGeneration=0,globalStopRequest=null;
+let lastPollRttMs=null;
+let statusTransportFailed=false;
+let calibrationMode=false,calServo=NaN,measurementServo=NaN,calSaveBusy=false,calSaveRequest=null;
+let calRangeDirty=false,calRangeBusy=false;
+function calibrationBounds(){return {min:status.steering_test_servo_min??status.servo_min,max:status.steering_test_servo_max??status.servo_max};}
+let clockSamples=[],clockLastReceipt=NaN;
+const strictTiming={freshMs:300,requestMs:600,clockMs:1000};
+const wifiTiming={freshMs:1500,requestMs:1500,clockMs:2000};
+const timingSamples={post:0,status:0};
+const updateIntervalMs=50;
+const statusIntervalMs=100;
+const number=(value,digits=1)=>typeof value==='number'&&Number.isFinite(value)?value.toFixed(digits):'—';
+const presets=[['servoLow','servo_min',-1],['servoCenter','servo_center',0],['servoHigh','servo_max',1]];
+function message(text){setText('message',text);}
+function setValue(name,value){$(name).value=value;$(name+'Number').value=value;if(name==='speed'){refreshLowSpeedWarning();refreshSpeedUnits();}}
+// 관찰값은 안내에만 사용합니다. 목표를 임의로 올리거나 최저속도를 제한하지 않습니다.
+function observedSmoothStart(data=status){const value=data.observed_smooth_start_erpm;return Number.isFinite(value)&&value>0?value:NaN;}
+function refreshLowSpeedWarning(){const speed=Number($('speedNumber').value),observed=observedSmoothStart();$('lowSpeedWarning').hidden=!(raw&&Number.isFinite(observed)&&speed>0&&speed<observed);}
+// 넓은 통신 예산은 서버가 명시한 공중 RAW 수동 시험 계약과 모두 일치할 때만 사용합니다.
+function controlTiming(data=status){
+  if(data.wifi_manual_profile===true){
+    return data.control_units==='raw'&&data.commissioning===true&&data.continuous_manual_supported===true&&
+      data.manual_timeout_s===2&&data.command_max_age_s===1.5&&data.browser_freshness_s===1.5&&data.browser_request_timeout_ms===1500?wifiTiming:null;
+  }
+  if(data.wifi_manual_profile!==undefined&&data.wifi_manual_profile!==false)return null;
+  const strictFields=[['manual_timeout_s',.35],['command_max_age_s',.3],['browser_freshness_s',.3],['browser_request_timeout_ms',600]];
+  return strictFields.every(([key,max])=>data[key]===undefined||(Number.isFinite(data[key])&&data[key]>0&&data[key]<=max))?strictTiming:null;
+}
+function rawAngleLimit(data=status){const value=data.steering_input_limit_rad;return Number.isFinite(value)&&value>0?value:NaN;}
+function directServo(data=status){return data.control_units==='raw'&&data.servo_min===0&&data.servo_max===1;}
+function rawContractReady(data){return Number.isFinite(rawAngleToServo(0,data))&&data.motor_control_mode==='vesc_speed_pid'&&data.speed_pid_min_erpm_verified===true&&Number.isFinite(data.speed_pid_min_erpm)&&data.speed_pid_min_erpm>0;}
+// 서버의 입력 범위와 서보 후보 범위를 함께 사용합니다. 실제 바퀴 각도 보정은 아닙니다.
+function rawAngleToServo(angle,data=status){
+  if(directServo(data))return Number.isFinite(angle)&&angle>=0&&angle<=1?angle:NaN;
+  const {servo_min:min,servo_center:center,servo_max:max}=data,limit=rawAngleLimit(data);
+  if(![angle,min,center,max,limit].every(Number.isFinite)||angle < -limit||angle>limit||!(min<center&&center<max))return NaN;
+  return center+angle/limit*(angle>=0?max-center:center-min);
+}
+function servoToRawAngle(servo,data=status){
+  if(directServo(data))return Number.isFinite(servo)&&servo>=0&&servo<=1?Math.round(servo*1000)/1000:NaN;
+  const {servo_min:min,servo_center:center,servo_max:max}=data,limit=rawAngleLimit(data);
+  if(![servo,min,center,max,limit].every(Number.isFinite)||servo<min||servo>max||!(min<center&&center<max))return NaN;
+  const angle=(servo-center)/(servo>=center?max-center:center-min)*limit;
+  return Math.round(angle*1000)/1000;
+}
+function sync(name,source){setValue(name,source.value);const angle=Number($('steeringNumber').value);setText('degrees',directServo()?'서보 '+number(angle,3):(raw?'입력 ':'')+number(angle*180/Math.PI)+'°'+(raw?' · 미보정':''));setText('servoTarget',number(raw?rawAngleToServo(angle):angle,4));refreshSpeedUnits();}
+// pattern.mp4의 한쪽 바퀴 실측과 촬영 목표를 짝지은 표시 전용 비율입니다.
+// 제어기 보정값이나 실제 ERPM 피드백의 속도 변환에는 사용하지 않습니다.
+const videoSpeedReference={targetErpm:1000,wheelMps:0.26868123008291983};
+function refreshSpeedUnits(){
+  $('speedReferenceNote').hidden=!raw;
+  if(raw){
+    const erpm=Number($('speedNumber').value),valid=$('speedNumber').checkValidity()&&Number.isFinite(erpm);
+    const speed=valid?erpm/videoSpeedReference.targetErpm*videoSpeedReference.wheelMps:NaN;
+    setText('speedUnits','목표 '+(valid?number(erpm,0):'—')+' ERPM ≈ '+number(speed,3)+' m/s · '+number(speed*3.6,3)+' km/h · 추정');
+    return;
+  }
+  const calibrated=!raw&&status.calibration_verified===true;
+  const units=value=>Number.isFinite(value)?number(value,2)+' m/s · '+number(value*3.6,2)+' km/h':'— m/s · — km/h';
+  const target=calibrated&&$('speedNumber').checkValidity()?Number($('speedNumber').value):NaN;
+  const measured=calibrated&&status.connected===true&&status.telemetry_fresh===true?status.speed_mps:NaN;
+  setText('speedUnits','목표 속도: '+units(target)+' / 현재 환산 속도: '+units(measured)+(calibrated?'':' · 속도 보정 필요 (현재 ERPM으로 조작)'));
+}
+function targets(){
+  if(calibrationMode){
+    const bounds=calibrationBounds();
+    if(!raw||!Number.isFinite(calServo)||calServo<bounds.min||calServo>bounds.max)throw Error('유효한 조향 보정 명령이 없습니다.');
+    return {axis:2,motor_erpm:0,servo_position:calServo,duration_s:Math.min(3,status.max_duration_s||3),record_steering_command:true};
+  }
+  const speed=Number($('speedNumber').value),steering=Number($('steeringNumber').value),duration=Number($('duration').value);
+  if(!$('speedNumber').checkValidity()||!$('steeringNumber').checkValidity()||![speed,steering].every(Number.isFinite)||(!raw&&(!$('duration').checkValidity()||!Number.isFinite(duration))))throw Error('목표값의 허용 범위를 확인하세요.');
+  if(raw){const servo=rawAngleToServo(steering);if(!Number.isFinite(servo))throw Error(directServo()?'조향값은 0~1 범위여야 합니다.':'조향 입력 범위를 확인하세요.');return {axis:3,motor_erpm:speed,servo_position:servo,duration_s:0};}
+  return {speed_mps:speed,steering_rad:steering,duration_s:duration};
+}
+async function post(route,data){
+  const sentAt=performance.now(),timing={route,action:data.action??null,page_elapsed_ms:sentAt,status_age_on_send_ms:sentAt-lastPoll,last_poll_rtt_ms:lastPollRttMs,server_time_sent:data.server_time_s??null};
+  try{
+    const response=await fetch('/api/'+route,{method:'POST',headers:{'Content-Type':'application/json','X-Nomad-Token':token},body:JSON.stringify(data),signal:AbortSignal.timeout(controlTiming()?.requestMs??600),keepalive:true});
+    if(!response.ok)throw Error('HTTP '+response.status);
+    const result=await response.json();
+    logTiming('post',{...timing,elapsed_ms:performance.now()-sentAt,accepted:result.accepted??null,reason:result.reason||''},result.accepted===false);
+    return result;
+  }catch(error){
+    logTiming('post',{...timing,elapsed_ms:performance.now()-sentAt,accepted:false,reason:error.message},true);
+    throw error;
+  }
+}
+// 명령 본문·인증값·세션 식별자는 기록하지 않습니다. 초기 표본 이후에는 지연과 실패만 기록합니다.
+function logTiming(kind,timing,failed=false){
+  const sample=timingSamples[kind]++;
+  if(failed)console.warn('[NOMAD timing] '+JSON.stringify(timing));
+  else if(sample<10||timing.elapsed_ms>150)console.info('[NOMAD timing] '+JSON.stringify(timing));
+}
+function freshBrowser(){const age=performance.now()-lastPoll,timing=controlTiming();return timing!==null&&Number.isFinite(age)&&age>=0&&age<=timing.freshMs&&status.connected===true&&status.telemetry_fresh===true&&!document.hidden;}
+// 서버 시각은 요청과 수신 사이에 생성됩니다. 기본 1초, 명시된 Wi-Fi 시험은 2초의 보수적 하한만 사용합니다.
+function observeServerClock(sentAt,receivedAt,stamp,nextToken,data=status){
+  const invalidate=()=>{clockSamples=[];clockLastReceipt=NaN;return false;};
+  const timing=controlTiming(data);if(timing===null)return invalidate();
+  if(![sentAt,receivedAt,stamp].every(Number.isFinite)||sentAt<0||receivedAt<sentAt||stamp<=0||
+     (Number.isFinite(clockLastReceipt)&&receivedAt<clockLastReceipt)||(token&&nextToken!==token))return invalidate();
+  const recent=clockSamples.filter(sample=>receivedAt-sample.receivedAt<=timing.clockMs);
+  const sample={receivedAt,lower:stamp-receivedAt/1000,upper:stamp-sentAt/1000};
+  // 서로 양립할 수 없는 구간은 서버 시계 변경/응답 재생으로 취급합니다. RTT를 시각에 더하지 않습니다.
+  if(recent.some(previous=>sample.lower>previous.upper||previous.lower>sample.upper))return invalidate();
+  clockSamples=[...recent,sample];clockLastReceipt=receivedAt;return true;
+}
+function conservativeServerTime(at=performance.now()){
+  const timing=controlTiming();
+  if(timing===null||!Number.isFinite(at)||!Number.isFinite(clockLastReceipt)||at<clockLastReceipt||at-clockLastReceipt>timing.clockMs)return NaN;
+  const recent=clockSamples.filter(sample=>at>=sample.receivedAt&&at-sample.receivedAt<=timing.clockMs);
+  return recent.length?at/1000+Math.max(...recent.map(sample=>sample.lower)):NaN;
+}
+// 명령 시각 추정과 상태 수신 유효기간은 별도로 검사합니다. 기본 상태 유효기간은 300ms입니다.
+function commandServerTime(){
+  const estimate=conservativeServerTime();
+  if(!Number.isFinite(estimate)||estimate<=0||!freshBrowser())throw Error('유효한 최신 서버 시각이 없어 명령을 해제합니다.');
+  return estimate;
+}
+function refreshControls(){
+  const active=Boolean(session&&session.phase==='active');
+  $('hold').disabled=Boolean(session||startAttempt||stopGuard)||!ready;
+  $('hold').classList.toggle('active',active);
+  setText('hold',stopGuard?(stopGuard.failed?'정지 재확인 필요 · STOP을 누르세요':'정지 확인 중…'):startAttempt?'시작 준비 중…':session?(active?(raw?'수동 제어 중 · 슬라이더 조작 가능':'실행 중 · 놓으면 해제'):'시작 요청 중…'):(raw?'수동 제어 시작':'누르는 동안 실행'));
+  setText('startHelp',stopGuard?(stopGuard.failed?'정지 확인 실패로 재시작이 잠겼습니다. STOP을 다시 눌러 응답과 최신 상태를 확인하세요.':stopGuard.acknowledged?'STOP 응답을 받았습니다. 이후의 최신 정지 상태를 확인하고 있습니다.':'STOP 응답을 기다리는 동안 재시작할 수 없습니다.'):(raw?'시작 속도 0 · 종료 STOP / Esc':'실행 버튼을 계속 누르세요. 놓으면 해제되며 최대 5초 안에 끝납니다.'));
+  for(const name of ['speed','steering'])for(const suffix of ['','Number'])$(name+suffix).disabled=raw&&!active&&!status.preview;
+  for(const [id,key,sign] of presets){setText(id,directServo()?number(status[key],1):(sign===0?'0 rad · 중립 후보':(sign>0?'+':'−')+number(rawAngleLimit(),3)+' rad'));$(id).disabled=!raw||!active||!Number.isFinite(status[key]);}
+  $('duration').disabled=Boolean(session||startAttempt);$('zero').disabled=raw&&!active&&!status.preview;
+  if(calibrationMode){
+    $('hold').disabled=true;
+    for(const name of ['speed','steering'])for(const suffix of ['','Number'])$(name+suffix).disabled=true;
+    for(const [id] of presets)$(id).disabled=true;
+    $('zero').disabled=true;
+  }
+  $('hold').hidden=calibrationMode;$('startHelp').hidden=calibrationMode;
+  $('calMode').disabled=!raw||!status.steering_records_supported||!status.steering_command_recording_supported||Boolean(session||startAttempt||stopGuard||calSaveBusy||calRangeBusy)||status.state==='RUNNING';
+  if($('inputMode').value==='keyboard'){for(const name of ['speed','steering'])for(const suffix of ['','Number'])$(name+suffix).disabled=true;for(const [id] of presets)$(id).disabled=true;}
+  if(!directServo()||calibrationMode)refreshCalibration();
+}
+// 보정 화면에서는 STEERING 축만 사용합니다. 속도 입력값은 전송 경로에 들어가지 않습니다.
+function refreshCalibration(){
+  const active=session?.phase==='active';
+  const move=calibrationMode&&!calRangeBusy&&!calSaveBusy&&!startAttempt&&!stopGuard&&freshBrowser()&&(active||ready);
+  $('calMinus').disabled=!move;$('calPlus').disabled=!move;
+  const current=status.commanded_servo_position;
+  const bounds=calibrationBounds();
+  setText('calCommand','현재 서보 명령 '+number(current,4)+' · 적용 범위 '+number(bounds.min,4)+' ~ '+number(bounds.max,4));
+  const stopped=freshBrowser()&&status.stationary===true&&status.commanded_motor_erpm===0&&['IDLE','STOPPED_OUTPUT'].includes(status.state)&&!session&&!startAttempt&&!stopGuard;
+  const rangeReady=stopped||(freshBrowser()&&status.stationary===true&&status.commanded_motor_erpm===0&&status.state==='FAULT'&&!session&&!startAttempt&&!stopGuard);
+  $('calRange').disabled=!calibrationMode||!rangeReady||calSaveBusy||calRangeBusy||!status.steering_range_config_supported||!status.commissioning_setup_acknowledged;
+  $('calRangeApply').disabled=$('calRange').disabled||!calRangeDirty;
+  if(Number.isFinite(status.steering_test_span_max))$('calRange').max=status.steering_test_span_max;
+  if(!calRangeDirty&&!calRangeBusy&&Number.isFinite(bounds.max)&&Number.isFinite(status.servo_center))$('calRange').value=(bounds.max-status.servo_center).toFixed(4);
+  renderRangeDraft();
+  if(Number.isFinite(measurementServo)&&(!freshBrowser()||(Number.isFinite(current)&&Math.abs(measurementServo-current)>0.0001))){
+    invalidateMeasurement();setText('calSaveStatus','연결 또는 서보 명령이 바뀌었습니다. 현재 위치에서 다시 측정해 주세요.');
+  }
+  setText('calStatus',active?'조향 이동 중 · 모터 목표 0 · '+number(status.remaining_s,1)+'초 남음':stopped?'기록 준비 · 각도 입력 없이 단계 버튼을 사용하세요. 실제 바퀴 각도는 미측정입니다.':'정지 상태와 최신 telemetry 확인 중입니다.');
+  setText('calAutoStatus',status.steering_record_error?'자동 기록 실패: '+status.steering_record_error:'승인된 단계별 서보 요청을 Pi에 자동 기록합니다. 요청 승인과 실제 바퀴 도달은 다릅니다. 실제 각도는 미측정으로 저장합니다.');
+  const measured=$('calMeasured').checked===true;
+  $('calAngleInputs').hidden=!measured;$('calMeasuredConfirm').hidden=!measured;
+  for(const id of ['calLeft','calRight','calConfirmed'])$(id).disabled=!measured||!stopped||calSaveBusy;
+  for(const id of ['calNote','calMeasured'])$(id).disabled=!stopped||calSaveBusy;
+  setText('calSave',measured?'실측각과 메모 저장':'현재 명령에 메모 저장');
+  $('calSave').disabled=!calibrationMode||calSaveBusy||!stopped||!Number.isFinite(current)||
+    (Number.isFinite(measurementServo)&&Math.abs(measurementServo-current)>0.0001)||
+    (measured&&(!$('calConfirmed').checked||!$('calLeft').checkValidity()||!$('calRight').checkValidity()||!Number.isFinite(measurementServo)));
+  $('calLoad').disabled=calSaveBusy;
+}
+function invalidateMeasurement(){measurementServo=NaN;calSaveRequest=null;$('calLeft').value='';$('calRight').value='';$('calConfirmed').checked=false;}
+async function calibrationStep(sign){
+  if(!calibrationMode||calRangeBusy||calSaveBusy||startAttempt||stopGuard||!freshBrowser())return;
+  const step=Number($('calStepSize').value||0.005);
+  if(![0.0025,0.005,0.01].includes(step))return;
+  const current=status.commanded_servo_position;
+  const bounds=calibrationBounds();
+  const next=(session?calServo:current)+sign*step;
+  if(!Number.isFinite(next)||next<bounds.min-1e-8||next>bounds.max+1e-8){message('현재 적용한 범위의 끝입니다. 정지 후 최대 범위 슬라이더로 조절할 수 있습니다.');return;}
+  if(Math.abs(next-current)>0.020001){message('조향이 이전 명령에 도달할 때까지 기다려 주세요.');return;}
+  if(!session&&!ready)return;
+  invalidateMeasurement();calServo=Math.max(bounds.min,Math.min(bounds.max,next));setValue('speed',0);
+  if(session)requestUpdate();else await startControl('calibration');
+}
+function renderRangeDraft(){
+  const span=Number($('calRange').value),center=status.servo_center;
+  setText('calRangeValue','선택 ±'+number(span,4)+' → 서보 '+number(center-span,4)+' ~ '+number(center+span,4));
+}
+// 범위 변경 경로에는 START/UPDATE가 없습니다. 제어기 상태에 적용 결과가 나타난 뒤 조작합니다.
+$('calRange').addEventListener('input',()=>{calRangeDirty=true;refreshCalibration();});
+$('calRangeApply').addEventListener('click',async()=>{
+  if($('calRangeApply').disabled)return;
+  const span=Number($('calRange').value);
+  if(!$('calRange').checkValidity()||!Number.isFinite(span))return;
+  calRangeBusy=true;refreshControls();
+  try{
+    if(status.state==='FAULT'){const reset=await post('reset',{});if(!reset.accepted)throw Error(reset.reason||'정지 재준비 실패');}
+    const result=await post('steering-range',{span,server_time_s:commandServerTime()});
+    if(!result.accepted)throw Error(result.reason||'범위 적용 거절');
+    setText('calRangeStatus','적용 요청 승인: '+number(result.servo_min,4)+' ~ '+number(result.servo_max,4)+'. 현재 서보 명령 아래의 적용 범위를 확인하세요. 바퀴 이동 명령은 보내지 않았습니다.');
+    calRangeDirty=false;
+  }catch(error){setText('calRangeStatus','적용 확인 실패: '+error.message+' · 현재 위치를 포함하도록 설정하고 정지 상태에서 다시 시도하세요.');}
+  finally{calRangeBusy=false;refreshControls();}
+});
+async function loadCalibration(){
+  try{
+    const result=await post('steering-records',{operation:'list'});
+    if(!result.accepted)throw Error(result.reason||'기록 조회 실패');
+    const rows=Array.isArray(result.records)?result.records:[];$('calRows').replaceChildren();
+    for(const row of rows.slice().sort((a,b)=>b.saved_at_s-a.saved_at_s).slice(0,25)){
+      const kind=row.kind||'measured',command=kind==='command';
+      const note=command?'승인 당시 제어기 명령 '+number(row.observed_servo_command,4)+' · 바퀴 도달 미확인':row.note||'—';
+      const tr=document.createElement('tr');for(const value of [new Date(row.saved_at_s*1000).toLocaleTimeString('ko-KR'),command?'자동 요청':kind==='observation'?'메모':'실측',number(row.servo_command,4),kind==='measured'?number(row.left_deg,1):'미측정',kind==='measured'?number(row.right_deg,1):'미측정',note]){const td=document.createElement('td');td.textContent=value;tr.append(td);}$('calRows').append(tr);
+    }
+    setText('calSaveStatus','Pi에 저장된 기록 '+rows.length+'개 · 최근 25개 표시 · 주행 보정 자동 적용 안 함'+(result.invalid_files?' · 읽지 못한 기록 '+result.invalid_files+'개':''));
+  }catch(error){setText('calSaveStatus','기록 조회 실패: '+error.message);}
+}
+async function saveCalibration(){
+  refreshCalibration();if($('calSave').disabled)return;
+  const measured=$('calMeasured').checked===true;
+  const values={kind:measured?'measured':'observation',servo_command:Number.isFinite(measurementServo)?measurementServo:status.commanded_servo_position,left_deg:measured?Number($('calLeft').value):null,right_deg:measured?Number($('calRight').value):null,note:$('calNote').value||'',measured_confirmed:measured};
+  if(!calSaveRequest||JSON.stringify(calSaveRequest.values)!==JSON.stringify(values))calSaveRequest={id:Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join(''),values};
+  calSaveBusy=true;refreshControls();
+  try{
+    const result=await post('steering-records',{operation:'save',id:calSaveRequest.id,...values});
+    if(!result.accepted)throw Error(result.reason||'저장 거절');
+    $('calConfirmed').checked=false;calSaveRequest=null;await loadCalibration();
+    message(measured?'실측각을 Pi에 저장했습니다. 주행 보정에는 아직 적용하지 않았습니다.':'명령과 메모를 Pi에 저장했습니다. 실제 바퀴 각도는 미측정입니다.');
+  }catch(error){setText('calSaveStatus','저장 확인 실패: '+error.message+' · 기록을 새로고침하거나 같은 값으로 다시 저장하세요.');}
+  finally{calSaveBusy=false;refreshControls();}
+}
+$('calMode').addEventListener('click',()=>{
+  if($('calMode').disabled)return;calibrationMode=!calibrationMode;calServo=status.commanded_servo_position;invalidateMeasurement();setValue('speed',0);
+  $('calPanel').hidden=!calibrationMode;setText('calMode',calibrationMode?'보정 닫기 · 일반 조종으로':'조향각 보정 모드 열기');refreshControls();if(calibrationMode)void loadCalibration();
+});
+$('calMinus').addEventListener('click',()=>void calibrationStep(-1));$('calPlus').addEventListener('click',()=>void calibrationStep(1));
+for(const id of ['calLeft','calRight','calNote','calConfirmed'])$(id).addEventListener('input',()=>{if(!Number.isFinite(measurementServo))measurementServo=status.commanded_servo_position;calSaveRequest=null;refreshCalibration();});
+$('calSave').addEventListener('click',saveCalibration);$('calLoad').addEventListener('click',loadCalibration);
+$('calMeasured').addEventListener('input',()=>{invalidateMeasurement();refreshCalibration();});
+// STOP은 대기 중인 START도 취소합니다. 같은 세션의 늦은 요청은 제어기에서 다시 열 수 없습니다.
+function closeSession(reason='수동 제어를 해제했습니다. 다시 시작하려면 시작 버튼을 누르세요.'){
+  startAttempt=null;
+  const closing=session;session=null;clearInterval(heartbeat);heartbeat=null;setValue('speed',0);ready=false;
+  if(closing){closing.dirty=false;clearTimeout(closing.updateTimer);closing.updateTimer=null;post(closing.route,{action:3,session:closing.id,sequence:++closing.sequence}).catch(()=>message('정지 응답이 없습니다. 차량 상태를 확인하세요. 갱신 단절 시 제어기가 출력을 해제합니다.'));}
+  refreshControls();if(closing){message(reason);if(calibrationMode)void loadCalibration();}
+}
+// 드래그 입력은 최신 값으로 합쳐 최대20Hz로 보냅니다. STOP은 이 대기열을 거치지 않습니다.
+function requestUpdate(){
+  const current=session;if(!current||current.phase!=='active')return;
+  try{targets();}catch(error){closeSession();message(error.message);return;}
+  current.dirty=true;scheduleUpdate(current);
+}
+function scheduleUpdate(current){
+  if(session!==current||!current.dirty||current.inflight||current.updateTimer!==null)return;
+  const wait=Math.max(0,current.lastSentAt+updateIntervalMs-performance.now());
+  if(wait>0)current.updateTimer=setTimeout(()=>{current.updateTimer=null;void flushUpdates(current);},wait);
+  else void flushUpdates(current);
+}
+async function flushUpdates(current){
+  if(session!==current||!current.dirty||current.inflight)return;
+  current.inflight=true;current.dirty=false;
+  try{
+    if(!freshBrowser())throw Error('상태 갱신이 끊겨 수동 제어를 해제합니다.');
+    current.lastSentAt=performance.now();
+    const result=await post(current.route,{action:2,session:current.id,sequence:++current.sequence,server_time_s:commandServerTime(),...targets()});
+    if(!result.accepted)throw Error(result.reason||'제어기가 목표를 거절했습니다.');
+  }catch(error){if(session===current){closeSession();message(error.message);}}
+  finally{current.inflight=false;scheduleUpdate(current);}
+}
+// 시작은 사용자의 버튼 조작으로만 수행합니다. 재시작은 항상 모터 0에서 시작합니다.
+async function startControl(source){
+  if(calibrationMode&&source!=='calibration')return;
+  if(session||startAttempt||stopGuard||!ready||!freshBrowser())return;
+  const attempt={source};startAttempt=attempt;ready=false;refreshControls();
+  let current=null;
+  try{
+    if(raw){setValue('speed',0);if(!calibrationMode){setValue('steering',servoToRawAngle(Number.isFinite(status.commanded_servo_position)?status.commanded_servo_position:status.servo_center));sync('steering',$('steeringNumber'));}}
+    targets();
+    if(status.state!=='IDLE'){
+      const result=await post('reset',{});if(!result.accepted)throw Error(result.reason||'정지 조건을 확인하세요.');
+    }
+    if(startAttempt!==attempt||!freshBrowser())return;
+    current={id:Array.from(crypto.getRandomValues(new Uint8Array(16)),b=>b.toString(16).padStart(2,'0')).join(''),route:raw?'commissioning':'manual',sequence:0,phase:'starting',source,dirty:false,inflight:false,updateTimer:null,lastSentAt:-Infinity,seenRunning:false};
+    session=current;startAttempt=null;refreshControls();
+    const result=await post(current.route,{action:1,session:current.id,sequence:++current.sequence,server_time_s:commandServerTime(),...targets()});
+    if(session!==current)return;
+    if(!result.accepted)throw Error(result.reason||'시작 요청이 거절되었습니다.');
+    if(!freshBrowser()){closeSession('상태 갱신이 끊겨 시작을 취소했습니다.');return;}
+    current.phase='active';refreshControls();
+    message(calibrationMode?'조향 전용 시험 · 최대 3초 후 종료 · 모터 목표 0 고정. STOP으로 즉시 해제할 수 있습니다.':raw?'제어 중입니다. 슬라이더 변경을 최대20Hz로 반영합니다. STOP / Esc / Space로 해제하세요.':'누르는 동안 목표를 적용합니다. 전체 시험 시간은 연장되지 않습니다.');
+    // 응답 대기 중에도 최신 목표를 표시해 두어, 응답 직후 별도 heartbeat 주기를 기다리지 않습니다.
+    requestUpdate();heartbeat=setInterval(requestUpdate,updateIntervalMs);
+  }catch(error){if(startAttempt===attempt||(current&&session===current)){closeSession();message(error.message);}}
+  finally{if(startAttempt===attempt)startAttempt=null;refreshControls();}
+}
+// 늦은 전역 STOP이 새 START를 끊지 않도록, 응답 이후 시작한 상태 조회까지 재시작을 잠급니다.
+async function stopAll(){
+  const guard={generation:++stopGeneration,acknowledged:false,afterPoll:Infinity,failed:false};
+  stopGuard=guard;closeSession();
+  // 반복 STOP은 같은 전역 요청의 응답을 기다립니다. 오래된 STOP이 뒤늦게 새 세션을 끊지 않게 합니다.
+  const request=globalStopRequest||(globalStopRequest=post('stop',{}));
+  try{
+    const result=await request;
+    if(stopGuard!==guard)return;
+    if(result.accepted!==true)throw Error(result.reason||'STOP 거절');
+    guard.acknowledged=true;guard.afterPoll=pollGeneration;
+    message('STOP 응답을 확인했습니다. 이후의 최신 정지 상태를 확인하고 있습니다.');
+  }catch(error){
+    if(stopGuard!==guard)return;
+    guard.failed=true;
+    message('정지 확인 실패: '+error.message+'. 재시작은 잠겨 있습니다. STOP을 다시 눌러 확인하세요.');
+  }
+  finally{if(globalStopRequest===request)globalStopRequest=null;}
+  refreshControls();
+}
+for(const name of ['speed','steering'])for(const suffix of ['','Number'])$(name+suffix).addEventListener('input',event=>{sync(name,event.target);requestUpdate();});
+for(const [id,key] of presets)$(id).addEventListener('click',()=>{if(!raw||!session||session.phase!=='active'||!Number.isFinite(status[key]))return;setValue('steering',servoToRawAngle(status[key]));sync('steering',$('steeringNumber'));requestUpdate();});
+$('hold').addEventListener('click',()=>{if(raw)void startControl('click');});
+$('hold').addEventListener('pointerdown',event=>{if(!raw&&event.button===0){event.preventDefault();void startControl('pointer');}});
+document.addEventListener('pointerup',()=>{if(!raw&&(session?.source==='pointer'||startAttempt?.source==='pointer'))closeSession();});
+document.addEventListener('pointercancel',()=>{if(!raw)closeSession();});
+// Space는 시작 단축키가 아닙니다. 버튼에 초점이 있어도 키를 놓으며 재시작되지 않게 막습니다.
+document.addEventListener('keydown',event=>{if(event.code==='Escape'||event.code==='Space'){event.preventDefault();if(!event.repeat)void stopAll();}},true);
+document.addEventListener('keyup',event=>{if(event.code==='Space')event.preventDefault();},true);
+// RAW 연속 모드는 화면이 보이는 한 초점 이동만으로 종료하지 않습니다. 누름 유지 모드는 기존대로 해제합니다.
+window.addEventListener('blur',()=>{if(!raw||$('inputMode').value==='keyboard')closeSession('창의 초점이 바뀌어 제어를 해제했습니다.');});
+window.addEventListener('pagehide',()=>closeSession());
+document.addEventListener('visibilitychange',()=>{if(document.hidden)closeSession('탭이 숨겨져 수동 제어를 해제했습니다. 다시 시작 버튼을 누르세요.');});
+// 키보드도 기존 세션/시각 검사와 최대20Hz 전송 경로를 사용합니다.
+$('inputMode').addEventListener('change',()=>{
+  $('keyboardHelp').hidden=$('inputMode').value!=='keyboard';
+  if(session||startAttempt)void stopAll();
+  setValue('speed',0);refreshControls();
+});
+document.addEventListener('keydown',event=>{
+  if($('inputMode').value!=='keyboard'||!directServo()||calibrationMode||session?.phase!=='active'||!freshBrowser())return;
+  if(event.ctrlKey||event.altKey||event.metaKey||['INPUT','TEXTAREA','SELECT'].includes(event.target?.tagName))return;
+  const keys={KeyW:['speed',50],ArrowUp:['speed',50],KeyS:['speed',-50],ArrowDown:['speed',-50],KeyA:['steering',-.02],ArrowLeft:['steering',-.02],KeyD:['steering',.02],ArrowRight:['steering',.02]};
+  const change=keys[event.code];if(!change)return;event.preventDefault();
+  const [name,step]=change,input=$(name+'Number');
+  const value=Math.max(Number(input.min),Math.min(Number(input.max),Number(input.value)+step));
+  setValue(name,Math.round(value*1000)/1000);sync(name,$(name+'Number'));requestUpdate();
+},true);
+$('stop').addEventListener('click',stopAll);$('quickStop').addEventListener('click',stopAll);
+$('zero').addEventListener('click',()=>{setValue('speed',0);requestUpdate();message(raw?'속도 0 요청 · 조향 유지':'속도 목표를0으로 바꿨습니다. 전체 제어 해제는 STOP입니다.');});
+$('reset').addEventListener('click',async()=>{try{const result=await post('reset',{});message(result.reason);}catch(error){message(error.message);}});
+function setLimits(name,min,max){if(!Number.isFinite(min)||!Number.isFinite(max))return;for(const suffix of ['','Number']){attribute(name+suffix,'min',min);attribute(name+suffix,'max',max);}$(name+'Min').textContent=number(min,raw&&name==='speed'?0:3);$(name+'Max').textContent=number(max,raw&&name==='speed'?0:3)+(name==='speed'?(raw?' ERPM':' m/s'):(directServo()?'':' rad'));}
+function render(data){
+  const nextRaw=data.control_units==='raw';
+  for(const suffix of ['','Number']){attribute('speed'+suffix,'step',nextRaw?'50':'0.01');attribute('steering'+suffix,'step',nextRaw?'0.001':'0.01');}
+  if(nextRaw!==raw){closeSession();raw=nextRaw;status=data;setLimits('speed',raw?0:data.speed_min,raw?data.motor_max_erpm:data.speed_max);setLimits('steering',raw?(directServo(data)?0:-rawAngleLimit(data)):data.steering_min,raw?(directServo(data)?1:rawAngleLimit(data)):data.steering_max);setValue('speed',0);setValue('steering',raw?servoToRawAngle(Number.isFinite(data.commanded_servo_position)?data.commanded_servo_position:data.servo_center):0);sync('steering',$('steeringNumber'));}
+  status=data;refreshSpeedUnits();
+  $('stabilityHelp').textContent=data.stability_enabled===true?
+    '경사 제한: '+(data.stability_ready===true?'계산 활성':'시작 차단 · '+(data.stability_reason||'입력 없음')):
+    '경사·전복 자동 보호: 꺼짐';
+  const timing=controlTiming(data);
+  $('networkProfileHelp').hidden=timing===strictTiming;
+  setText('networkProfileHelp',timing===wifiTiming?'Wi-Fi 명령 감시: 마지막 명령 시각부터 약 2초 이내 출력 해제. STOP 전달도 지연될 수 있습니다.':timing===null?'통신 시험 설정이 올바르지 않아 시작을 막았습니다.':'');
+  const connected=data.connected===true,fresh=connected&&data.telemetry_fresh===true;
+  if(session){if(data.state==='RUNNING')session.seenRunning=true;if(!fresh||data.state==='MONITOR'||(raw&&!rawContractReady(data))||(session.seenRunning&&['FAULT','STOPPED_OUTPUT','IDLE'].includes(data.state)))closeSession('제어기 상태가 바뀌어 수동 제어를 해제했습니다. 다시 시작 버튼을 누르세요.');}
+  if(startAttempt&&!fresh)closeSession();
+  const allowedState=raw?['IDLE','STOPPED_OUTPUT','FAULT'].includes(data.state):data.state==='IDLE';
+    ready=fresh&&Number.isFinite(conservativeServerTime())&&allowedState&&data.stationary&&data.driver_ready&&data.hardware_timeout_verified&&(data.stability_enabled!==true||data.stability_ready===true)&&(raw?data.commissioning_setup_acknowledged&&data.continuous_manual_supported&&rawContractReady(data):data.calibration_verified)&&(calibrationMode||!data.steering_outside_drive_range)&&!data.preview&&!session&&!startAttempt&&!stopGuard&&!document.hidden;
+  let title='시작 조건 확인 중',detail='오른쪽 상세 진단에서 준비 조건을 확인하세요.';
+  if(data.preview){title='화면 미리보기';detail='실제 차량과 연결되지 않은 화면입니다.';}
+  else if(!connected){title=statusTransportFailed?'PC ↔ Pi 연결 확인 필요':'Pi ↔ 제어기 연결 확인 필요';detail=statusTransportFailed?'GUI 응답이 없거나 늦습니다. 바탕화면의 NOMAD GUI 시작을 실행하세요.':'Pi의 제어기 실행 상태를 확인하세요. 실행 아이콘이 연결 준비를 도와줍니다.';}
+  else if(!fresh){title='VESC 데이터 수신 대기';detail='VESC 전원과 Pi에 연결된 USB 케이블을 확인하세요.';}
+  else if(stopGuard){title='정지 응답 확인 중';detail='응답이 확인되기 전에는 다시 시작하지 않습니다.';}
+  else if(session){title=calibrationMode?'조향 보정 · 모터 목표 0':'수동 조종 중';detail=calibrationMode?'조향 전용 단기 시험 중입니다. 종료 후 실제 정지를 확인하고 측정하세요.':'슬라이더로 속도와 조향을 조절하세요. 종료는 STOP입니다.';}
+  else if(startAttempt){title='조종 준비 중';detail='차량 응답을 확인하고 있습니다.';}
+  else if(raw&&!data.commissioning_setup_acknowledged){title='상태 보기 · 조작 잠김';detail='NOMAD GUI 시작에서 조종 모드로 연결하세요.';}
+  else if(!calibrationMode&&data.steering_outside_drive_range){title='조향을 일반 범위로 복귀하세요';detail='조향각 보정 모드에서 한 단계씩 현재 서보 명령을 '+number(data.servo_min,4)+' ~ '+number(data.servo_max,4)+' 안으로 되돌린 뒤 일반 조종을 시작하세요.';}
+  else if(ready){title=calibrationMode?'조향 기록 준비 완료':'조종 준비 완료';detail=calibrationMode?'− / + 한 단계로 조향만 움직입니다. 승인된 요청은 자동 저장되며 각도 입력은 필요 없습니다.':'수동 제어 시작을 누르세요.';}
+  else if(data.stability_enabled===true&&!data.stability_ready){title='안정성 입력 확인 필요';detail=data.stability_reason||'IMU와 보정값을 확인하세요.';}
+  else if(!data.stationary){title='바퀴 정지 확인 중';detail='바퀴가 완전히 멈추면 시작 버튼이 활성화됩니다.';}
+  else if(!data.driver_ready){title='VESC 드라이버 확인 필요';detail='다른 조종 프로그램이 켜져 있거나 드라이버 연결이 없습니다. 실행 아이콘으로 다시 준비하세요.';}
+  else if(!Number.isFinite(conservativeServerTime())){title='통신 시각 확인 중';detail='Wi-Fi 지연이 안정되면 시작할 수 있습니다. 자동으로 구동하지 않습니다.';}
+  else if(document.hidden){title='조종 화면 대기';detail='이 탭을 표시한 뒤 직접 시작하세요.';}
+  setText('readinessTitle',title);setText('readinessDetail',detail);
+  for(const id of ['rawGuide','steeringPresets','servoTargetMetric','servoCommandMetric','servoCommandHelp','motorControlHelp','observedStartHelp'])$(id).hidden=!raw;
+  $('durationRow').hidden=raw;$('reset').hidden=raw;$('progress').hidden=raw;
+  setText('speedLabel',raw?'속도 목표 · ERPM':'속도 목표 · m/s');setText('steeringLabel',directServo(data)?'조향 · 0~1':raw?'조향각 입력 · rad (임시 환산)':'등가 조향각 · rad');
+  setText('zero',raw?'속도 0':'속도 목표0');
+  setText('motorControlHelp',rawContractReady(data)?'속도 제어: VESC 내부 PID · 조회 확인한 펌웨어 최소 설정 '+number(data.speed_pid_min_erpm,0)+' ERPM. 실제로 부드럽게 회전하는 최저속도와는 다릅니다.':'속도 제어 설정 확인 전 · 펌웨어 조회 확인과 제어기 설정이 필요합니다.');
+  if(directServo(data)){
+    $('calMode').hidden=true;
+    setText('steeringHelp','서보값을 0~1로 직접 전달합니다. 시작 후 슬라이더로 조절하고 종료는 STOP입니다.');
+  }
+  const observed=observedSmoothStart(data);
+  setText('observedStartHelp',Number.isFinite(observed)?'부드러운 회전 시작 목표: 약 '+number(observed,0)+' ERPM (사용자 관찰). '+(typeof data.observed_smooth_start_note==='string'?data.observed_smooth_start_note:'시험 조건 미기록 · 실제 주행 최저속도 미보정'):'부드러운 회전 시작 목표: 관찰값 없음 · 실제 주행 최저속도 미보정.');
+  refreshLowSpeedWarning();
+  for(const suffix of ['','Number']){$('speed'+suffix).setAttribute('aria-label',(raw?'속도 목표 ERPM':'속도 목표')+(suffix?' 숫자':''));$('steering'+suffix).setAttribute('aria-label',(directServo(data)?'조향 서보값 0부터 1':raw?'조향각 입력 rad 임시 환산':'등가 조향각')+(suffix?' 숫자':''));}
+  setLimits('speed',raw?0:data.speed_min,raw?data.motor_max_erpm:data.speed_max);setLimits('steering',raw?(directServo(data)?0:-rawAngleLimit(data)):data.steering_min,raw?(directServo(data)?1:rawAngleLimit(data)):data.steering_max);
+  setText('steeringHelp',directServo(data)?'조향 슬라이더 값이 서보 목표값으로 전달됩니다.':raw?'임시 환산: −'+number(rawAngleLimit(data),3)+' rad → 서보 '+number(data.servo_min,4)+' / 0 → '+number(data.servo_center,4)+' / +'+number(rawAngleLimit(data),3)+' rad → '+number(data.servo_max,4)+'. 실제 각도·좌우 방향은 미보정입니다. ±'+number(rawAngleLimit(data)*180/Math.PI,1)+'° 표시는 입력 눈금이며 바퀴의 실측각이 아닙니다.':' +는 전진 기준 좌회전 목표입니다. 후륜 실제 각도와는 부호가 다릅니다.');
+  setText('servoCommandHelp','조향 변화율: '+number(data.servo_rate_s,2)+' /초');
+  setText('connection',data.preview?'미리보기 · 장치 미연결':connected?'제어기 연결됨':'제어기 연결 끊김');setText('state',data.state||'DISCONNECTED');
+  setText('notice',data.preview?'화면 미리보기입니다. 실제 차량 명령은 보낼 수 없습니다.':!connected?'제어기 연결을 확인하세요. 연결이 복구되어도 직접 시작해야 합니다.':data.state==='MONITOR'?'MONITOR · 실제 telemetry 수신 전용입니다.':raw?'보정 전 공중 수동 제어 · 조향 입력 ±'+number(rawAngleLimit(data),3)+' rad를 서보 명령에 임시 환산합니다. 실제 바퀴 각도와 속도 m/s는 미보정입니다.':!data.calibration_verified?'보정 미확인: 실측값을 설정해야 차량을 구동할 수 있습니다.':'실차 단기 시험 · 차량 고정과 실제 정지 수단을 확인하세요.');
+  setText('speedMetricLabel',raw?'제어기 속도 명령 · ERPM':'환산 속도 · m/s');
+  for(const [id,key,digits] of [['erpm','raw_erpm',0],['measuredSpeed',raw?'commanded_motor_erpm':'speed_mps',raw?0:3],['voltage','voltage_v',1],['current','current_a',2]])setText(id,fresh?number(data[key],digits):'—');
+  if(directServo(data)){setText('degrees','서보 '+number(Number($('steeringNumber').value),3));setText('notice','조향 범위 0~1');}
+  setText('servoCommand',connected?number(data.commanded_servo_position,4):'—');setText('servoTarget',number(raw?rawAngleToServo(Number($('steeringNumber').value)):Number($('steeringNumber').value),4));
+  const checks=[['최신 telemetry',fresh],[raw?'수동 조종 활성화':'실측 보정 확인',raw?data.commissioning_setup_acknowledged:data.calibration_verified],['VESC timeout 확인',data.hardware_timeout_verified],['단독 드라이버 연결',data.driver_ready],[session?'명령 갱신 중':'시작 전 정지 유지 조건',session?fresh&&session.phase==='active':fresh&&data.stationary]];
+  if(raw)checks.push(['속도 PID 설정 조회 확인',rawContractReady(data)]);
+  const nextChecks=JSON.stringify(checks);
+  if(nextChecks!==checksSignature){checksSignature=nextChecks;$('checks').replaceChildren();for(const [label,ok] of checks){const line=document.createElement('div');line.className=ok?'ok':'bad';line.textContent=(ok?'✓ ':'○ ')+label;$('checks').append(line);}}
+  setText('remainingLabel',raw?'수동 제어 상태':'전체 시험 잔여 시간');setText('remaining',raw?(session?.phase==='active'?'조종 중':'대기'):number(connected?data.remaining_s:0)+' s');$('progress').value=connected?data.remaining_s||0:0;
+  if(calibrationMode){setText('remainingLabel','조향 전용 시험');setText('remaining',session?number(data.remaining_s,1)+' s / 최대 3초':'기록 대기');}
+  setText('reason',data.reason||'waiting for controller');$('reset').disabled=!connected||!data.stationary||['RUNNING','MONITOR'].includes(data.state);
+  setText('stopHelp','STOP: 모터 출력 해제 · 조향 유지 · 브레이크 없음');
+  setText('measurementNote','탭 숨김·연결 단절 시 제어 해제. 복구 후 직접 시작.');
+  refreshControls();
+}
+async function poll(){
+  if(typeof location!=='undefined'&&location.protocol==='file:'){
+    $('offlineHelp').hidden=false;setText('connection','파일 미리보기 · 연결 불가');
+    setText('readinessTitle','실행 아이콘으로 GUI를 열어주세요');
+    setText('readinessDetail','이 파일은 화면 소스입니다. NOMAD GUI 시작으로 Pi 연결을 준비해야 조종할 수 있습니다.');
+    return;
+  }
+  const startedAt=performance.now(),generation=++pollGeneration;
+  const timing={route:'status',action:null,page_elapsed_ms:startedAt,status_age_on_send_ms:startedAt-lastPoll,last_poll_rtt_ms:lastPollRttMs,server_time_sent:null};
+  try{
+    const response=await fetch('/api/status',{cache:'no-store',signal:AbortSignal.timeout(controlTiming()?.requestMs??600)});if(!response.ok)throw Error('status');
+    const data=await response.json(),receivedAt=performance.now();statusTransportFailed=false;
+    const clockValid=observeServerClock(startedAt,receivedAt,data.server_time_s,data.token,data);
+    token=data.token;serverTime=data.server_time_s;lastPoll=receivedAt;lastPollRttMs=lastPoll-startedAt;
+    if(!clockValid)closeSession('서버 시각 또는 연결이 바뀌어 수동 제어를 해제했습니다. 최신 상태 확인 후 직접 다시 시작하세요.');
+    logTiming('status',{...timing,elapsed_ms:lastPollRttMs,server_time_received:serverTime,accepted:true,reason:data.reason||'',state:data.state||'',telemetry_fresh:data.telemetry_fresh===true});
+    if(stopGuard?.acknowledged&&generation>stopGuard.afterPoll&&data.connected===true&&data.telemetry_fresh===true&&['IDLE','STOPPED_OUTPUT','FAULT'].includes(data.state))stopGuard=null;
+    render(data);
+  }
+  catch(error){statusTransportFailed=true;logTiming('status',{...timing,elapsed_ms:performance.now()-startedAt,accepted:false,reason:error.message},true);render({...status,connected:false});}
+  // HTTP 응답 시간을 주기에 포함합니다. 느린 응답 중 중복 조회는 만들지 않습니다.
+  setTimeout(poll,Math.max(0,statusIntervalMs-(performance.now()-startedAt)));
+}
+poll();
+</script>
+</html>

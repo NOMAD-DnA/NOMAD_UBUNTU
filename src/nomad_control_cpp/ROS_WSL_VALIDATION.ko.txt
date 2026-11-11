@@ -1,0 +1,33 @@
+2026-11-08 ROS Humble 실제 빌드 및 모의 연동 결과
+
+Windows의 WSL2 Debian 안에 Ubuntu 기반 ROS Humble 이미지 환경을 복원함.
+환경 위치: /var/tmp/nomad_humble_20261108
+ROS workspace: 위 환경 내부 /workspace
+별도 Ubuntu-22.04 WSL 배포판도 설치되었으나 이번 검증은 위 Debian/chroot 환경에서 실행함.
+Windows 네이티브 ROS 설치가 아니라 Windows에서 실행하는 Linux ROS 환경임.
+
+성공
+- nomad_interfaces, vesc_msgs, nomad_control_cpp 3개 패키지 빌드.
+- NOMAD_BUILD_ROS2=ON, NOMAD_ENABLE_PLANNING=ON.
+- controller_node, gui_server, controller_ros_tests 실제 컴파일/링크 성공.
+- CTest 11/11, 오류 0, 실패 0, 건너뜀 0.
+- ROS 통합 내부 검사 1048개, 실패 0. 통합 시험 37.61초.
+- DriveCommand 수신 → 물리 단위 변환 → 가짜 VESC 출력 검사.
+- LPP 수신만으로 자동 구동하지 않음, GUI 승인 후 출력.
+- 자율/수동 출력 독점, LPP 만료 정지, 재연결 자동 재시작 차단, 수동 복귀 검사.
+- 실제 조향 피드백이 없을 때 steering_valid=false 확인.
+
+검증의 경계
+- 팀 DriveCommand.msg/VehicleState.msg 사본을 그대로 사용하는 최소 인터페이스 패키지를 생성함.
+- LPP 경로 계획 알고리즘 전체를 실행한 것은 아님. 시험용 LPP 발행기가 같은 ROS 메시지를 전송함.
+- 가짜 VESC 사용. 실제 Pi ARM 빌드/USB/Wi-Fi/물리 속도·조향 보정은 아직 미검증.
+- ROS_DOMAIN_ID=188, ROS_LOCALHOST_ONLY=1. 실제 차량에는 연결하지 않음.
+- 이미지의 /proc가 마운트되지 않아 colcon 시스템 통계 조회 경고가 있었으나 테스트는 모두 통과함.
+
+재검사: scripts/ROS-Humble-Test.cmd 실행.
+소스 갱신 및 재빌드: Windows 터미널에서
+wsl -d Debian -u root -- bash /mnt/c/Users/user/Documents/ChatGPT/NOMAD/tmp/nomad_ros_validation/setup_current.sh
+검증 workspace는 원본 소스의 복사본이므로 수정 후에는 위 재빌드를 먼저 실행해야 함.
+
+증거 로그: 상위 output/ROS_Humble_Current_LastTest.log
+기존 문서의 'ROS 환경 없음/ROS 빌드 미실행'은 이 결과로 갱신됨.

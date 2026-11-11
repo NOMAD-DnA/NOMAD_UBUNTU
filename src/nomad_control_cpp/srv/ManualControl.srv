@@ -1,0 +1,14 @@
+# 시험 전용 GUI 명령. 같은 session의 UPDATE만 허용하며 전체 시험 시간은 연장하지 않습니다.
+uint8 START=1
+uint8 UPDATE=2
+uint8 STOP=3
+uint8 action
+builtin_interfaces/Time stamp
+string session
+uint64 sequence
+float64 speed_mps
+float64 steering_rad
+float64 duration_s
+---
+bool accepted
+string reason

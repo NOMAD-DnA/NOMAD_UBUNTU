@@ -1,0 +1,37 @@
+제어/GUI 종합 재검토 · 2026-11-08
+
+GUI 정리
+- 반복 설명과 모델 상세 수치를 사용 안내 버튼으로 이동.
+- 모의 모드/차량 미연결 표시는 유지. 수동 화면에서는 불필요한 LPP 상태 숨김.
+- 시작 버튼이 제어 중/시작 중 상태를 표시. 조작/상태/주행 화면 명칭 통일.
+- 고정/추적 화면, 0=좌회전/1=우회전, 마우스/키보드, STOP 기능 유지.
+- 실제 Windows 화면을 렌더하여 잘림/배치 확인.
+
+코드 최적화 및 정리
+- 모의 LPP 슬라이더 갱신 시 QSignalBlocker로 전체 UI 중복 갱신 제거.
+- 차량/조향/속도가 변하지 않으면 주행 장면 재그리기 생략.
+- Windows 검사 실행기의 CMake 경로 인자 처리 수정.
+- ROS 빌드 병렬 옵션과 timestamp가 붙는 실제 테스트 로그 저장 경로 수정.
+- PID gain/실차 제한/timeout은 바꾸지 않음. 성능 향상률을 측정했다고 주장하지 않음.
+
+최종 검증
+- Windows 제어/웹/HTTP CTest 11/11 통과.
+- Windows Qt 및 Debian Qt 빌드/입력/모의 주행 검사 통과.
+- Linux ASan/UBSan CTest 10/10 통과, 메모리/undefined behavior 오류 없음.
+- Linux 실행기 가짜 SSH/HTTP 검사 16개 통과.
+- ROS Humble 3패키지 빌드 및 CTest 11/11 통과.
+  이번 실행 ROS 내부 1042개 검사, 실패0 (수신 이벤트 수에 따라 검사 횟수 변동).
+- LPP 입력 20,000개 고정 seed 무작위 검사 포함.
+- 핵심 제어 C++ cppcheck exhaustive: warning/performance/portability 진단 없음.
+- GUI 카메라 전환/수동·LPP 이동/좌우 방향/STOP 뒤 위치 정지 검사 포함.
+- 배포 Windows/Linux 코드 및 소스 압축 갱신.
+
+한계
+ROS는 메시지 정의 사본을 사용하는 테스트 발행기/가짜 VESC와 연동함.
+팀의 실제 LPP 경로계획 전체, 실제 차량 USB/Wi-Fi, Pi ARM 성능,
+실측 각도·속도, 경사·제동 성능은 별도 검증 필요.
+GUI 미화나 모의 모델은 실차 보정을 완료한 것이 아님.
+외부 라이브러리의 모든 경로나 모든 가능한 입력을 증명한 것은 아님.
+
+로그: build*/Testing/Temporary/LastTest.log 및 상위 output/ROS_Humble_Current_LastTest.log
+화면: 상위 output/nomad-clean-gui.png (테스트용 합성 telemetry)

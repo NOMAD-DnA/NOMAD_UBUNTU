@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-06",
+  "source_video": "KakaoTalk_20261106_165832814.mp4",
+  "user_measured_radius_m": 0.055,
+  "calculated_circumference_m": 0.3455751919,
+  "user_reported_target_erpm": 1000,
+  "user_reported_constant_target": true,
+  "video_fps": 30,
+  "video_frames": 183,
+  "video_duration_s": 6.1,
+  "measured_mean_erpm": null,
+  "verified_wheel_revolutions": null,
+  "speed_gain_erpm_per_mps": null,
+  "calibration_verified": false,
+  "status": "Pending: only one wheel visible; no distinct revolution marker. Automatic tracking was inconsistent. Do not use as a runtime calibration."
+}

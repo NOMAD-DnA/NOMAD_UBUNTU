@@ -1,0 +1,8 @@
+# 공중 조향 전용 한계. 값을 바꾸어도 액추에이터 명령을 보내지 않습니다.
+builtin_interfaces/Time stamp
+float64 span
+---
+bool accepted
+string reason
+float64 servo_min
+float64 servo_max

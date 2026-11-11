@@ -1,0 +1,6 @@
+{
+  "hostName": "raspberrypi.local",
+  "userName": "user",
+  "workspace": "/home/user/nomad_cpp_ws",
+  "identityFile": ""
+}

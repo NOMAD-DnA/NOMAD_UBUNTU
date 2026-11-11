@@ -1,0 +1,26 @@
+조향각 보정 기록 모드 검증 — 2026-11-07
+
+PC: CTest 10/10 통과. 최종 GUI fake DOM/HTTP 187 checks, 0 failures.
+Pi: colcon Release 빌드 성공. CTest 10/10 통과, ROS 통합 998 checks, 0 failures.
+Pi 테스트는 ROS_DOMAIN_ID=188, ROS_LOCALHOST_ONLY=1의 가짜 드라이버 환경에서 수행.
+실제 실행 차량은 ROS_DOMAIN_ID=187이며 실제 구동 시험 명령을 보내지 않음.
+
+검증 범위:
+- 보정 모드 START/UPDATE는 STEERING axis=2, motor_erpm=0, 최대 3초.
+- 정상 조종 입력 잠금, 기존 서보 한계 유지, 동작 중 저장/모드 전환 차단.
+- 명령 변경/연결 끊김 발생 시 기존 측정값과 확인 취소.
+- 서버 정지/최신 telemetry/servo 일치 검증. 실제 ROS 경로에서 비영점 모터 메시지 0개.
+- 측정 JSON 저장/재시작 후 조회/동일 재전송/잘못된 값/덮어쓰기 거부.
+- 실제 저장소에는 가짜 측정값을 쓰지 않았으며 목록 조회 결과 0개.
+
+배포:
+/home/user/nomad_cpp_ws/install/nomad_control_cpp/lib/nomad_control_cpp/gui_server
+검증 빌드와 배포 파일 SHA256:
+43f90ebef691973fb7b2800f7c92f98336fe0dd44689e64f43a2250f2904e978
+GUI 서버만 재시작. 기존 controller_node와 VESC 드라이버는 유지.
+원본 백업: /home/user/nomad_cpp_ws/commission_session/calibration_backup_20261107_173753
+배포 후 실제 연결/telemetry 확인: STOPPED_OUTPUT, motor command=0, servo command=0.6375.
+브라우저에서 조향 보정 준비 완료와 실측 입력란/목록 조회를 확인.
+
+실제 조향 움직임, 실측각, 최대 기계적 조향각은 이번 검증에 포함되지 않음.
+측정 원본은 자동 보정 적용하지 않음(applied=false).

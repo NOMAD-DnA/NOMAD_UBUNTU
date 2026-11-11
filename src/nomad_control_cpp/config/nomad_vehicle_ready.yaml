@@ -1,0 +1,7 @@
+# Existing NOMAD vehicle only: timeout / speed PID configuration previously read back on this vehicle.
+# Not a generic VESC profile. Live telemetry, exclusive-driver and fault checks remain required.
+nomad_vesc_trial:
+  ros__parameters:
+    commissioning_setup_acknowledged: true
+    hardware_timeout_verified: true
+    speed_pid_min_erpm_verified: true

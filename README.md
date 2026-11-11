@@ -71,3 +71,7 @@ Gazebo는 자체 Transport로 센서·차량을 계산하고 `ros_gz_bridge`가 
 - `.nomad/`: 환경·빌드 스크립트
 
 팀 AI가 코드 작업을 할 때는 [AGENTS.md](AGENTS.md)에서 토픽·TF 소유권과 생성 파일의 경계를 먼저 확인하세요. Gazebo 패키지의 세부 사항은 [패키지 README](src/nomad_gazebo/README.md)에 있습니다.
+
+## 실차 제어
+
+LPP → VESC 제어, Qt 수동 GUI와 시험 기록기는 [nomad_control_cpp](src/nomad_control_cpp/README.md)에 있습니다. 공통 ROS 메시지는 `src/nomad_interfaces`에 포함했습니다. 실차 제어는 기존 Gazebo `/cmd_vel` 경로와 별도이며, VESC 드라이버·`vesc_msgs`는 팀의 외부 워크스페이스가 필요합니다. 기존 시뮬레이터 빌드·실행 명령은 그대로입니다.

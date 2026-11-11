@@ -1,0 +1,9 @@
+<launch>
+  <!-- Existing NOMAD vehicle profile. Driver stays owned by the team's bringup. -->
+  <node pkg="nomad_control_cpp" exec="controller_node" name="nomad_vesc_trial" output="screen">
+    <param from="$(find-pkg-share nomad_control_cpp)/config/commissioning.yaml"/>
+    <param from="$(find-pkg-share nomad_control_cpp)/config/planning.yaml"/>
+    <param from="$(find-pkg-share nomad_control_cpp)/config/planning_headless.yaml"/>
+    <param from="$(find-pkg-share nomad_control_cpp)/config/nomad_vehicle_ready.yaml"/>
+  </node>
+</launch>

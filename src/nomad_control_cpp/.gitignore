@@ -1,0 +1,16 @@
+/build/
+/build-*/
+/install/
+/log/
+
+/bin/
+/desktop/bin/
+/desktop/build/
+/scripts/connection.json
+/scripts/connection.json.new
+/scripts/nomad_ssh_config
+/scripts/*.log
+/scripts/*.pid
+/config/pi4_monitor_ssh.conf
+**/__pycache__/
+*.py[cod]

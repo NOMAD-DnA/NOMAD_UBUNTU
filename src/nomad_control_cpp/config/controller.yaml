@@ -1,0 +1,46 @@
+nomad_vesc_trial:
+  ros__parameters:
+    use_sim_time: false
+    mode: monitor
+    calibration_verified: false
+    hardware_timeout_verified: false
+
+    # 시작 서비스 호출 전에는 bench 모드도 구동하지 않습니다. 전체 시험 최대 5초.
+    target_speed_mps: 0.0
+    target_steering_rad: 0.0
+    trial_duration_s: 1.0
+    telemetry_timeout_s: 0.30
+    max_tick_gap_s: 0.20
+    stationary_hold_s: 0.50
+    stationary_erpm: 50.0
+    stationary_speed_mps: 0.03
+    current_limit_a: 30.0
+    acceleration_mps2: 0.20
+    steering_rate_radps: 0.30
+    steering_settle_s: 0.30
+    manual_timeout_s: 0.35 # GUI 갱신 단절 허용 시간, 최대 0.5초
+
+    telemetry_topic: /sensors/core
+    motor_speed_topic: /commands/motor/speed
+    motor_current_topic: /commands/motor/current
+    servo_topic: /commands/servo/position
+    motor_duty_topic: /commands/motor/duty_cycle
+    motor_brake_topic: /commands/motor/brake
+    motor_position_topic: /commands/motor/position
+
+    # 아래는 가상값입니다. 실측값으로 교체·독립 검증하기 전에는 verified=false를 유지하세요.
+    # ROS 노드는 이 YAML의 값을 우선합니다. 오프라인 CLI는 calibration.hpp를 사용합니다.
+    calibration.speed_gain: 6000.0
+    calibration.speed_offset: 0.0
+    calibration.steering_gain: -0.60
+    calibration.steering_offset: 0.52
+    calibration.command_erpm_sign: 1
+    calibration.feedback_erpm_sign: -1
+    calibration.speed_min_mps: 0.0
+    calibration.speed_max_mps: 0.40
+    calibration.steering_min_rad: -0.20
+    calibration.steering_max_rad: 0.20
+    calibration.servo_min: 0.40
+    calibration.servo_max: 0.64
+    calibration.motor_erpm_min: -3000.0
+    calibration.motor_erpm_max: 3000.0

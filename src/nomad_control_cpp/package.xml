@@ -1,0 +1,26 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_control_cpp</name>
+  <version>0.2.0</version>
+  <description>Offline conversion and bounded VESC telemetry/bench trial node.</description>
+  <maintainer email="user@example.com">NOMAD team</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
+  <exec_depend>rosidl_default_runtime</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>launch_xml</exec_depend>
+  <member_of_group>rosidl_interface_packages</member_of_group>
+  <depend>builtin_interfaces</depend>
+  <depend>ament_index_cpp</depend>
+  <depend>rclcpp</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>std_msgs</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_srvs</depend>
+  <depend>vesc_msgs</depend>
+  <depend>nomad_interfaces</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

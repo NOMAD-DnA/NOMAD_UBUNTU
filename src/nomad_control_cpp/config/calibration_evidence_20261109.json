@@ -1,0 +1,48 @@
+{
+  "review_date": "2026-11-09",
+  "runtime_applied": false,
+  "calibration_verified": false,
+  "shared_live_access": "failed; used retained shared documents and archive text copies",
+  "vesc_backup": {
+    "path": "tmp\\nomad_start_threshold\\decoded_motor_config.json",
+    "sha256": "402e9866c0eca6130187341c2126fbb5d2732f2279ad2f57953b1a8b566c2593",
+    "backup_time": "2026-11-06 12:04:05",
+    "motor_poles_setting": 2,
+    "gear_ratio_setting": 10.75,
+    "wheel_diameter_setting_m": 0.10899999737739563,
+    "warning": "Saved SI settings are not independent measurements of installed hardware; handoff labels poles=2 a preset."
+  },
+  "user_radius_m": 0.055,
+  "manual_stock_candidate": {
+    "pinion_teeth": 21,
+    "spur_teeth": 83,
+    "internal_reduction": 2.72,
+    "overall_reduction": 10.750476190476192,
+    "wheelbase_m": 0.335,
+    "installed_parts_confirmed": false
+  },
+  "theoretical_candidate_only": {
+    "erpm_per_mps": 1866.4534235322274,
+    "mps_at_1000_erpm": 0.5357754913098871
+  },
+  "video_reference": {
+    "peripheral_speed_mps": 0.26828388280193805,
+    "target_erpm_assumed": 1000,
+    "measured_mean_erpm": null,
+    "both_driven_wheels_measured": false,
+    "target_based_gain_not_calibration": 3727.3949875634353
+  },
+  "steering": {
+    "feedback_reader_found": false,
+    "physical_sensor_absence_proven": false,
+    "measured_servo_to_angle_map_found": false,
+    "steering_valid": false
+  },
+  "required_checks": [
+    "Installed motor model and gear tooth markings, power disconnected",
+    "Speed: synchronized actual ERPM and both driven wheel rotations, or independent ground-speed measurement",
+    "Steering: stationary straightedge/angle-board readings for BOTH steering wheels at neutral and several raw servo commands",
+    "Forward ERPM sign and straight raw servo command"
+  ],
+  "runtime_config": "planning.yaml remains unverified with zero gains"
+}

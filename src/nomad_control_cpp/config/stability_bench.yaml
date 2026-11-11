@@ -1,0 +1,21 @@
+# 실측 입력 준비용. 이 파일을 켜도 경사 주행은 허용하지 않습니다.
+nomad_vesc_trial:
+  ros__parameters:
+    operation_environment: raised_bench
+    stability.enabled: true
+    stability.imu_topic: /nomad/imu_body
+    stability.imu_frame: base_link
+    stability.geometry_verified: false
+    stability.frame_verified: false
+    stability.track_m: 0.0 # 장비 탑재 후 좌우 타이어 접지 중심 간 거리의 보수적 최소값
+    stability.wheelbase_m: 0.0 # 순정 후보 0.335m, 실차 확인 후 입력
+    stability.cg_height_m: 0.0 # 타이어 접지면에서 무게중심까지 높이
+    stability.cg_from_rear_m: 0.0 # 뒤 차축에서 CG까지 전방 거리
+    stability.cg_lateral_m: 0.0 # 중심선에서 CG까지 좌측 거리, 실제 편심 확인 필요
+    # 아래도 검증 전 시험 후보값. 지상 허용 경사/속도로 사용 금지.
+    stability.margin: 0.5
+    stability.max_tilt_rad: 0.20
+    stability.max_rate_radps: 0.4
+    stability.timeout_s: 0.20
+    stability.max_speed_mps: 0.3
+    stability.max_accel_mps2: 0.15

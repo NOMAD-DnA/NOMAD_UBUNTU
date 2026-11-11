@@ -1,0 +1,66 @@
+2026-11-06 추가: 별도 보정 전 공중 시험 모드를 만들었습니다. 현재 실행 모드와 사용법은 RAW_COMMISSION_GUIDE.ko.txt를 확인하세요. 아래는 수신 전용 배포 기록입니다.
+
+실제 Pi 배포 결과 — 2026-11-06
+
+현재 Windows 화면: http://127.0.0.1:8765
+이 주소는 Windows의 SSH 터널을 통해 Pi의 C++ GUI 서버로 연결됩니다.
+PREVIEW가 아니라 MONITOR 상태이며 실제 VESC telemetry를 수신합니다.
+
+확인한 장치와 실행 경로
+  Raspberry Pi 4 Model B Rev 1.5 / aarch64 / Ubuntu 22.04.5 / ROS 2 Humble
+  Pi 호스트 이름: lpp, 계정: user
+  Pi IPv4: 192.168.3.142
+  이번 연결은 IPv4 응답이 불안정하여 검증한 동일 호스트 키의 IPv6 link-local 주소를 사용합니다.
+  IPv6: fe80::509a:d05e:8b0c:cc0d, 현재 Windows Wi-Fi 인터페이스 번호: 20
+  소스: /home/user/nomad_cpp_ws/src/nomad_control_cpp
+  실행 파일: /home/user/nomad_cpp_ws/install/nomad_control_cpp/lib/nomad_control_cpp
+  실행 스크립트/로그: /home/user/nomad_cpp_ws/monitor_session
+
+현재 실행은 구동 없는 수신 전용입니다.
+  controller_node: mode=monitor, calibration_verified=false, hardware_timeout_verified=false
+  ROS_DOMAIN_ID=187, ROS_LOCALHOST_ONLY=1
+  실제 telemetry 토픽: /nomad_monitor/sensors/core
+  드라이버 명령 토픽: /nomad_monitor/commands/... (발행자 없음)
+  GUI 서버: Pi의 127.0.0.1:8765
+  기존 teleop.yaml과 기존 nomad_link_ws는 수정하지 않았습니다.
+  별도 vesc_monitor.yaml과 namespace를 사용합니다. 모터 명령 한계는 모두 0입니다.
+  서보 명령도 발행하지 않습니다. 실제 조향각 센서 측정은 제공하지 않습니다.
+
+확인 결과
+  Pi ARM64에서 C++ 빌드 및 CTest 7/7 통과.
+  재접속 후에도 CTest 7/7 재검증 통과.
+  실제 VESC: 75_300_R2 / firmware 5.3
+  최종 확인 전압: 16.3V, 모터 전류: 0A, fault_code: 0
+  최종 약 7초 수신 검사: 336개, 서로 다른 시각 336개.
+  raw ERPM -5~4, 모터 전류 최대 절댓값 0A. 미세 ERPM 변동만으로 실제 움직임을 단정하지 않습니다.
+  모터/서보 6개 명령 토픽의 발행자 0개, 검사 동안 명령 메시지 0개.
+  제어기 발행 토픽은 status/status_json/parameter_events/rosout뿐입니다.
+  GUI의 실행 버튼 비활성화 및 최신 telemetry 표시를 브라우저에서 확인했습니다.
+  환산속도는 아직 가상 보정값을 사용하므로 실측 주행 속도로 사용하지 마세요.
+
+다시 접속하거나 실행하려면 (Windows PowerShell)
+  cd C:\Users\user\Documents\ChatGPT\NOMAD\nomad_control_cpp
+  ssh -F .\config\pi4_monitor_ssh.conf nomad-pi4-monitor "bash /home/user/nomad_cpp_ws/monitor_session/start.sh"
+Pi 계정 비밀번호를 직접 입력합니다. start.sh는 MONITOR만 실행하며 같은 작업의 중복 실행을 막습니다.
+
+현재 자동 연결이 끊긴 뒤 GUI 터널을 다시 열 때:
+  ssh -F .\config\pi4_monitor_ssh.conf -N -o ExitOnForwardFailure=yes -L 127.0.0.1:8765:127.0.0.1:8765 nomad-pi4-monitor
+로그인한 PowerShell 창을 계속 열어 두고 브라우저 http://127.0.0.1:8765 를 새로 고칩니다.
+현재 터널이 살아 있으면 8765 포트가 이미 사용 중이므로 두 번째 터널을 실행하지 마세요.
+이 명령으로 직접 연 터널은 Ctrl+C로 종료합니다.
+IPv6 link-local 주소는 같은 네트워크에서만 사용할 수 있습니다. Wi-Fi 인터페이스 번호가 바뀌면
+Get-NetIPInterface -AddressFamily IPv6로 번호를 확인하고 SSH 설정의 %%20을 새 번호로 바꿉니다.
+
+이번에 실행한 Pi 수신 프로세스만 종료:
+  ssh -F .\config\pi4_monitor_ssh.conf nomad-pi4-monitor "bash /home/user/nomad_cpp_ws/monitor_session/stop.sh"
+이 스크립트는 기록된 PID와 실행 파일을 대조해 이번 GUI/제어기/드라이버만 종료합니다.
+브라우저 창만 닫는 것은 Pi 프로세스 종료가 아닙니다.
+Pi 재부팅 후 자동 실행은 설정하지 않았습니다. 필요하면 start.sh로 다시 시작합니다.
+
+배포에 쓴 임시 SSH 키는 작업 종료 시 제거합니다. 유지 중인 터널은 그대로 동작하지만,
+터널이 끊긴 뒤 재연결할 때는 위 명령으로 비밀번호 로그인을 사용하세요.
+
+Windows 검증 자료
+  C:\Users\user\Documents\ChatGPT\NOMAD\tmp\nomad_pi4_deploy\telemetry_audit.json
+  C:\Users\user\Documents\ChatGPT\NOMAD\tmp\nomad_pi4_deploy\recheck.log
+  C:\Users\user\Documents\ChatGPT\NOMAD\tmp\nomad_pi4_deploy\live-monitor.jpg

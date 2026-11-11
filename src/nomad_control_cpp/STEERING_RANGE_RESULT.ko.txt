@@ -1,0 +1,10 @@
+조향 시험 최대 범위 슬라이더 적용 (2026-11-07)
+PC 핵심 검사 통과: CTest 10개, GUI 196 checks, 추가 범위 API 인증 검사.
+Pi controller_node/gui_server 빌드 및 패키지 설치 완료. 기존 프로그램 백업:
+/home/user/nomad_cpp_ws/commission_session/steering_range_backup_20261107/
+드라이버는 config/vesc_steering_test.yaml을 마지막에 읽어 서보 0~1 전달을 허용.
+정지 상태에서만 C++ 조향 전용 범위를 설정하며 일반 MANUAL 범위는 기존값 유지.
+실제 GUI로 span 0.14 적용 승인과 기본 0.1375 복귀를 확인.
+범위 적용 중 모터 목표 0, 제어기 서보 명령 0.5 유지. START/조향 이동은 요청하지 않음.
+실제 기계적 끝단이나 실제 바퀴 각도는 이번 적용으로 확인된 것이 아님.
+사용자 요청에 따라 이후 검사는 변경 부분의 핵심 동작 위주로 한정.

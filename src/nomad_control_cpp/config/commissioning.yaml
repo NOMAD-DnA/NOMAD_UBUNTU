@@ -1,0 +1,46 @@
+nomad_vesc_trial:
+  ros__parameters:
+    use_sim_time: false
+    mode: commission
+    # 실제 측정 보정과 구분합니다. 두 준비 플래그는 현재 시험의 확인 후에만 적용합니다.
+    calibration_verified: false
+    hardware_timeout_verified: false
+    commissioning_setup_acknowledged: false
+    # 시작 스크립트의 VESC 설정 재조회 성공 후에만 verified를 실행 인자로 지정합니다.
+    speed_pid_min_erpm: 50.0
+    speed_pid_min_erpm_verified: false
+    steering_input_limit_rad: 0.55
+    # 공중 시험의 사용자 관찰 메모이며 목표값을 이 수치로 올리거나 제한하지 않습니다.
+    observed_smooth_start_erpm: 550.0
+    telemetry_topic: /nomad_bench/sensors/core
+    motor_speed_topic: /nomad_bench/commands/motor/speed
+    motor_current_topic: /nomad_bench/commands/motor/current
+    servo_topic: /nomad_bench/commands/servo/position
+    motor_duty_topic: /nomad_bench/commands/motor/duty_cycle
+    motor_brake_topic: /nomad_bench/commands/motor/brake
+    motor_position_topic: /nomad_bench/commands/motor/position
+    # 후보 시험 한계이며 측정된 속도/각도 또는 기계적 안전 범위가 아닙니다.
+    commissioning.motor_max_erpm: 1850.0
+    commissioning.overspeed_erpm: 2500.0
+    # 2026-11-07 사용자 지상 조종 보고: 서보 0~1 전 범위 정상 동작.
+    # 직접 서보 입력을 사용하며 steering_input_limit_rad는 이전 GUI 호환 메타데이터입니다.
+    commissioning.servo_center: 0.50
+    commissioning.servo_min: 0.0
+    commissioning.servo_max: 1.0
+    commissioning.max_duration_s: 3.0
+    commissioning.telemetry_timeout_s: 0.30
+    # 공중 Wi-Fi 연속 MANUAL만 최대 2초 발행 시각 감시. telemetry 0.30초·제어 루프 0.20초는 유지합니다.
+    commissioning.manual_timeout_s: 2.0
+    commissioning.max_tick_gap_s: 0.20
+    commissioning.stationary_hold_s: 0.50
+    commissioning.stationary_erpm: 50.0
+    commissioning.current_limit_a: 30.0
+    commissioning.motor_ramp_erpm_s: 1200.0
+    commissioning.motor_deceleration_erpm_s: 2400.0
+    commissioning.stall_watchdog_enabled: true
+    commissioning.stall_timeout_s: 2.0
+    commissioning.stall_command_erpm: 50.0
+    commissioning.stall_feedback_erpm: 50.0
+    commissioning.servo_rate_s: 0.04
+    # 연속 수동 조작의 서보 명령 변화율이며 실제 바퀴 각속도가 아닙니다.
+    commissioning.manual_servo_rate_s: 0.40
