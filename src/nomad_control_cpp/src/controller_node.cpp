@@ -169,9 +169,7 @@ public:
             });
         stop_service_ = create_service<Trigger>("~/stop",
             [this](const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> response) {
-                closeManualSession();
-                activeStop("operator stop");
-                releaseMotor();
+                stopAndRelease("operator stop");
                 response->success = true;
                 response->message = options_.actuation_enabled
                     ? "Trial stopped; owned output released with 0A, physical stop must be observed"
@@ -272,9 +270,7 @@ private:
                 if(planning_headless_&&c.stop){
                     // An out-of-order STOP rejected by the stamp fence cannot erase a newer live command.
                     if(planning_guard_->target(ros,steady))return;
-                    if(planning_resume_after_stop_)
-                        pausePlanning("LPP pause; waiting for fresh command",steady,ros);
-                    else {activeStop("LPP STOP; reset required");closeManualSession();releaseMotor();}
+                    onPlanningLost("LPP pause; waiting for fresh command","LPP STOP; reset required",steady,ros);
                     return;
                 }
                 if(received){
@@ -289,11 +285,17 @@ private:
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
                 if(autonomous_active_&&!planning_guard_->target(now().seconds(),steadySeconds())) {
-                    activeStop("planning stopped or invalid");closeManualSession();releaseMotor();
+                    stopAndRelease("planning stopped or invalid");
                 }
             });
         vehicle_state_pub_=create_publisher<nomad_interfaces::msg::VehicleState>(
             "/nomad/control/vehicle_state",rclcpp::QoS(1).reliable().durability_volatile());
+    }
+    // LPP input went away (STOP, expiry, invalid): headless auto-resume profiles pause and wait for a
+    // fresh command; every other profile latches a stop that needs RESET.
+    void onPlanningLost(const std::string& pause_reason,const std::string& stop_reason,double steady,double ros) {
+        if(planning_headless_&&planning_resume_after_stop_)pausePlanning(pause_reason,steady,ros);
+        else stopAndRelease(stop_reason);
     }
     bool planningReady(double steady,double ros) const {
         return commissioning_&&planning_guard_&&planning_sub_&&
@@ -359,7 +361,7 @@ private:
             releaseMotor();return;
         }
         if(!raw_controller_->pausePlanning(reason,steady,ros)){
-            const auto fault=activeReason();activeStop(fault);closeManualSession();releaseMotor();
+            const auto fault=activeReason();stopAndRelease(fault);
             logPlanningWait(fault,steady,ros);return;
         }
         autonomous_active_=false;planning_resume_pending_=false;planning_wait_reason_=reason;
@@ -374,7 +376,7 @@ private:
             const bool driver_ready=exclusiveDriverReady(false);
             if(activeState()==TrialState::Fault || graph_competing_publishers_){
                 const auto fault=activeState()==TrialState::Fault?activeReason():"competing command/telemetry publisher";
-                activeStop(fault);closeManualSession();releaseMotor();logPlanningWait(fault,steady,ros);return;
+                stopAndRelease(fault);logPlanningWait(fault,steady,ros);return;
             }
             if(autonomous_active_ && (raw_controller_->planningWaitActive() || !activeHealthy(steady,ros) || !driver_ready)){
                 pausePlanning(!driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting",steady,ros);return;
@@ -383,7 +385,7 @@ private:
         if(planning_headless_&&planning_resume_after_stop_&&planning_soft_stopped_&&!headless_blocked_){
             const bool driver_ready=exclusiveDriverReady(false);
             if(activeState()!=TrialState::Stopped){
-                activeStop("unexpected raw state during planning wait; reset required");releaseMotor();
+                stopAndRelease("unexpected raw state during planning wait; reset required");
             }else if(!activeHealthy(steady,ros)||!driver_ready){
                 planning_wait_reason_=!driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting";
                 releaseMotor();logPlanningWait(planning_wait_reason_,steady,ros);
@@ -419,7 +421,7 @@ private:
            activeHealthy(steady,ros)&&std::abs(last_raw_erpm_)>planning_feedback_limit_erpm_){
             if(!planning_overspeed_since_)planning_overspeed_since_=steady;
             if(steady-*planning_overspeed_since_>=.2){
-                activeStop("autonomous measured ERPM limit exceeded; reset required");closeManualSession();releaseMotor();return;
+                stopAndRelease("autonomous measured ERPM limit exceeded; reset required");return;
             }
         }else planning_overspeed_since_.reset();
         double execution_erpm=target?target->erpm:0;
@@ -432,7 +434,7 @@ private:
                 planning_feedback_target_=execution_erpm;
                 planning_feedback_reducing_=execution_erpm+1e-6<planning_running_target_;
             } catch(const std::invalid_argument&) {
-                activeStop("invalid measured-speed feedback or clock; reset required");closeManualSession();releaseMotor();return;
+                stopAndRelease("invalid measured-speed feedback or clock; reset required");return;
             }
         }else if(planning_headless_&&target&&!planning_measured_speed_control_){
             if((target->erpm==0||!planning_start_gate_->ready(steady))&&raw_controller_->targetMotorErpm()>0)
@@ -440,14 +442,12 @@ private:
             if(target->erpm>0&&!planning_start_gate_->ready(steady))execution_erpm=0;
         }
         if(!planningReady(steady,ros)||!target){
-            if(planning_headless_&&planning_resume_after_stop_)
-                pausePlanning("planning input expired/unavailable; waiting for fresh command",steady,ros);
-            else {activeStop("autonomy expired or invalid");closeManualSession();releaseMotor();}
+            onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
         }
         if((!planning_headless_&&steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS)||
            !raw_controller_->update(RawAxis::Manual,execution_erpm,target->servo,steady,ros)){
-            activeStop("autonomy hardware/timer fault or operator disconnected");closeManualSession();releaseMotor();
+            stopAndRelease("autonomy hardware/timer fault or operator disconnected");
         }
     }
 
@@ -570,7 +570,7 @@ private:
         }
 #ifdef NOMAD_ENABLE_PLANNING
         if(planning_headless_&&request.action==Commissioning::Request::STOP){
-            activeStop("operator STOP in headless mode");closeManualSession();releaseMotor();
+            stopAndRelease("operator STOP in headless mode");
             response.accepted=true;response.reason="headless stopped; reset required";return;
         }
         if(planning_headless_&&request.action!=Commissioning::Request::STOP){
@@ -648,9 +648,7 @@ private:
             if (closed_sessions_.size() < 4096) closed_sessions_.insert(request.session);
             else sessions_exhausted_ = true;
             if (manual_session_ == request.session) {
-                activeStop("GUI session stopped");
-                closeManualSession();
-                releaseMotor();
+                stopAndRelease("GUI session stopped");
             }
             response.accepted = true;
             response.reason = "session closed; 0A is coast, observe physical stop";
@@ -658,7 +656,7 @@ private:
         }
         if (!stabilityReady()) {
             response.reason=stability_decision_.reason;
-            if (activeState()==TrialState::Running) { activeStop(response.reason); closeManualSession(); releaseMotor(); }
+            if (activeState()==TrialState::Running) stopAndRelease(response.reason);
             return;
         }
         const double stamp = static_cast<double>(request.stamp.sec) + request.stamp.nanosec * 1e-9;
@@ -753,6 +751,13 @@ private:
 #endif
         if (commissioning_) { raw_controller_->stop(reason); logRawTransition(); }
         else controller_->stop(reason);
+    }
+    // The one full stop path: end autonomy/trial, close the GUI session, release the motor with 0A.
+    // Takes the reason by value because callers may pass activeReason(), which activeStop overwrites.
+    void stopAndRelease(std::string reason) {
+        activeStop(reason);
+        closeManualSession();
+        releaseMotor();
     }
 
     // 실제 관찰과 대조할 수 있도록 raw 시험 종료/이상 상태는 전환 시 한 번만 기록합니다.
@@ -853,7 +858,7 @@ private:
         tickPlanning(steady_now,ros_now);
 #endif
         if (!stabilityReady() && activeState()==TrialState::Running) {
-            activeStop(stability_decision_.reason); closeManualSession(); releaseMotor();
+            stopAndRelease(stability_decision_.reason);
         }
         if (commissioning_) {
             double minimum_drive_erpm=0;
