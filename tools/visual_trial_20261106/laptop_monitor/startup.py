@@ -100,14 +100,15 @@ def start_boards(
     if not stopped.get("ok"):
         return result(False, "stop_previous", "기존 실험 종료 실패. 새 모듈을 시작하지 않았습니다.")
 
-    notify("clock", "센서 시작 전 보드 시각 맞춤")
+    notify("clock", "센서 시작 전 보드 시간 동기화 확인 (Pi5 기준, Jetson 5ms 이내)")
     with ThreadPoolExecutor(max_workers=2) as pool:
         clock_jobs = {board: pool.submit(synchronize_clock, host, password)
                       for board, host in hosts.items()}
         clocks = {board: job.result() for board, job in clock_jobs.items()}
     stages["clock"] = clocks
     if not all(value.get("ok") for value in clocks.values()):
-        return result(False, "clock", "보드 시각 맞춤·오차 확인 실패. 연결 상태와 clock 단계의 사유를 확인해 주세요. 센서는 시작하지 않았습니다.")
+        reasons = " / ".join(f"{board}: {value.get('message', value.get('reason', ''))}" for board, value in clocks.items() if not value.get("ok"))
+        return result(False, "clock", "보드 시간 동기화 확인 실패. " + reasons + ". 센서는 시작하지 않았습니다.")
 
     if not parallel("network", {
         "pi5": ("restore_network.sh", 40, True),

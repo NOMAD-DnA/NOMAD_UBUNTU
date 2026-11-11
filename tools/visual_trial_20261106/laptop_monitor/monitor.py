@@ -1337,7 +1337,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         try:
             client = PlanningClient(self.planning_host.text(),
                                     getattr(self.args, "planning_command", DEFAULT_PLANNING_COMMAND),
-                                    RUNTIME_DIR, self)
+                                    RUNTIME_DIR, self, pi5_host=getattr(self.args, "pi_host", None))
         except ValueError as error:
             self.planning_message.setText(str(error))
             return

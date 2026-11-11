@@ -159,9 +159,14 @@ class PlanningClient(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
     closed = QtCore.pyqtSignal()
 
-    def __init__(self, host, command, runtime_dir, parent=None):
+    def __init__(self, host, command, runtime_dir, parent=None, pi5_host=None):
         super().__init__(parent)
         self.host = validate_host(host)
+        # Pi5 address this GUI uses; Pi4 is told it when it still follows an old one.
+        try:
+            self.pi5_host = validate_host(pi5_host) if pi5_host else None
+        except ValueError:
+            self.pi5_host = None
         if self.host.split("@", 1)[0] != "user":
             raise ValueError("Pi4 계정은 user@주소로 입력해 주세요.")
         self.command = command
@@ -186,12 +191,20 @@ class PlanningClient(QtCore.QObject):
 
     def start(self):
         self.clock_process.setProcessEnvironment(QtCore.QProcessEnvironment.systemEnvironment())
-        self.progress.emit("Pi4 시각 맞춤 · 플래너 시작 전")
-        self.clock_process.start(sys.executable, [str(Path(__file__).with_name("clock_sync.py")), "--host", self.host])
+        self.progress.emit("Pi4 시간 동기화 확인(Pi5 기준 5ms) · 플래너 시작 전")
+        args = [str(Path(__file__).with_name("clock_sync.py")), "--host", self.host]
+        if self.pi5_host:
+            args += ["--pi5-host", self.pi5_host]
+        self.clock_process.start(sys.executable, args)
 
     def clock_finished(self, code, _status):
-        self.clock_process.readAllStandardOutput()
+        output = bytes(self.clock_process.readAllStandardOutput()).decode("utf-8", errors="replace")
         self.clock_process.readAllStandardError()
+        detail = ""
+        try:
+            detail = str(json.loads(output.strip().splitlines()[-1]).get("message", ""))[:120]
+        except (ValueError, IndexError, AttributeError):
+            pass
         if self.did_close:
             return
         if self.stopping:
@@ -200,11 +213,11 @@ class PlanningClient(QtCore.QObject):
             self.start_planner()
         else:
             self.finished(code, QtCore.QProcess.NormalExit)
-            self.progress.emit("Pi4 시각 맞춤·오차 확인 실패 · 연결 상태/시각 차이 확인")
+            self.progress.emit("Pi4 시간 동기화 확인 실패 · " + (detail or "연결 상태 확인") + " · 플래너를 시작하지 않았습니다")
 
     def clock_error(self, _error):
         self.finished(-1, QtCore.QProcess.CrashExit)
-        self.progress.emit("Pi4 시각 맞춤 실행 실패")
+        self.progress.emit("Pi4 시간 동기화 확인 실행 실패")
 
     def start_planner(self):
         if self.stopping:

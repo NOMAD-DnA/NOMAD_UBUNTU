@@ -1,191 +1,159 @@
 #!/usr/bin/env python3
-"""Laptop-only clock handoff before starting board ROS modules."""
+"""Board time readiness before starting board modules (2026-11-11).
+
+The laptop no longer sets board clocks. Pi5 is the time reference and Jetson/
+Pi4 follow it with chrony; each board judges itself with the installed
+board_network/time_agent.py --check (client |offset| <= 5 ms to Pi5, Pi5 must be
+serving). This module only asks the board and reports its own answer. No sudo.
+The laptop clock does not matter.
+"""
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import os
 from pathlib import Path
-import selectors
 import shlex
+import socket
 import subprocess
 import tempfile
-import time
 
 from control import validate_host
 
-REMOTE = r'''set -eu
-model=$(tr -d '\0' < /proc/device-tree/model)
-case "$model" in *'Raspberry Pi'*|*Jetson*|*Xavier*) ;; *) exit 21 ;; esac
-IFS= read -r nomad_password
-# Complete privilege authentication before the laptop captures the reference time.
-# Authentication after receiving the reference made the board clock lag by that wait.
-if [ -n "$nomad_password" ]; then
-  # Validation must cache credentials for the next sudo -n; do not use -k.
-  printf '%s\n' "$nomad_password" | sudo -S -p '' -v
-else
-  sudo -n -v
-fi
-unset nomad_password
-printf '%s\n' 'NOMAD_CLOCK_READY'
-IFS= read -r nomad_epoch
-case "$nomad_epoch" in ''|*[!0-9.]*|.*) exit 22 ;; esac
-sudo -n date -u --set="@$nomad_epoch" '+CLOCK_SET=%s.%N' >/dev/null
-printf 'NOMAD_CLOCK_SAMPLE_READY\n'
-IFS= read -r nomad_probe
-[ "$nomad_probe" = NOMAD_CLOCK_PROBE ] || exit 23
-date -u '+CLOCK_SAMPLE=%s.%N'
-'''
+MARKER = 'NOMAD_TIME_RESULT='
+FEATURE = 'nomad-board-time-20261111-1'
+CHECK = '/usr/local/lib/nomad-network/time_agent.py'
+REMOTE = ('if [ -x ' + CHECK + ' ]; then exec python3 ' + CHECK + ' --check; '
+          'else echo "' + MARKER + '{\\"ok\\": false, \\"feature\\": \\"' + FEATURE +
+          '\\", \\"reason\\": \\"time_sync_not_installed\\"}"; fi')
+REASON_TEXT = {
+    'following_pi5_within_5ms': 'Pi5 기준 5ms 이내',
+    'reference_serving': 'Pi5 기준 시계 동작 (인터넷 시간 동기화됨)',
+    'reference_serving_local_clock': 'Pi5 기준 시계 동작 (인터넷 없음, 자체 시계)',
+    'time_sync_not_installed': '보드 시간 동기화 미설치 / 연결 창에서 설치',
+    'chrony_not_installed': 'chrony 미설치 / 연결 창에서 설치',
+    'chrony_not_running': 'chrony가 꺼져 있음',
+    'not_following_pi5': 'Pi5를 따라가지 못함 (연결 확인)',
+    'pi5_update_stale': 'Pi5 시각을 최근에 받지 못함',
+    'offset_over_5ms': 'Pi5와 5ms 넘게 차이 (잠시 뒤 다시 시도)',
+    'time_connection_failed': '보드 접속 실패',
+    'time_timeout': '보드 응답 시간 초과',
+    'time_result_invalid': '보드 응답 확인 불가',
+    'pi5_address_not_on_my_network': 'GUI의 Pi5 주소가 이 보드와 다른 망 (Pi5 주소 확인)',
+    'invalid_pi5_address': 'Pi5 주소가 올바르지 않음',
+    'pi5_address_unresolved': 'GUI의 Pi5 주소를 IP로 확인하지 못함',
+    'pi5_update_needs_agent': 'Pi5 주소 갱신 기능 없음 / 연결 창에서 시간 동기화 다시 설치',
+}
 
 
-def assess_clock_sample(sample, sent_wall_ns, sent_monotonic_ns,
-                        received_wall_ns, received_monotonic_ns):
-    """Bound clock skew from a short read-only probe, without changing stamps.
+def describe(result):
+    text = REASON_TEXT.get(result.get('reason', ''), result.get('reason', '미확인'))
+    if result.get('offset_ms') is not None and result.get('board') != 'pi5':
+        text += ' / 차이 {:+.2f}ms'.format(result['offset_ms'])
+    return text
 
-    A remote clock sample was taken between local send/receive.  Network and
-    command scheduling uncertainty is half that interval, not zero.
-    """
+
+def parse(stdout):
+    lines = [line[len(MARKER):] for line in stdout.splitlines() if line.startswith(MARKER)]
+    if len(lines) != 1:
+        return dict(ok=False, reason='time_result_invalid', state='FAILED')
     try:
-        seconds, fraction = sample.split(".")
-        if not seconds.isdigit() or len(fraction) != 9 or not fraction.isdigit():
-            raise ValueError("Invalid clock sample")
-        remote_ns = int(seconds) * 1_000_000_000 + int(fraction)
-        elapsed = received_monotonic_ns - sent_monotonic_ns
-        if elapsed < 0 or remote_ns <= 0:
-            raise ValueError("Invalid clock interval")
-        if abs((received_wall_ns - sent_wall_ns) - elapsed) > 50_000_000:
-            return dict(ok=False, reason="operator_clock_changed", state="FAILED")
-        midpoint_ns = sent_wall_ns + elapsed // 2
-        estimate_ns = remote_ns - midpoint_ns
-        uncertainty_ns = elapsed // 2
-        result = dict(offset_estimate_s=estimate_ns / 1e9,
-                      uncertainty_s=uncertainty_ns / 1e9,
-                      probe_round_trip_s=elapsed / 1e9)
-        # Keep residual skew below the existing 0.2s future-stamp tolerance.
-        bounded = abs(estimate_ns) + uncertainty_ns <= 150_000_000
-        result.update(ok=bounded,
-                      reason="clock_synchronized" if bounded else "clock_skew_or_probe_delay",
-                      state="SUCCEEDED" if bounded else "FAILED")
-        return result
-    except (ValueError, TypeError, AttributeError):
-        return dict(ok=False, reason="clock_sample_invalid", state="FAILED")
+        value = json.loads(lines[0])
+        if not isinstance(value, dict) or value.get('feature') != FEATURE:
+            raise ValueError()
+    except ValueError:
+        return dict(ok=False, reason='time_result_invalid', state='FAILED')
+    result = {k: value[k] for k in ('board', 'reference', 'offset_ms', 'last_offset_ms', 'update_age_s', 'wired',
+                                     'stratum', 'updated', 'pi5_address') if k in value}
+    servers = value.get('servers')
+    if isinstance(servers, list):
+        result['servers'] = [str(s)[:64] for s in servers[:8]]
+    result.update(ok=value.get('ok') is True, reason=str(value.get('reason', 'time_result_invalid'))[:80],
+                  state='SUCCEEDED' if value.get('ok') is True else 'FAILED')
+    result['message'] = describe(result)
+    return result
 
 
-def synchronize_clock(host, password, timeout_s=12):
-    """Send current host UTC after SSH is ready, excluding login latency.
-
-    Board side uses existing shell/date only. Never alter sensor message stamps.
-    Call only before starting the relevant ROS nodes.
-    """
+def synchronize_clock(host, password, timeout_s=15, pi5_host=None):
+    """Ask the board for its own time readiness (name kept for existing callers).
+    pi5_host: for Pi4/Jetson, the Pi5 address the GUI uses; if the board fails
+    because it still polls an old Pi5 address, it is given this one (sudo)."""
     try:
         host = validate_host(host)
-        password = password or ""
+        password = password or ''
         if not isinstance(password, str) or '\n' in password or '\r' in password:
             raise ValueError('Invalid password')
     except ValueError:
         return {'ok': False, 'reason': 'clock_arguments', 'state': 'FAILED'}
-    state = Path(os.environ.get('XDG_STATE_HOME', str(Path.home()/'.local/state')))/'nomad-trial'
+    state = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'nomad-trial'
     state.mkdir(parents=True, exist_ok=True, mode=0o700)
-    process = None
-    phase = "ssh_ready"
-    deadline = time.monotonic()+timeout_s
     try:
-        with tempfile.TemporaryDirectory(prefix='nomad-clock-') as temporary:
+        with tempfile.TemporaryDirectory(prefix='nomad-time-') as temporary:
             env = os.environ.copy()
             if password:
-                askpass=Path(temporary)/'askpass'
+                askpass = Path(temporary) / 'askpass'
                 askpass.write_text('#!/bin/sh\nprintf \'%s\\n\' "$NOMAD_SSH_PASSWORD"\n')
                 askpass.chmod(0o700)
                 env.update(SSH_ASKPASS=str(askpass), SSH_ASKPASS_REQUIRE='force', NOMAD_SSH_PASSWORD=password)
                 env.setdefault('DISPLAY', ':0')
-            args=['ssh','-T','-o','ConnectTimeout=5','-o','NumberOfPasswordPrompts=1',
-                  '-o','StrictHostKeyChecking=accept-new','-o','LogLevel=ERROR',
-                  '-o','UserKnownHostsFile="'+str(state/'known_hosts')+'"',
-                  '-o','BatchMode='+('no' if password else 'yes'),
-                  host,'bash -c '+shlex.quote(REMOTE)]
-            process=subprocess.Popen(args,stdin=subprocess.PIPE,stdout=subprocess.PIPE,
-                                     stderr=subprocess.PIPE,text=True,env=env)
-            process.stdin.write(password+'\n')
-            process.stdin.flush()
-            with selectors.DefaultSelector() as selector:
-                selector.register(process.stdout,selectors.EVENT_READ)
-                while time.monotonic()<deadline:
-                    if not selector.select(max(0,deadline-time.monotonic())):
-                        raise subprocess.TimeoutExpired('clock handshake',timeout_s)
-                    line=process.stdout.readline()
-                    if line.strip()=='NOMAD_CLOCK_READY':
-                        phase = 'clock_set'
-                        epoch=time.time_ns()
-                        process.stdin.write(f'{epoch//1000000000}.{epoch%1000000000:09d}\n')
-                        process.stdin.flush()
-                        break
-                    if not line:
-                        raise OSError('Clock handshake closed')
-                else:
-                    raise subprocess.TimeoutExpired('clock handshake',timeout_s)
-                # Probe only after sudo/date has completed.  This interval
-                # excludes the clock-setting and authentication work.
-                while time.monotonic() < deadline:
-                    if not selector.select(max(0, deadline-time.monotonic())):
-                        raise subprocess.TimeoutExpired('clock probe ready', timeout_s)
-                    line = process.stdout.readline().strip()
-                    if line == 'NOMAD_CLOCK_SAMPLE_READY':
-                        break
-                    elif not line:
-                        raise OSError('Clock probe handshake closed')
-                else:
-                    raise subprocess.TimeoutExpired('clock probe ready', timeout_s)
-                phase = 'clock_probe'
-                probe_wall_ns = time.time_ns()
-                probe_monotonic_ns = time.monotonic_ns()
-                process.stdin.write('NOMAD_CLOCK_PROBE\n')
-                process.stdin.flush()
-                if not selector.select(max(0, deadline-time.monotonic())):
-                    raise subprocess.TimeoutExpired('clock probe', timeout_s)
-                sample_line = process.stdout.readline().strip()
-                received_monotonic_ns = time.monotonic_ns()
-                received_wall_ns = time.time_ns()
-            process.communicate(timeout=max(.1,deadline-time.monotonic()))
-            if process.returncode != 0 or not sample_line.startswith('CLOCK_SAMPLE='):
-                return dict(ok=False, reason='clock_set_failed', state='FAILED')
-            return assess_clock_sample(sample_line.partition('=')[2], probe_wall_ns,
-                                       probe_monotonic_ns, received_wall_ns,
-                                       received_monotonic_ns)
-    except (OSError,ValueError,subprocess.TimeoutExpired) as error:
-        stderr = ''
-        if process is not None:
-            if process.poll() is None:
-                process.kill()
-            _, stderr = process.communicate()
-        lowered = (stderr or '').lower()
-        reason = 'clock_connection_failed'
-        if isinstance(error, subprocess.TimeoutExpired):
-            reason = 'clock_timeout'
-        elif 'sudo:' in lowered and 'a password is required' in lowered:
-            reason = 'clock_privilege_required'
-        elif 'sudo:' in lowered and any(text in lowered for text in
-                ('incorrect password', 'try again', 'no password was provided')):
-            reason = 'clock_privilege_authentication_failed'
-        elif 'permission denied' in lowered or 'authentication failed' in lowered:
-            reason = 'clock_authentication_failed'
-        elif phase == 'clock_set':
-            reason = 'clock_set_failed'
-        elif phase == 'clock_probe':
-            reason = 'clock_probe_failed'
-        # Return fixed classifications only; SSH/sudo stderr may contain secrets.
-        return dict(ok=False, reason=reason, state='FAILED', phase=phase,
-                    returncode=process.returncode if process is not None else None,
-                    error_type=type(error).__name__)
+            args = ['ssh', '-T', '-o', 'ConnectTimeout=5', '-o', 'NumberOfPasswordPrompts=1',
+                    '-o', 'StrictHostKeyChecking=accept-new', '-o', 'LogLevel=ERROR',
+                    '-o', 'UserKnownHostsFile="' + str(state / 'known_hosts') + '"',
+                    '-o', 'BatchMode=' + ('no' if password else 'yes'), host, 'bash -c ' + shlex.quote(REMOTE)]
+            completed = subprocess.run(args, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                       env=env, timeout=timeout_s)
+    except subprocess.TimeoutExpired:
+        return dict(ok=False, reason='time_timeout', state='FAILED', message=REASON_TEXT['time_timeout'])
+    except OSError:
+        return dict(ok=False, reason='time_connection_failed', state='FAILED', message=REASON_TEXT['time_connection_failed'])
+    if completed.returncode == 255 and MARKER not in completed.stdout:
+        return dict(ok=False, reason='time_connection_failed', state='FAILED', message=REASON_TEXT['time_connection_failed'])
+    result = parse(completed.stdout)
+    if pi5_host and not result['ok'] and result.get('board') in ('pi4', 'jetson'):
+        result = _learn_pi5(result, result['board'], host, password, pi5_host)
+    return result
+
+
+def pi5_ipv4(pi5_host):
+    """IPv4 the GUI uses for Pi5 (user@1.2.3.4 or user@name.local)."""
+    name = validate_host(pi5_host).split('@', 1)[1]
+    try:
+        return str(ipaddress.IPv4Address(name))
+    except ValueError:
+        pass
+    try:
+        return socket.getaddrinfo(name, None, socket.AF_INET)[0][4][0]
+    except (OSError, IndexError):
+        return None
+
+
+def _learn_pi5(result, board, host, password, pi5_host):
+    """Follower does not track the Pi5 address the GUI just used: give it that
+    address (sudo, board updates peers + chrony itself), then use its new check."""
+    address = pi5_ipv4(pi5_host)
+    if not address:
+        return dict(result, reason='pi5_address_unresolved', message=describe({'reason': 'pi5_address_unresolved'}))
+    if address in result.get('servers', []) or not password:
+        return result
+    import network_control
+    updated = network_control.time_request(board, host, password, 'pi5_address', timeout_s=60, address=address)
+    if updated.get('reason') == 'invalid_request':
+        updated = dict(updated, reason='pi5_update_needs_agent', message=REASON_TEXT['pi5_update_needs_agent'])
+    prefix = 'Pi5 주소 {} 로 갱신 · '.format(address) if updated.get('updated') else ''
+    updated['message'] = prefix + updated.get('message', describe(updated))
+    return updated
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--host',required=True)
-    args=parser.parse_args()
-    result=synchronize_clock(args.host,os.environ.get('NOMAD_BOARD_PASSWORD1',''))
-    print(json.dumps(result,ensure_ascii=False),flush=True)
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--host', required=True)
+    parser.add_argument('--pi5-host', default='', help='GUI의 Pi5 주소: 추종 보드가 옛 주소를 보면 알려 줌')
+    args = parser.parse_args()
+    result = synchronize_clock(args.host, os.environ.get('NOMAD_BOARD_PASSWORD1', ''), pi5_host=args.pi5_host or None)
+    print(json.dumps(result, ensure_ascii=False), flush=True)
     return 0 if result['ok'] else 1
 
 
-if __name__=='__main__':
+if __name__ == '__main__':
     raise SystemExit(main())

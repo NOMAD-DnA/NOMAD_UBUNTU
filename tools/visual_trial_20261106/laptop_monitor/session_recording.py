@@ -29,6 +29,13 @@ def recording_directory():
     if "XDG_STATE_HOME" in os.environ:
         return (Path(os.environ["XDG_STATE_HOME"]).expanduser() /
                 "nomad-trial" / "recordings")
+    try:
+        # Local copy installed by GUI_설치_업데이트.sh: ~/nomad_gui/주행기록.
+        marker = json.loads((Path(__file__).resolve().parent.parent / ".nomad_local_install.json").read_text())
+        if marker.get("feature") == "nomad-gui-local-install-20261111-1" and marker.get("root"):
+            return Path(marker["root"]) / "주행기록"
+    except (OSError, ValueError, AttributeError):
+        pass
     integration_root = Path(__file__).resolve().parent.parent.parent
     if integration_root.name == "NOMAD_모듈별_통합_20261104":
         return integration_root / "주행기록"

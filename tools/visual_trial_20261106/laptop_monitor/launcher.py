@@ -141,7 +141,7 @@ class Launcher(QtWidgets.QMainWindow):
         self.cancel_button.clicked.connect(self.cancel_search)
         self.cancel_button.hide()
         search_row.addWidget(self.find_button)
-        self.network_button = QtWidgets.QPushButton("Wi-Fi / 핫스팟")
+        self.network_button = QtWidgets.QPushButton("Wi-Fi / 노트북 핫스팟")
         self.network_button.clicked.connect(self.open_network)
         search_row.addWidget(self.network_button)
         search_row.addWidget(self.subnet, 1)
@@ -726,6 +726,12 @@ def main():
     app.setApplicationName("NOMAD Trial")
     window = Launcher()
     window.show()
+    # Local copy only: offer a newer shared version and recording upload.
+    try:
+        import local_install
+        QtCore.QTimer.singleShot(400, lambda: local_install.offer(window))
+    except Exception:
+        pass
     if args.snapshot:
         def capture():
             args.snapshot.parent.mkdir(parents=True, exist_ok=True)
