@@ -73,7 +73,7 @@ def output_summary(event):
         permission = "출력 허용 · 구동 명령 가능"
     inhibit = str(event.get("output_inhibit", ""))
     source = str(event.get("feedback_source", "미수신"))
-    prototype = " · 임시 환산: 0.25m/s·±0.30rad 기준, 실측 검증 전" if event.get("prototype_output") else ""
+    prototype = " · 임시 환산: 실측 검증 전 · 속도/조향 상한은 해당 실행 설정 확인" if event.get("prototype_output") else ""
     return (f"{permission} | armed={(str(armed).lower() if armed is not None else 'unknown')} · enabled={(str(enabled).lower() if enabled is not None else 'unknown')}"
             f" · 모드 {mode} · 피드백 출처 {source}" + (f" · 차단: {inhibit}" if inhibit else "") + prototype)
 

@@ -85,7 +85,18 @@ def cell_polygons(cells, grid, origin_yaw):
             for ix, iy in cells]
 
 
+def footprint_from_dict(data):
+    if not isinstance(data, dict):
+        raise ValueError('Invalid recorded footprint')
+    keys = ('half_length', 'half_width', 'center_offset')
+    if any(isinstance(data.get(k), bool) or not isinstance(data.get(k), (int, float)) for k in keys):
+        raise ValueError('Invalid recorded footprint dimensions')
+    reference = data.get('reference')
+    if not isinstance(reference, str) or not 0 < len(reference) <= 128:
+        raise ValueError('Invalid footprint reference')
+    return Footprint(*(float(data[k]) for k in keys), reference=reference)
+
+
 def load_footprint():
     data = json.loads((Path(__file__).parent/'config'/'planning_footprint.json').read_text())
-    return Footprint(*(float(data[k]) for k in ('half_length', 'half_width', 'center_offset')),
-                     reference=data['reference'])
+    return footprint_from_dict(data)

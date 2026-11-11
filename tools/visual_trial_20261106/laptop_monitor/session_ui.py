@@ -10,6 +10,7 @@ import time
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from session_recording import SessionReader, SessionRecorder, recording_directory
+from recording_state import display_metadata, replay_display, comparison_baseline
 
 
 def timestamp_label(seconds):
@@ -28,6 +29,12 @@ class RecordingMixin:
         self.recording_result = None
         self._record_started = 0.
         self._packet_cache = {}
+        self._display_packet_cache = {}
+        self._display_qimages = {}
+        self._image_packet_cache = {}
+        self._replay_rejections = []
+        self._replay_rejection_count = 0
+        self.recording_compatibility_note = ""
         self._last_view_json = None
         self._replay_windows = []
         self.reader = None
@@ -50,6 +57,14 @@ class RecordingMixin:
             args.enable_trial_control = False
             args.preview_heading_calibration = None
             self.reader = SessionReader(Path(args.replay).expanduser().resolve())
+            try:
+                self.display_footprint, self.recording_compatibility_note = replay_display(self.reader.metadata)
+            except (ValueError, TypeError, KeyError):
+                self.reader.close()
+                raise
+        else:
+            from planning_footprint import load_footprint
+            self.display_footprint = load_footprint()
 
     def now(self):
         return 1_000_000. + self._replay_position if self.replay_mode else time.monotonic()
@@ -120,18 +135,22 @@ class RecordingMixin:
                 "active_model": self.active_model, "model_switch_result": self.model_switch_result,
                 "active_cloud_source": getattr(self, "active_cloud_source", None),
                 "active_slope_mode": getattr(self, "active_slope_mode", None),
+                "cloud_switch_result": getattr(self, "cloud_switch_result", None),
+                "slope_switch_result": getattr(self, "slope_switch_result", None),
                 "slope_cpu_history": cpu_history,
                 "trial_stop_result": self.trial_stop_result, "ssh": self.ssh_progress,
                 "heading_reset_result": getattr(self, "heading_reset_result", None),
                 "vio_restart_result": getattr(self, "vio_restart_result", None)}
 
-    def record_view(self):
+    def record_view(self, *, initial=False):
         if self.recorder is None or self.replay_mode:
             return
         event = self._view_event()
         encoded = json.dumps(event, sort_keys=True, ensure_ascii=False)
         if encoded != self._last_view_json:
             self._last_view_json = encoded
+            if initial:
+                event["_baseline_state"] = True
             self.recorder.append("gui", event, max(0., time.monotonic() - self._record_started))
 
     def record_packet(self, board, event, received_at):
@@ -151,11 +170,9 @@ class RecordingMixin:
         if self.recorder is not None:
             self.stop_recording()
             return
-        root = recording_directory()
-        destination = root / (time.strftime("%Y%m%d_%H%M%S") + f"_{time.time_ns() % 1_000_000:06d}.nomad")
         self._record_started = time.monotonic()
         try:
-            recorder = SessionRecorder(destination, metadata={
+            metadata = {**display_metadata(self.display_footprint),
                 "started_wall_s": time.time(), "forward_axis": list(self.forward_axis),
                 "heading_note": self.heading_note, "ui_hz": self.args.ui_hz,
                 "active_model": self.active_model,
@@ -163,36 +180,53 @@ class RecordingMixin:
                 "active_slope_mode": getattr(self, "active_slope_mode", None),
                 "scope": "accepted_gui_packets_after_ingress_coalescing",
                 "initial_history": "bounded history already visible at recording start; offset zero",
-                "streams": "images,poses,status,rates,telemetry,module logs,selected goal",
-            })
-        except (OSError, ValueError, RuntimeError) as error:
+                "streams": "images,poses,status,rates,telemetry,module logs,selected goal"}
+            baseline = self.recording_baseline()
+            # Check every initial object before creating a file/writer thread.
+            for _, event in baseline:
+                json.dumps(event, allow_nan=False)
+            destination = recording_directory() / (time.strftime("%Y%m%d_%H%M%S") +
+                                                   f"_{time.time_ns() % 1_000_000:06d}.nomad")
+            recorder = SessionRecorder(destination, metadata=metadata)
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
             self.record_label.setText("기록 시작 실패 · " + str(error))
             self.record_label.setStyleSheet("color:#fca5a5;")
             return
         self.recorder = recorder
         self.recording_result = None
         self._last_view_json = None
-        # Preserve the currently visible bounded trajectory once at time zero.
-        # This is a baseline, not an invented chronology before recording start.
-        owners = {"vio": "pi", "fusion": "pi", "public": "pi"}
-        for source, history in self.histories.items():
-            cached = self._packet_cache.get(("pi", "pose", source), {})
-            age = self.age("pose", source) or 0.
-            for pose in history:
-                event = {**cached, **pose, "kind": "pose", "source": source,
-                         "_record_receive_age_s": age}
-                recorder.append(owners[source], event, 0.)
-        for (board, kind, source), cached in self._packet_cache.items():
-            if kind == "pose":
-                continue
-            recorder.append(board, {**cached, "_record_receive_age_s": self.age(kind, source) or 0.}, 0.)
-        for history in self.module_logs.values():
-            for event in history:
-                source = event["source"]
-                recorder.append(event["board"], {**event, "_record_receive_age_s": self.age("log", source) or 0.}, 0.)
-        self.record_view()
+        for board, event in baseline:
+            if not recorder.append(board, event, 0.):
+                break  # Writer exposes FAILED and preserves the accepted prefix.
+        self.record_view(initial=True)
         self.record_button.setText("기록 정지")
         self.update_recording_bar()
+
+    def recording_baseline(self):
+        rows = []
+        for source in ("vio", "fusion", "public"):
+            cached = self._packet_cache.get(("pi", "pose", source), {})
+            for pose in self.histories[source]:
+                rows.append(("pi", {**cached, **pose, "kind": "pose", "source": source,
+                                    "_record_receive_age_s": self.age("pose", source) or 0.}))
+        # Keep the last actually displayed frame before the most recent packet.
+        # The latter may be undecodable or have no map coordinates.
+        for source, (board, event, received) in self._display_packet_cache.items():
+            rows.append((board, {**event, "_record_receive_age_s": max(0., self.now()-received)}))
+        for (board, kind, source), cached in self._packet_cache.items():
+            if kind != "pose":
+                rows.append((board, {**cached, "_record_receive_age_s": self.age(kind, source) or 0.}))
+        # Derived positions are local GUI history, not new wire/ROS pose streams.
+        # Restore after diagnostics, whose epoch handling may clear comparison history.
+        for source in ("gnss", "vio_compare"):
+            event = {"kind": "comparison_baseline", "source": "gui", "history_source": source,
+                     "positions": list(self.histories[source]), "receive_age_s": self.age("pose", source) or 0.}
+            comparison_baseline(event)
+            rows.append(("gui", event))
+        for history in self.module_logs.values():
+            for event in history:
+                rows.append((event["board"], {**event, "_record_receive_age_s": self.age("log", event["source"]) or 0.}))
+        return rows
 
     def stop_recording(self):
         if self.recorder is None:
@@ -215,9 +249,12 @@ class RecordingMixin:
             self.replay_play.setText("일시정지" if self._replay_playing else "재생")
             incomplete = not self.reader.metadata.get("_recording", {}).get("complete", False)
             state = "시각 이동 중…" if self._replay_seeking else ("재생 중" if self._replay_playing else "일시정지")
+            warnings = (f" · 적용 제외 {self._replay_rejection_count}건" if self._replay_rejection_count else "")
             self.record_label.setText(f"기록 재생 · {state} · {Path(self.args.replay).name}" +
-                                      (" · 미완료 기록: 저장된 부분까지 재생" if incomplete else ""))
-            self.record_label.setStyleSheet("color:#7dd3fc;")
+                                      (" · 미완료 기록: 저장된 부분까지 재생" if incomplete else "") + warnings +
+                                      (" · " + self.recording_compatibility_note if self.recording_compatibility_note else ""))
+            self.record_label.setToolTip("\n".join(self._replay_rejections))
+            self.record_label.setStyleSheet("color:#fbbf24;" if warnings else "color:#7dd3fc;")
             return
         status = self.recorder.status() if self.recorder is not None else self.recording_result
         if not status:
@@ -276,6 +313,17 @@ class RecordingMixin:
         self._replay_seq = record["seq"]
         self._replay_position = record["offset_s"]
         event = dict(record["event"])
+        if record["board"] == "gui" and event.get("kind") == "comparison_baseline":
+            if record["offset_s"] != 0.:
+                raise ValueError("비교 초기 궤적이 기록 시작 이후에 있습니다")
+            source, positions, age = comparison_baseline(event)
+            self.histories[source].clear()
+            self.histories[source].extend(positions)
+            if positions:
+                self.received["pose:" + source] = self.now()-age
+            else:
+                self.received.pop("pose:" + source, None)
+            return
         if record["board"] == "gui" and event.get("kind") == "view":
             goal = event.get("selected_goal")
             self.selected_goal = tuple(goal) if isinstance(goal, list) and len(goal) == 3 else None
@@ -284,6 +332,8 @@ class RecordingMixin:
             self.trial_stop_result = event.get("trial_stop_result")
             self.active_cloud_source = event.get("active_cloud_source")
             self.active_slope_mode = event.get("active_slope_mode")
+            self.cloud_switch_result = event.get("cloud_switch_result")
+            self.slope_switch_result = event.get("slope_switch_result")
             self.slope_cpu_history = {}
             for mode, values in event.get("slope_cpu_history", {}).items():
                 entry = dict(values)
@@ -293,7 +343,7 @@ class RecordingMixin:
                 self.slope_cpu_history[mode] = entry
             self.heading_reset_result = event.get("heading_reset_result")
             restart_result = event.get("vio_restart_result")
-            if (isinstance(restart_result, dict) and restart_result.get("ok") is True and
+            if (not event.get("_baseline_state") and isinstance(restart_result, dict) and restart_result.get("ok") is True and
                     restart_result != self.vio_restart_result):
                 self.clear_raw_vio_history()
             self.vio_restart_result = restart_result
@@ -308,11 +358,21 @@ class RecordingMixin:
             raise ValueError("기록의 수신 시각이 유효하지 않습니다")
         event["_local_received_monotonic"] = self.now() - age
         event["_relay_age_s"] = age
-        self.on_packet(record["board"], event)
+        if self.on_packet(record["board"], event) is False:
+            self.note_replay_rejection(record, "입력 계약/시각/순서 검사 거부")
+            return
         if event.get("kind") == "image":
             # A later malformed/unlocated preview must retain the earlier valid
             # frame just as live refresh did, even when seeking skips paints.
             self.decode_images((event.get("source"),))
+            if self.images.get(event.get("source"), {}).get("decode_error"):
+                self.note_replay_rejection(record, "영상 해독 실패 · 마지막 정상 영상 유지")
+
+    def note_replay_rejection(self, record, reason):
+        self._replay_rejection_count += 1
+        event = record["event"]
+        self._replay_rejections.append(f"seq {record['seq']} · {record['board']}/{event.get('source', '?')} · {reason}")
+        self._replay_rejections = self._replay_rejections[-20:]
 
     def seek_replay(self, seconds, resume=False):
         if self._replay_error:
@@ -344,11 +404,16 @@ class RecordingMixin:
         self._plot_signatures.clear()
         self._fit_initialized = False
         self._decoded_payloads.clear()
+        self._replay_rejections.clear()
+        self._replay_rejection_count = 0
         self.received.clear()
         self.statuses.clear()
         self.rates.clear()
         self.images.clear()
         self.latest_qimages.clear()
+        self._display_qimages.clear()
+        self._display_packet_cache.clear()
+        self._image_packet_cache.clear()
         self.telemetry.clear()
         self._comparison_epoch = None
         self._raw_vio_epoch = None
@@ -409,7 +474,7 @@ class RecordingMixin:
                     break
                 if time.monotonic() >= deadline:
                     break
-        except (OSError, ValueError, RuntimeError) as error:
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError, RuntimeError) as error:
             self._replay_playing = self._replay_seeking = False
             self._replay_error = str(error)
             self.record_label.setText("기록 재생 오류 · " + str(error))

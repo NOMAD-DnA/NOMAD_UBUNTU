@@ -114,7 +114,7 @@ class PerceptionWindow(QtWidgets.QMainWindow):
                 self._image_meta[source] = event
             shown = self._image_meta.get(source, {})
             dimensions = f"{shown['width']}×{shown['height']}" if shown.get("width") and shown.get("height") else "—"
-            prefix = "새 영상 오류 · 마지막 정상 영상 유지 | " if event.get("decode_error") else ""
+            prefix = "새 영상 오류 · 마지막 정상 영상 유지 | " if event.get("decode_error") or event.get("latest_frame_error") else ""
             panel.meta.setText(prefix + age_text(self._shown_age(snapshot, source)) + " | " + dimensions)
         self.model.setText("모델 선택 확인: " + selected + " | 분할 영상: " +
                            age_text(self._shown_age(snapshot, "semantic")) +

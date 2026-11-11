@@ -28,7 +28,7 @@ class PlanningMap(QtWidgets.QWidget):
         self.event, self.pixels = {}, None
         self.history, self.planning, self.selected_goal = [], {}, None
         self.forward_axis = (1., 0., 0.)
-        self.footprint = load_footprint()
+        self.footprint = components['footprint'] if 'footprint' in components else load_footprint()
         self.show_footprint = self.show_footprint_cells = True
         self._footprint_key = None
         self.pose_age, self.map_age = None, None
@@ -354,6 +354,9 @@ class PlanningMap(QtWidgets.QWidget):
         self._footprint_artist.set_visible(False)
         self._front_line.set_data([], [])
         self._cell_artist.set_verts([])
+        if self.footprint is None:
+            self._footprint_note.set_text('Recorded footprint unavailable · overlay hidden')
+            return
         if not self.show_footprint:
             self._footprint_note.set_text('Current footprint: hidden')
             return
@@ -467,9 +470,11 @@ class PlanningWindow(QtWidgets.QMainWindow):
         layout.addLayout(footprint_controls)
         f = self.map.footprint
         self.footprint_info = QtWidgets.QLabel(
-            f'청록 윤곽: {f.reference} 기준 앞 {f.front:.2f} · 뒤 {f.rear:.2f} · 좌우 각 {f.half_width:.2f}m'
+            (f'청록 윤곽: {f.reference} 기준 앞 {f.front:.3f} · 뒤 {f.rear:.3f} · 좌우 각 {f.half_width:.3f}m' if f is not None else '기록 당시 윤곽 미저장 · 윤곽/겹침 셀 표시 안 함') +
             ' | 흰 선: 전면 · 주황 점선: 현재 차량 검사 셀\n'
             '전역 지도 위 현재 위치 표시 · LPP 정지는 지역 지도와 예측 궤적 전체로 판단')
+        if (components or {}).get('footprint_note'):
+            self.footprint_info.setText(self.footprint_info.text() + '\n' + components['footprint_note'])
         self.footprint_info.setWordWrap(True)
         self.footprint_info.setStyleSheet('color:#a5f3fc;font-size:12px;')
         stable_metadata(self.footprint_info, rows=3)

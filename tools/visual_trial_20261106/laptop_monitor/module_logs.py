@@ -266,9 +266,10 @@ def update_module_logs(window, snapshot, source):
     if previous is not history:
         cursor = None
         flushes.pop(source, None)
-    now = time.monotonic()
+    replay = bool(snapshot.get("replay"))
+    now = snapshot.get("now", 0.) if replay else time.monotonic()
     previous_flush = flushes.get(source)
-    if previous_flush is not None and now-previous_flush < 1.:
+    if not replay and previous_flush is not None and now-previous_flush < 1.:
         # Leave the cursor unchanged. Received records remain in LogHistory
         # until the next display batch, subject only to its bounded retention.
         return

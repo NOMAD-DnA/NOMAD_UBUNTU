@@ -758,6 +758,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.invalid_events = 0
         self.accepted_events = 0
         self.capture_order = CaptureOrder()
+        from planning_diagnostics import LppDiagnostics
+        self.lpp_diagnostics = LppDiagnostics()
         self.workers = []
         self.planning_client = None
         self.planning_stale_disarmed = False
@@ -1055,8 +1057,14 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
 
     def developer_snapshot(self):
         """One shared receiver; child windows only read the latest UI snapshot."""
-        return {"histories": self.histories, "images": self.latest_qimages,
-                "image_meta": self.images, "received": self.received,
+        display_meta, display_received = {}, dict(self.received)
+        for source, (_, packet, arrived) in self._display_packet_cache.items():
+            display_meta[source] = {**packet, "latest_frame_error": bool(
+                self.images.get(source, {}).get("decode_error") or
+                (source in ("costmap", "slope") and not grid_geometry(self.images.get(source, {}))))}
+            display_received["image:"+source] = arrived
+        return {"histories": self.histories, "images": self._display_qimages,
+                "image_meta": display_meta, "received": display_received,
                 "statuses": self.statuses, "rates": self.rates, "telemetry": self.telemetry,
                 "module_logs": self.module_logs,
                 "ssh": self.ssh_progress, "now": self.now(), "wall_now": self.wall_now(),
@@ -1096,7 +1104,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 raise ValueError("Unknown developer window")
             window = Window(parent=self, components={"ImagePanel": ImagePanel, "MapPanel": MapPanel,
                                                      "grid_geometry": grid_geometry,
-                                                     "rotate_vector": rotate_vector})
+                                                     "rotate_vector": rotate_vector,
+                                                     "footprint": self.display_footprint,
+                                                     "footprint_note": self.recording_compatibility_note})
             if part == "localization":
                 window.heading_reset_requested.connect(self.reset_heading_from_magnetometer)
                 window.vio_restart_requested.connect(self.restart_vio)
@@ -1705,6 +1715,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 if not finite_number(event.get("t")) or not isinstance(event.get("data"), str):
                     raise ValueError()
                 self.images[source] = {k: event.get(k) for k in ("t", "encoding", "data", "width", "height", "grid", "georeferenced", "georeference_reason")}
+                self._image_packet_cache[source] = (board, dict(event))
                 self.image_dirty.add(source)
             elif kind == "log":
                 from relay import valid_log_event
@@ -1741,6 +1752,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                     gpp, lpp = stage_summary(clean)
                     self.planning_message.setText(gpp + " | " + lpp + " | " + output_summary(clean))
                 else:
+                    if source == "slope_cpu" and not isinstance(event.get("cpu", {}), dict):
+                        raise ValueError("Invalid CPU telemetry")
                     self.telemetry[source] = json.loads(encoded)
                     if source == "fusion":
                         self.update_comparison_samples(event, received_at)
@@ -1755,11 +1768,18 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 raise ValueError()
         except (ValueError, OverflowError, TypeError):
             self.invalid_events += 1
-            return
+            return False
         self.capture_order.accept(stream_key, event)
         self.received[kind + ":" + source] = received_at
         self.accepted_events += 1
         self.record_packet(board, event, received_at)
+        if kind == "telemetry" and source == "planning" and not self.replay_mode:
+            diagnostic = self.lpp_diagnostics.update(self.telemetry["planning"])
+            if diagnostic is not None:
+                self.module_logs["planning"].append(diagnostic)
+                self.record_packet("pi4", diagnostic, received_at)
+                if not self.spectator_mode:
+                    print(diagnostic["text"], flush=True)
         if self.relay_server is not None:
             try:
                 # Fan out the validated raw packet once, not a rendered snapshot.
@@ -1771,6 +1791,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 self.relay_server.publish(board, forwarded)
             except Exception:
                 self.relay_error = "relay_publish_failed"
+        return True
 
     def age(self, kind, source):
         received = self.received.get(kind + ":" + source)
@@ -1825,6 +1846,10 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                     self.panels[source].set_image(image)
                 self.latest_qimages[source] = image
                 self._decoded_payloads[source] = payload
+                if source not in ("costmap", "slope") or grid_geometry(event) is not None:
+                    board, packet = self._image_packet_cache[source]
+                    self._display_packet_cache[source] = (board, dict(packet), self.received["image:"+source])
+                    self._display_qimages[source] = image
                 event["decoded_width"], event["decoded_height"] = image.width(), image.height()
                 event.pop("decode_error", None)
             except (ValueError, TypeError):
@@ -1868,7 +1893,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 if self.panels[key].planning:
                     from planning_client import planning_for_display
                     self.panels[key].set_planning(planning_for_display(report, planning_age), self.selected_goal)
-            self.planning_message.setText("플래너 수신 오래됨 · 출력 정지 요청 · 남은 경로는 참고용")
+            self.planning_message.setText(
+                "플래너 수신 오래됨 · 남은 경로는 참고용 · 읽기 전용(명령 전송 없음)"
+                if not controllable else "플래너 수신 오래됨 · 출력 정지 요청 · 남은 경로는 참고용")
         summaries = []
         for source in ("localization", "perception"):
             status = self.statuses.get(source)
@@ -2051,8 +2078,11 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             window.close()
         for worker in self.workers:
             worker.stop()
-        for worker in self.workers:
-            worker.wait(4500)
+        if any(not worker.wait(4500) for worker in self.workers):
+            self.footer.setText("화면 수신 스레드를 종료하는 중… 보드 모듈 상태는 유지합니다.")
+            QtCore.QTimer.singleShot(150, self.close)
+            event.ignore()
+            return
         self.close_recording()
         self.write_state()
         event.accept()
