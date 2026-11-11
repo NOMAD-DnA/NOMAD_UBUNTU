@@ -10,16 +10,27 @@ nomad_write_planning_output_profile() (
   output_file=$1
   wired_local=$2
   wired_peer=$3
+  wlan_local=$(ip -4 -o addr show dev wlan0 scope global | awk 'NR == 1 {split($4,a,"/"); print a[1]}')
   planning_peer=${NOMAD_PLANNING_PEER:-}
   if [[ -z "$planning_peer" ]]; then
     if [[ -r /etc/nomad/network-peers.json ]]; then
-      planning_peer=$(python3 -c 'import json,ipaddress; print(ipaddress.IPv4Address(json.load(open("/etc/nomad/network-peers.json"))["pi4"]))') || return 2
+      # Laptop hotspot networks carry their own fixed Pi4 address; otherwise
+      # the classroom (top-level) address. Chosen from this board's wlan0.
+      planning_peer=$(python3 -c 'import ipaddress,json,sys
+v=json.load(open("/etc/nomad/network-peers.json"))
+peer=v.get("pi4")
+for n in v.get("networks",[]):
+    try:
+        if sys.argv[1] and ipaddress.IPv4Address(sys.argv[1]) in ipaddress.ip_network(n["cidr"]):
+            peer=n["pi4"]
+    except (ValueError,KeyError,TypeError):
+        pass
+print(ipaddress.IPv4Address(peer))' "$wlan_local") || return 2
     else
       planning_peer=$(getent ahostsv4 lpp.local | awk 'NR==1 {print $1}' || true)
       planning_peer=${planning_peer:-192.168.3.142}
     fi
   fi
-  wlan_local=$(ip -4 -o addr show dev wlan0 scope global | awk 'NR == 1 {split($4,a,"/"); print a[1]}')
   for address in "$wired_local" "$wired_peer" "$planning_peer" "$wlan_local"; do
     if ! awk -v address="$address" 'BEGIN {
       if (split(address,a,".") != 4) exit 1;
@@ -65,6 +76,11 @@ fail() { printf 'RESUME_FAILED: %s\n' "$*" >&2; exit 1; }
 trap 'rc=$?; printf "RESUME_FAILED exit=%s run=%s; existing/new processes were not killed\n" "$rc" "${run:-not-created}" >&2' ERR
 
 [[ -d "$root" && -d "$prefix" ]] || fail 'Existing external tools/private runtime missing'
+# Board-owned time readiness (2026-11-11): the installed checker decides.
+if [[ -x /usr/local/lib/nomad-network/time_agent.py ]]; then
+  nomad_time=$(python3 /usr/local/lib/nomad-network/time_agent.py --check || true)
+  [[ "$nomad_time" == *'"ok": true'* ]] || { printf 'TIME_NOT_READY: %s\n' "${nomad_time#NOMAD_TIME_RESULT=}" >&2; exit 1; }
+fi
 exec 9>/tmp/nomad_resume_jetson_final_preview.lock
 flock -n 9 || fail 'Another final-preview startup is active'
 
