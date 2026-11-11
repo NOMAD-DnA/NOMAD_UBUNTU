@@ -5,12 +5,14 @@
 #include <stdexcept>
 #include <cstdlib>
 
+using namespace std;
+
 namespace nomad {
 namespace {
-bool positive(double value) { return std::isfinite(value) && value > 0.0; }
+bool positive(double value) { return isfinite(value) && value > 0.0; }
 
 double approach(double previous, double target, double rate, double dt) {
-    return previous + std::clamp(target - previous, -rate * dt, rate * dt);
+    return previous + clamp(target - previous, -rate * dt, rate * dt);
 }
 } // namespace
 
@@ -22,8 +24,8 @@ RawTrialController::RawTrialController(RawOptions options)
     if (!positive(options_.motor_max_erpm) || options_.motor_max_erpm > limits::kMotorMaxErpm ||
         !positive(options_.overspeed_erpm) || options_.overspeed_erpm > 2500.0 ||
         options_.overspeed_erpm <= options_.motor_max_erpm ||
-        !std::isfinite(options_.servo_center) || !std::isfinite(options_.servo_min) ||
-        !std::isfinite(options_.servo_max) || options_.servo_min < 0.0 || options_.servo_max > 1.0 ||
+        !isfinite(options_.servo_center) || !isfinite(options_.servo_min) ||
+        !isfinite(options_.servo_max) || options_.servo_min < 0.0 || options_.servo_max > 1.0 ||
         options_.servo_min >= options_.servo_max || options_.servo_center < options_.servo_min ||
         options_.servo_center > options_.servo_max ||
         !positive(options_.max_duration_s) || options_.max_duration_s > 3.0 ||
@@ -40,12 +42,12 @@ RawTrialController::RawTrialController(RawOptions options)
         !positive(options_.stall_feedback_erpm) || options_.stall_feedback_erpm > options_.stall_command_erpm ||
         !positive(options_.servo_rate_s) || options_.servo_rate_s > 0.04 ||
         !positive(options_.manual_servo_rate_s) || options_.manual_servo_rate_s > 0.40)
-        throw std::invalid_argument("invalid raw commissioning limits; outside candidate bounds");
+        throw invalid_argument("invalid raw commissioning limits; outside candidate bounds");
     // 실행 파일 교체 때 마지막 소프트웨어 명령을 이어받습니다. 센서 실측값은 아닙니다.
-    if(const char* saved=std::getenv("NOMAD_INITIAL_SERVO")) {
-        char* end=nullptr;const double value=std::strtod(saved,&end);
-        if(end==saved||*end!='\0'||!std::isfinite(value)||value<options_.servo_min||value>options_.servo_max)
-            throw std::invalid_argument("invalid restored servo command");
+    if(const char* saved=getenv("NOMAD_INITIAL_SERVO")) {
+        char* end=nullptr;const double value=strtod(saved,&end);
+        if(end==saved||*end!='\0'||!isfinite(value)||value<options_.servo_min||value>options_.servo_max)
+            throw invalid_argument("invalid restored servo command");
         commanded_servo_=target_servo_=value;
     }
 }
@@ -55,8 +57,8 @@ bool RawTrialController::validTarget(RawAxis axis, double erpm, double servo) co
     const double low=axis==RawAxis::Steering?steering_test_min_:options_.servo_min;
     const double high=axis==RawAxis::Steering?steering_test_max_:options_.servo_max;
     if ((axis != RawAxis::Motor && axis != RawAxis::Steering && axis != RawAxis::Manual) ||
-        !std::isfinite(erpm) || erpm < 0.0 || erpm > options_.motor_max_erpm ||
-        !std::isfinite(servo) || servo < low || servo > high) return false;
+        !isfinite(erpm) || erpm < 0.0 || erpm > options_.motor_max_erpm ||
+        !isfinite(servo) || servo < low || servo > high) return false;
     return axis != RawAxis::Steering || erpm == 0.0;
 }
 
@@ -64,7 +66,7 @@ bool RawTrialController::validTarget(RawAxis axis, double erpm, double servo) co
 bool RawTrialController::setSteeringTestSpan(double span,double steady_now,double ros_now) {
     if(!checkClock(steady_now,ros_now)||!options_.enabled||!options_.setup_acknowledged||!options_.hardware_timeout_verified||
        (state_!=TrialState::Idle&&state_!=TrialState::Stopped)||!stationary(steady_now,ros_now)||
-       !std::isfinite(span)||span<.005||span>std::min(options_.servo_center,1.0-options_.servo_center))return false;
+       !isfinite(span)||span<.005||span>min(options_.servo_center,1.0-options_.servo_center))return false;
     const double low=options_.servo_center-span,high=options_.servo_center+span;
     if(commanded_servo_<low-1e-9||commanded_servo_>high+1e-9)return false;
     steering_test_min_=low;steering_test_max_=high;
@@ -73,18 +75,18 @@ bool RawTrialController::setSteeringTestSpan(double span,double steady_now,doubl
 
 // Wi-Fi 여유는 연속 MANUAL에만 적용합니다. 짧은 단축 시험의 감시는 350ms 이하로 유지합니다.
 double RawTrialController::manualTimeout(RawAxis axis) const {
-    return axis == RawAxis::Manual ? options_.manual_timeout_s : std::min(limits::kShortAxisWatchdogMaxS, options_.manual_timeout_s);
+    return axis == RawAxis::Manual ? options_.manual_timeout_s : min(limits::kShortAxisWatchdogMaxS, options_.manual_timeout_s);
 }
 
 bool RawTrialController::validCommandAge(RawAxis axis, double age) const {
     const double max_age = limits::commandMaxAge(axis == RawAxis::Manual, options_.manual_timeout_s);
-    return std::isfinite(age) && age >= -limits::kFutureStampToleranceS && age <= max_age && age <= manualTimeout(axis);
+    return isfinite(age) && age >= -limits::kFutureStampToleranceS && age <= max_age && age <= manualTimeout(axis);
 }
 
 // 시계 역행은 이전 메시지를 다시 유효하게 만들 수 있어 현재 시험을 중단합니다.
 bool RawTrialController::checkClock(double steady_now, double ros_now) {
-    const bool valid = std::isfinite(steady_now) && steady_now >= 0.0 &&
-        std::isfinite(ros_now) && ros_now > 0.0 &&
+    const bool valid = isfinite(steady_now) && steady_now >= 0.0 &&
+        isfinite(ros_now) && ros_now > 0.0 &&
         (!last_steady_now_ || steady_now >= *last_steady_now_) &&
         (!last_ros_now_ || ros_now >= *last_ros_now_);
     if (!valid) {
@@ -96,7 +98,7 @@ bool RawTrialController::checkClock(double steady_now, double ros_now) {
     return true;
 }
 
-void RawTrialController::invalidateTelemetry(const std::string& reason, bool recoverable) {
+void RawTrialController::invalidateTelemetry(const string& reason, bool recoverable) {
     telemetry_ok_ = false;
     stationary_since_.reset();
     telemetry_issue_ = reason;
@@ -113,16 +115,16 @@ void RawTrialController::invalidateTelemetry(const std::string& reason, bool rec
 void RawTrialController::observe(const TelemetrySample& sample, double steady_now, double ros_now) {
     if (!checkClock(steady_now, ros_now)) return;
     const double age = ros_now - sample.stamp_s;
-    if (!std::isfinite(sample.raw_erpm) || std::abs(sample.raw_erpm) > options_.overspeed_erpm ||
-        !std::isfinite(sample.current_motor_a) || !std::isfinite(sample.current_input_a) ||
-        std::abs(sample.current_motor_a) > options_.current_limit_a ||
-        std::abs(sample.current_input_a) > options_.current_limit_a ||
+    if (!isfinite(sample.raw_erpm) || abs(sample.raw_erpm) > options_.overspeed_erpm ||
+        !isfinite(sample.current_motor_a) || !isfinite(sample.current_input_a) ||
+        abs(sample.current_motor_a) > options_.current_limit_a ||
+        abs(sample.current_input_a) > options_.current_limit_a ||
         !positive(sample.voltage_v) || sample.fault_code != 0) {
         invalidateTelemetry(sample.fault_code != 0 ? "raw VESC fault code nonzero" :
             "raw physical telemetry invalid, overspeed, current limit or voltage invalid");
         return;
     }
-    if (!std::isfinite(sample.stamp_s) || sample.stamp_s <= 0.0) {
+    if (!isfinite(sample.stamp_s) || sample.stamp_s <= 0.0) {
         invalidateTelemetry("raw telemetry stamp invalid"); return;
     }
     if (age < -limits::kFutureStampToleranceS || age > options_.telemetry_timeout_s) {
@@ -136,7 +138,7 @@ void RawTrialController::observe(const TelemetrySample& sample, double steady_no
     received_at_ = steady_now;
     telemetry_ok_ = true;
     telemetry_issue_ = "READY";
-    if (std::abs(sample.raw_erpm) <= options_.stationary_erpm) {
+    if (abs(sample.raw_erpm) <= options_.stationary_erpm) {
         if (!stationary_since_) stationary_since_ = steady_now;
     } else stationary_since_.reset();
     if (state_ == TrialState::Monitor || state_ == TrialState::Idle)
@@ -144,7 +146,7 @@ void RawTrialController::observe(const TelemetrySample& sample, double steady_no
 }
 
 bool RawTrialController::healthy(double steady_now, double ros_now) const {
-    if (!telemetry_ok_ || !sample_ || !std::isfinite(steady_now) || !std::isfinite(ros_now)) return false;
+    if (!telemetry_ok_ || !sample_ || !isfinite(steady_now) || !isfinite(ros_now)) return false;
     const double receipt_age = steady_now - received_at_;
     const double stamp_age = ros_now - sample_->stamp_s;
     return receipt_age >= 0.0 && receipt_age <= options_.telemetry_timeout_s &&
@@ -188,7 +190,7 @@ bool RawTrialController::start(RawAxis axis, double erpm, double servo, double d
     duration_s_ = duration;
     started_at_ = steady_now;
     // 수신 시각이 아니라 추정 발행 시각부터 감시하여 지연 큐가 구동 시간을 늘리지 못하게 합니다.
-    last_manual_at_ = steady_now - std::max(0.0, command_age_s);
+    last_manual_at_ = steady_now - max(0.0, command_age_s);
     last_tick_ = steady_now;
     commanded_erpm_ = 0.0;
     stalled_since_.reset();
@@ -221,12 +223,12 @@ bool RawTrialController::update(RawAxis axis, double erpm, double servo, double 
     }
     target_erpm_ = erpm;
     target_servo_ = servo;
-    last_manual_at_ = std::max(last_manual_at_, steady_now - std::max(0.0, command_age_s));
+    last_manual_at_ = max(last_manual_at_, steady_now - max(0.0, command_age_s));
     if (erpm < options_.stall_command_erpm) stalled_since_.reset();
     return true;
 }
 
-bool RawTrialController::pausePlanning(const std::string& reason, double steady_now, double ros_now) {
+bool RawTrialController::pausePlanning(const string& reason, double steady_now, double ros_now) {
     if (!planning_recovery_ || !checkClock(steady_now, ros_now) || state_ == TrialState::Fault) return false;
     // Keep a real stalled control loop distinct from a missing module/telemetry sample.
     if (state_ == TrialState::Running && last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
@@ -256,7 +258,7 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
     last_tick_ = steady_now;
     // Seed from current measured forward rotation, never a previous target.
     // A lower target cannot inherit a larger command, and zero remains release.
-    commanded_erpm_ = std::clamp(sample_->raw_erpm, 0.0, std::min(erpm, options_.motor_max_erpm));
+    commanded_erpm_ = clamp(sample_->raw_erpm, 0.0, min(erpm, options_.motor_max_erpm));
     stalled_since_.reset();
     // Keep the last servo command; normal tick/update slew limits still apply.
     state_ = TrialState::Running;
@@ -267,7 +269,7 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
 }
 
 // Release는 모터 0A 해제입니다. 정지 시 서보를 중앙으로 돌리거나 새 값을 송신하지 않습니다.
-void RawTrialController::stop(const std::string& reason, bool fault) {
+void RawTrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor || (state_ == TrialState::Fault && !fault)) return;
     planning_wait_ = false;
     state_ = fault ? TrialState::Fault : TrialState::Stopped;
@@ -287,14 +289,14 @@ bool RawTrialController::reset(double steady_now, double ros_now) {
 }
 
 RawOutput RawTrialController::restingOutput() const {
-    return {output_owned_ ? OutputKind::Release : OutputKind::None, 0.0, std::nullopt};
+    return {output_owned_ ? OutputKind::Release : OutputKind::None, 0.0, nullopt};
 }
 
 // 명령이 실제로 출발 임계값에 도달한 뒤에만 정체 시간을 셉니다. 회전 확인 시 다시 시작합니다.
 bool RawTrialController::checkMotorProgress(double steady_now) {
     const bool stalled = options_.stall_watchdog_enabled && sample_ &&
         target_erpm_ >= options_.stall_command_erpm && commanded_erpm_ >= options_.stall_command_erpm &&
-        std::abs(sample_->raw_erpm) < options_.stall_feedback_erpm;
+        abs(sample_->raw_erpm) < options_.stall_feedback_erpm;
     if (!stalled) {
         stalled_since_.reset();
         return true;
@@ -317,7 +319,7 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
         stop("raw driver disconnected or competing command publisher", true);
         return restingOutput();
     }
-    if (!std::isfinite(minimum_drive_erpm) || minimum_drive_erpm < 0.0 ||
+    if (!isfinite(minimum_drive_erpm) || minimum_drive_erpm < 0.0 ||
         minimum_drive_erpm > options_.motor_max_erpm) {
         stop("invalid planning minimum drive ERPM", true);
         return restingOutput();
@@ -332,9 +334,9 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
         // Skip the low-RPM ramp only for a positive planning target. STOP/zero
         // still releases immediately; overspeed reduction calls with floor=0.
         if (target_erpm_ > 0.0 && minimum_drive_erpm > 0.0)
-            commanded_erpm_ = std::max(commanded_erpm_, minimum_drive_erpm);
+            commanded_erpm_ = max(commanded_erpm_, minimum_drive_erpm);
         if (!checkMotorProgress(steady_now)) return restingOutput();
-        if (axis_ == RawAxis::Motor) return {OutputKind::Drive, commanded_erpm_, std::nullopt};
+        if (axis_ == RawAxis::Motor) return {OutputKind::Drive, commanded_erpm_, nullopt};
     }
     const double servo_rate = axis_ == RawAxis::Manual ? options_.manual_servo_rate_s : options_.servo_rate_s;
     commanded_servo_ = approach(commanded_servo_, target_servo_, servo_rate, dt);
@@ -343,8 +345,8 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
 
 double RawTrialController::remaining(double steady_now) const {
     if (state_ != TrialState::Running || axis_ == RawAxis::Manual ||
-        !std::isfinite(steady_now) || steady_now < started_at_) return 0.0;
-    return std::max(0.0, duration_s_ - (steady_now - started_at_));
+        !isfinite(steady_now) || steady_now < started_at_) return 0.0;
+    return max(0.0, duration_s_ - (steady_now - started_at_));
 }
 
 } // namespace nomad

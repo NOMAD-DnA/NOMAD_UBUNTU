@@ -34,6 +34,10 @@
 #include <thread>
 #include <vector>
 
+using namespace std;
+// Exception: inside rclcpp::Node subclasses, Node::make_shared/make_unique (static members added by
+// RCLCPP_SMART_PTR_DEFINITIONS) hide the free functions, so those calls stay std::-qualified.
+
 namespace nomad {
 namespace {
 // 하나의 출력 소유자가 수동/LPP 입력을 중재합니다. monitor는 장치 publisher를 만들지 않습니다.
@@ -43,8 +47,8 @@ public:
         : ControllerNode(options) {
         bool sim_time = false;
         get_parameter("use_sim_time", sim_time);
-        if (sim_time) throw std::invalid_argument("real VESC trial requires use_sim_time=false");
-        time_guard_ = add_on_set_parameters_callback([](const std::vector<rclcpp::Parameter>& params) {
+        if (sim_time) throw invalid_argument("real VESC trial requires use_sim_time=false");
+        time_guard_ = add_on_set_parameters_callback([](const vector<rclcpp::Parameter>& params) {
             rcl_interfaces::msg::SetParametersResult result;
             result.successful = true;
             for (const auto& p : params) {
@@ -56,9 +60,9 @@ public:
             return result;
         });
 
-        const std::string mode = parameter<std::string>("mode", "monitor");
+        const string mode = parameter<string>("mode", "monitor");
         if (mode != "monitor" && mode != "bench" && mode != "commission")
-            throw std::invalid_argument("mode must be monitor, bench or commission");
+            throw invalid_argument("mode must be monitor, bench or commission");
         commissioning_ = mode == "commission";
         options_.actuation_enabled = mode != "monitor";
         options_.calibration_verified = parameter<bool>("calibration_verified", false);
@@ -77,13 +81,13 @@ public:
         options_.steering_settle_s = parameter<double>("steering_settle_s", 0.30);
         options_.manual_timeout_s = parameter<double>("manual_timeout_s", 0.35);
         // 현재 정지는 0A coast이므로 이 노드는 지상/경사 주행 모드를 지원하지 않습니다.
-        const auto environment = parameter<std::string>("operation_environment", "raised_bench");
+        const auto environment = parameter<string>("operation_environment", "raised_bench");
         if (environment != "raised_bench")
-            throw std::invalid_argument("ground driving unavailable: downhill braking/hold and stability not validated");
+            throw invalid_argument("ground driving unavailable: downhill braking/hold and stability not validated");
         loadStability();
         if (commissioning_) {
             if (options_.calibration_verified)
-                throw std::invalid_argument("raw commissioning must keep calibration_verified=false");
+                throw invalid_argument("raw commissioning must keep calibration_verified=false");
             raw_options_ = loadRawOptions();
             raw_controller_ = std::make_unique<RawTrialController>(raw_options_);
         } else {
@@ -91,21 +95,21 @@ public:
             controller_ = std::make_unique<TrialController>(calibration_, options_);
         }
 
-        const auto telemetry_topic = parameter<std::string>("telemetry_topic", "/sensors/core");
-        const auto speed_topic = parameter<std::string>("motor_speed_topic", "/commands/motor/speed");
-        const auto current_topic = parameter<std::string>("motor_current_topic", "/commands/motor/current");
-        const auto servo_topic = parameter<std::string>("servo_topic", "/commands/servo/position");
-        const std::vector<std::string> other_topics = {
-            parameter<std::string>("motor_duty_topic", "/commands/motor/duty_cycle"),
-            parameter<std::string>("motor_brake_topic", "/commands/motor/brake"),
-            parameter<std::string>("motor_position_topic", "/commands/motor/position")};
-        std::set<std::string> distinct;
+        const auto telemetry_topic = parameter<string>("telemetry_topic", "/sensors/core");
+        const auto speed_topic = parameter<string>("motor_speed_topic", "/commands/motor/speed");
+        const auto current_topic = parameter<string>("motor_current_topic", "/commands/motor/current");
+        const auto servo_topic = parameter<string>("servo_topic", "/commands/servo/position");
+        const vector<string> other_topics = {
+            parameter<string>("motor_duty_topic", "/commands/motor/duty_cycle"),
+            parameter<string>("motor_brake_topic", "/commands/motor/brake"),
+            parameter<string>("motor_position_topic", "/commands/motor/position")};
+        set<string> distinct;
         for (const auto& topic : {telemetry_topic, speed_topic, current_topic, servo_topic})
             if (!distinct.insert(get_node_topics_interface()->resolve_topic_name(topic)).second)
-                throw std::invalid_argument("topics must be distinct");
+                throw invalid_argument("topics must be distinct");
         for (const auto& topic : other_topics) {
             const auto resolved = get_node_topics_interface()->resolve_topic_name(topic);
-            if (!distinct.insert(resolved).second) throw std::invalid_argument("topics must be distinct");
+            if (!distinct.insert(resolved).second) throw invalid_argument("topics must be distinct");
             other_command_topics_.push_back(resolved);
         }
 
@@ -122,25 +126,25 @@ public:
 
         status_json_pub_ = create_publisher<std_msgs::msg::String>("~/status_json", 1);
         manual_service_ = create_service<Manual>("~/manual_control",
-            [this](const std::shared_ptr<Manual::Request> request, std::shared_ptr<Manual::Response> response) {
+            [this](const shared_ptr<Manual::Request> request, shared_ptr<Manual::Response> response) {
                 onManual(*request, *response);
             });
         commissioning_service_ = create_service<Commissioning>("~/commissioning_control",
-            [this](const std::shared_ptr<Commissioning::Request> request,
-                   std::shared_ptr<Commissioning::Response> response) {
+            [this](const shared_ptr<Commissioning::Request> request,
+                   shared_ptr<Commissioning::Response> response) {
                 onCommissioning(*request, *response);
             });
         steering_range_service_=create_service<SteeringRange>("~/steering_test_range",
-            [this](const std::shared_ptr<SteeringRange::Request> request,std::shared_ptr<SteeringRange::Response> response){
+            [this](const shared_ptr<SteeringRange::Request> request,shared_ptr<SteeringRange::Response> response){
                 const double sent=rclcpp::Time(request->stamp).seconds(),age=now().seconds()-sent;
-                response->accepted=commissioning_&&std::isfinite(age)&&age>=-limits::kFutureStampToleranceS&&age<=limits::kWifiManualCommandMaxAgeS&&
+                response->accepted=commissioning_&&isfinite(age)&&age>=-limits::kFutureStampToleranceS&&age<=limits::kWifiManualCommandMaxAgeS&&
                     raw_controller_->setSteeringTestSpan(request->span,steadySeconds(),now().seconds());
                 response->reason=response->accepted?"steering-only range applied; no actuator command sent":
                     "range refused: stop first, require fresh stationary telemetry, valid span and current command inside new range";
                 if(commissioning_){response->servo_min=raw_controller_->steeringTestMin();response->servo_max=raw_controller_->steeringTestMax();}
             });
         start_service_ = create_service<Trigger>("~/start_test",
-            [this](const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> response) {
+            [this](const shared_ptr<Trigger::Request>, shared_ptr<Trigger::Response> response) {
                 if (commissioning_) {
                     response->success = false;
                     response->message = "commission mode requires explicit raw commissioning_control session";
@@ -151,7 +155,7 @@ public:
                 response->message = controller_->reason();
             });
         stop_service_ = create_service<Trigger>("~/stop",
-            [this](const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> response) {
+            [this](const shared_ptr<Trigger::Request>, shared_ptr<Trigger::Response> response) {
                 stopAndRelease("operator stop");
                 response->success = true;
                 response->message = options_.actuation_enabled
@@ -159,7 +163,7 @@ public:
                     : "Monitor mode: no actuator output was created or sent";
             });
         reset_service_ = create_service<Trigger>("~/reset",
-            [this](const std::shared_ptr<Trigger::Request>, std::shared_ptr<Trigger::Response> response) {
+            [this](const shared_ptr<Trigger::Request>, shared_ptr<Trigger::Response> response) {
                 response->success = activeReset(steadySeconds(), now().seconds());
                 response->message = response->success ? activeReason()
                     : "Reset refused: need non-running state and fresh stationary telemetry";
@@ -167,7 +171,7 @@ public:
 #ifdef NOMAD_ENABLE_PLANNING
         setupPlanning();
 #endif
-        timer_ = create_wall_timer(std::chrono::milliseconds(20), [this]() { controlTick(); });
+        timer_ = create_wall_timer(chrono::milliseconds(20), [this]() { controlTick(); });
         if (commissioning_)
             RCLCPP_INFO(get_logger(), "mode=commission; raw units; trial_max_duration=%.2fs; continuous MANUAL supported; servo_center=%.3f is an unmeasured candidate",
                         raw_options_.max_duration_s, raw_options_.servo_center);
@@ -183,7 +187,7 @@ public:
         activeStop("node shutting down");
         for (int i = 0; i < 5 && rclcpp::ok(); ++i) {
             try { releaseMotor(); } catch (...) { break; }
-            if (activeOwnsOutput()) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+            if (activeOwnsOutput()) this_thread::sleep_for(chrono::milliseconds(20));
         }
     }
 
@@ -194,7 +198,7 @@ private:
         planning_headless_=parameter<bool>("planning.headless",false);
         // Headless planning drives the raw commission controller only; other modes have no raw controller.
         if(planning_headless_&&!commissioning_)
-            throw std::invalid_argument("planning.headless requires mode=commission");
+            throw invalid_argument("planning.headless requires mode=commission");
         planning_resume_after_stop_=parameter<bool>("planning.resume_after_stop",false);
         planning_start_hold_s_=parameter<double>("planning.start_hold_s",0.75);
         planning_restart_cooldown_s_=parameter<double>("planning.restart_cooldown_s",1.0);
@@ -203,37 +207,37 @@ private:
         planning_measured_speed_control_=parameter<bool>("planning.measured_speed_control",false);
         planning_min_running_erpm_=parameter<double>("planning.minimum_running_erpm",
             planning_headless_&&planning_measured_speed_control_?700.0:0.0);
-        if(!std::isfinite(planning_min_running_erpm_)||planning_min_running_erpm_<0||
+        if(!isfinite(planning_min_running_erpm_)||planning_min_running_erpm_<0||
            planning_min_running_erpm_>raw_options_.motor_max_erpm||
            (planning_min_running_erpm_>0&&(!planning_headless_||!planning_measured_speed_control_||
              planning_min_running_erpm_>planning_feedback_limit_erpm_)))
-            throw std::invalid_argument("planning running floor requires measured headless mode and bounded ERPM");
-        if(!std::isfinite(planning_feedback_limit_erpm_)||planning_feedback_limit_erpm_<0||planning_feedback_limit_erpm_>2500)
-            throw std::invalid_argument("invalid autonomous feedback ERPM limit");
+            throw invalid_argument("planning running floor requires measured headless mode and bounded ERPM");
+        if(!isfinite(planning_feedback_limit_erpm_)||planning_feedback_limit_erpm_<0||planning_feedback_limit_erpm_>2500)
+            throw invalid_argument("invalid autonomous feedback ERPM limit");
         planning_start_gate_=std::make_unique<PlanningStartGate>(planning_start_hold_s_,planning_restart_cooldown_s_,planning_min_start_erpm_);
         if(planning_measured_speed_control_){
             if(!planning_headless_||planning_feedback_limit_erpm_<=0)
-                throw std::invalid_argument("measured speed control requires headless planning and a positive feedback limit");
+                throw invalid_argument("measured speed control requires headless planning and a positive feedback limit");
             planning_speed_feedback_=std::make_unique<PlanningSpeedFeedback>(
                 planning_feedback_limit_erpm_,raw_options_.stationary_erpm,1.0,raw_options_.motor_ramp_erpm_s);
         }
         if(planning_resume_after_stop_&&!planning_headless_)
-            throw std::invalid_argument("planning pause resume requires headless mode");
+            throw invalid_argument("planning pause resume requires headless mode");
         if(raw_controller_)raw_controller_->setPlanningRecovery(planning_headless_ && planning_resume_after_stop_);
         planning_allow_estimated_=parameter<bool>("planning.allow_estimated_calibration",false);
         if(planning_allow_estimated_&&!planning_headless_)
-            throw std::invalid_argument("estimated calibration opt-in requires headless planning mode");
+            throw invalid_argument("estimated calibration opt-in requires headless planning mode");
         planning_calibration_.verified=parameter<bool>("planning.calibration_verified",false);
         planning_calibration_.erpm_per_mps=parameter<double>("planning.erpm_per_mps",0.0);
         planning_calibration_.servo_per_rad=parameter<double>("planning.servo_per_rad",0.0);
         planning_calibration_.servo_zero=parameter<double>("planning.servo_zero",0.5);
         planning_calibration_.max_mps=parameter<double>("planning.max_mps",0.0);
         planning_calibration_.max_rad=parameter<double>("planning.max_rad",0.0);
-        planning_calibration_.steering_rads=parameter<std::vector<double>>("planning.steering_rads",std::vector<double>{});
-        planning_calibration_.steering_servos=parameter<std::vector<double>>("planning.steering_servos",std::vector<double>{});
+        planning_calibration_.steering_rads=parameter<vector<double>>("planning.steering_rads",vector<double>{});
+        planning_calibration_.steering_servos=parameter<vector<double>>("planning.steering_servos",vector<double>{});
         planning_feedback_sign_=parameter<int>("planning.feedback_erpm_sign",0);
         if(planning_calibration_.verified&&planning_feedback_sign_!=1&&planning_feedback_sign_!=-1)
-            throw std::invalid_argument("planning.feedback_erpm_sign must be measured as +1 or -1");
+            throw invalid_argument("planning.feedback_erpm_sign must be measured as +1 or -1");
         auto execution_calibration=planning_calibration_;
         // 초기값 사용 동의는 출력 변환에만 적용합니다. 실측 피드백 유효 상태는 바꾸지 않습니다.
         if(planning_allow_estimated_)execution_calibration.verified=true;
@@ -259,7 +263,7 @@ private:
                 if(received){
                     planning_speed_=c.speed_mps;planning_angle_=c.steering_rad;
                     if(auto target=planning_guard_->target(ros,steady))
-                        planning_start_gate_->update(steady,target->erpm,std::min(limits::kPlanningReceiveLeaseS,c.valid_for-std::max(0.0,ros-c.stamp)));
+                        planning_start_gate_->update(steady,target->erpm,min(limits::kPlanningReceiveLeaseS,c.valid_for-max(0.0,ros-c.stamp)));
                     else planning_start_gate_->reset(steady,true);
                     if(planning_soft_stopped_)planning_resume_pending_=true;
                 }
@@ -276,7 +280,7 @@ private:
     }
     // LPP input went away (STOP, expiry, invalid): headless auto-resume profiles pause and wait for a
     // fresh command; every other profile latches a stop that needs RESET.
-    void onPlanningLost(const std::string& pause_reason,const std::string& stop_reason,double steady,double ros) {
+    void onPlanningLost(const string& pause_reason,const string& stop_reason,double steady,double ros) {
         if(planning_headless_&&planning_resume_after_stop_)pausePlanning(pause_reason,steady,ros);
         else stopAndRelease(stop_reason);
     }
@@ -294,13 +298,13 @@ private:
             if(!planningReady(steady,ros))return false;
             const bool ok=raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),
                 0,steady,ros,exclusiveDriverReady());
-            if(ok){autonomous_active_=true;autonomous_heartbeat_=steady-std::max(0.0,ros-rclcpp::Time(request.stamp).seconds());commissioning_axis_=4;}
+            if(ok){autonomous_active_=true;autonomous_heartbeat_=steady-max(0.0,ros-rclcpp::Time(request.stamp).seconds());commissioning_axis_=4;}
             return ok;
         },[&]{
             const double steady=steadySeconds();
             if(!autonomous_active_)return false;
             if(steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS){activeStop("operator heartbeat expired");return false;}
-            autonomous_heartbeat_=steady-std::max(0.0,now().seconds()-rclcpp::Time(request.stamp).seconds());return true;
+            autonomous_heartbeat_=steady-max(0.0,now().seconds()-rclcpp::Time(request.stamp).seconds());return true;
         },limits::kWifiManualCommandMaxAgeS);
         if(!response.accepted&&!autonomous_active_)response.reason="autonomy requires one fresh planner and verified m/s/rad calibration; stop manual control first";
     }
@@ -314,17 +318,17 @@ private:
     double planningExecutionTarget(double requested,double dt) {
         // Positive autonomous requests use the configured running floor; zero releases.
         // Existing measured-overspeed reduction may temporarily lower this demand.
-        planning_running_target_=requested>0?std::max(requested,planning_min_running_erpm_):requested;
+        planning_running_target_=requested>0?max(requested,planning_min_running_erpm_):requested;
         return planning_speed_feedback_->update(planning_running_target_,last_raw_erpm_,dt);
     }
-    std::string planningStartReason(double steady) const {
+    string planningStartReason(double steady) const {
         if(!planning_measured_speed_control_)return planning_start_gate_->reason(steady);
         if(headless_blocked_)return activeReason();
         if(planning_soft_stopped_)return planning_wait_reason_;
         if(planning_feedback_reducing_)return "measured overspeed; reducing speed command";
         return autonomous_active_?"measured speed tracking":"waiting for fresh command and measured speed";
     }
-    void logPlanningWait(const std::string& reason,double steady,double ros) {
+    void logPlanningWait(const string& reason,double steady,double ros) {
         RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),1000,
             "[PLANNING_WAIT] reason=%s state=%s telemetry=%s receive_age=%.3f source_age=%.3f "
             "telemetry_publishers=%zu speed_subscribers=%zu current_subscribers=%zu servo_subscribers=%zu "
@@ -337,7 +341,7 @@ private:
     }
     // A missing module/endpoint/telemetry sample releases output and waits. Actual
     // physical faults, clock/timer failures and explicit operator STOP stay latched.
-    void pausePlanning(const std::string& reason,double steady,double ros) {
+    void pausePlanning(const string& reason,double steady,double ros) {
         if(headless_blocked_ || activeState()==TrialState::Fault){
             if(!headless_blocked_)activeStop(activeReason());
             autonomous_active_=false;planning_soft_stopped_=false;planning_resume_pending_=false;
@@ -401,7 +405,7 @@ private:
         // Legacy mode keeps its original limit. The measured-speed profile reduces
         // the speed request and recovers automatically instead of latching a stop.
         if(!planning_measured_speed_control_&&planning_feedback_limit_erpm_>0&&
-           activeHealthy(steady,ros)&&std::abs(last_raw_erpm_)>planning_feedback_limit_erpm_){
+           activeHealthy(steady,ros)&&abs(last_raw_erpm_)>planning_feedback_limit_erpm_){
             if(!planning_overspeed_since_)planning_overspeed_since_=steady;
             if(steady-*planning_overspeed_since_>=.2){
                 stopAndRelease("autonomous measured ERPM limit exceeded; reset required");return;
@@ -416,7 +420,7 @@ private:
                 planning_feedback_tick_=steady;
                 planning_feedback_target_=execution_erpm;
                 planning_feedback_reducing_=execution_erpm+1e-6<planning_running_target_;
-            } catch(const std::invalid_argument&) {
+            } catch(const invalid_argument&) {
                 stopAndRelease("invalid measured-speed feedback or clock; reset required");return;
             }
         }else if(planning_headless_&&target&&!planning_measured_speed_control_){
@@ -447,7 +451,7 @@ private:
             options_.hardware_timeout_verified&&raw_options_.setup_acknowledged&&
             (!stability_enabled_||stability_decision_.allowed)&&!msg.fault&&
             (!planning_headless_||!headless_blocked_);
-        msg.detail=std::string(autonomous_active_?"LPP":"MANUAL/IDLE")+"; steering measurement unavailable; "+activeReason();
+        msg.detail=string(autonomous_active_?"LPP":"MANUAL/IDLE")+"; steering measurement unavailable; "+activeReason();
         vehicle_state_pub_->publish(msg);
     }
 #endif
@@ -455,7 +459,7 @@ private:
     void loadStability() {
         stability_enabled_=parameter<bool>("stability.enabled",false);
         if (stability_enabled_ && commissioning_)
-            throw std::invalid_argument("stability enforcement needs calibrated m/s and actual steering mapping; raw mode unsupported");
+            throw invalid_argument("stability enforcement needs calibrated m/s and actual steering mapping; raw mode unsupported");
         StabilityConfig c;
         c.geometry_verified=parameter<bool>("stability.geometry_verified",false);
         c.frame_verified=parameter<bool>("stability.frame_verified",false);
@@ -471,27 +475,27 @@ private:
         c.max_speed_mps=parameter<double>("stability.max_speed_mps",c.max_speed_mps);
         c.max_accel_mps2=parameter<double>("stability.max_accel_mps2",c.max_accel_mps2);
         stability_guard_=std::make_unique<StabilityGuard>(c);
-        imu_frame_=parameter<std::string>("stability.imu_frame","base_link");
-        const auto topic=parameter<std::string>("stability.imu_topic","/nomad/imu_body");
+        imu_frame_=parameter<string>("stability.imu_frame","base_link");
+        const auto topic=parameter<string>("stability.imu_topic","/nomad/imu_body");
         imu_sub_=create_subscription<sensor_msgs::msg::Imu>(topic,rclcpp::SensorDataQoS().keep_last(1),
             [this](sensor_msgs::msg::Imu::ConstSharedPtr m) {
                 const auto& q=m->orientation;
                 const double norm=q.x*q.x+q.y*q.y+q.z*q.z+q.w*q.w;
                 // covariance=-1/전체 0은 자세 또는 정확도 미제공입니다. 잘못된 자세·프레임은 거부합니다.
-                if (m->header.frame_id!=imu_frame_ || !std::isfinite(norm) || std::abs(norm-1)>0.01 ||
+                if (m->header.frame_id!=imu_frame_ || !isfinite(norm) || abs(norm-1)>0.01 ||
                     m->header.stamp.nanosec>=1000000000u ||
                     m->angular_velocity_covariance[0]<0 || m->linear_acceleration_covariance[0]<0) {
                     stability_guard_->invalidate(); return;
                 }
                 for (auto i : {0,4,8}) {
-                    if (!std::isfinite(m->orientation_covariance[i]) || m->orientation_covariance[i]<=0 ||
+                    if (!isfinite(m->orientation_covariance[i]) || m->orientation_covariance[i]<=0 ||
                         m->orientation_covariance[i]>0.01) { stability_guard_->invalidate(); return; }
                 }
-                const double n=std::sqrt(norm),x=q.x/n,y=q.y/n,z=q.z/n,w=q.w/n;
+                const double n=sqrt(norm),x=q.x/n,y=q.y/n,z=q.z/n,w=q.w/n;
                 AttitudeSample s;
                 s.stamp_s=static_cast<double>(m->header.stamp.sec)+m->header.stamp.nanosec*1e-9;
-                s.roll=std::atan2(2*(w*x+y*z),1-2*(x*x+y*y));
-                s.pitch=std::asin(std::clamp(2*(w*y-z*x),-1.0,1.0));
+                s.roll=atan2(2*(w*x+y*z),1-2*(x*x+y*y));
+                s.pitch=asin(clamp(2*(w*y-z*x),-1.0,1.0));
                 s.roll_rate=m->angular_velocity.x; s.pitch_rate=m->angular_velocity.y;
                 s.force_x=m->linear_acceleration.x; s.force_y=m->linear_acceleration.y; s.force_z=m->linear_acceleration.z;
                 stability_guard_->observe(s,steadySeconds(),now().seconds());
@@ -508,8 +512,8 @@ private:
             stability_decision_={}; stability_decision_.reason="stability needs speed and one IMU publisher"; return false;
         }
         // 조향을 중앙으로 요청해도 이전 명령각이 남아 있는 동안 선회 위험을 낮게 평가하지 않습니다.
-        const double steering=std::max(std::abs(controller_->options().target_steering_rad),
-                                       std::abs(controller_->commandedSteering()));
+        const double steering=max(abs(controller_->options().target_steering_rad),
+                                       abs(controller_->commandedSteering()));
         stability_decision_=stability_guard_->evaluate(steadySeconds(),now().seconds(),*speed,steering);
         if (stability_decision_.allowed)
             controller_->setStabilityLimits(stability_decision_.speed_cap_mps,stability_decision_.accel_cap_mps2);
@@ -517,7 +521,7 @@ private:
     }
 
     template <typename T>
-    T parameter(const std::string& name, const T& value) {
+    T parameter(const string& name, const T& value) {
         rcl_interfaces::msg::ParameterDescriptor descriptor;
         descriptor.read_only = true; // ROS 파라미터 변경은 차단합니다. GUI 목표 변경은 검증된 서비스만 거칩니다.
         return declare_parameter<T>(name, value, descriptor);
@@ -623,7 +627,7 @@ private:
         response.accepted = false;
         response.reason = "invalid, expired or closed manual session";
         const bool valid_id = request.session.size() == 32 &&
-            std::all_of(request.session.begin(), request.session.end(), [](unsigned char c) { return std::isxdigit(c); });
+            all_of(request.session.begin(), request.session.end(), [](unsigned char c) { return isxdigit(c); });
         if (!valid_id) return;
         if (!activeManual()) closeManualSession();
         // STOP이 START보다 먼저 도착해도 나중의 START가 구동을 되살리지 못하게 기록합니다.
@@ -688,21 +692,21 @@ private:
         raw.manual_servo_rate_s = parameter<double>("commissioning.manual_servo_rate_s", raw.manual_servo_rate_s);
         speed_pid_min_erpm_ = parameter<double>("speed_pid_min_erpm", 50.0);
         speed_pid_min_erpm_verified_ = parameter<bool>("speed_pid_min_erpm_verified", false);
-        if (!std::isfinite(speed_pid_min_erpm_) || speed_pid_min_erpm_ < 0.0 || speed_pid_min_erpm_ > raw.motor_max_erpm)
-            throw std::invalid_argument("invalid expected VESC speed PID minimum ERPM");
+        if (!isfinite(speed_pid_min_erpm_) || speed_pid_min_erpm_ < 0.0 || speed_pid_min_erpm_ > raw.motor_max_erpm)
+            throw invalid_argument("invalid expected VESC speed PID minimum ERPM");
         // 입력 눈금과 사용자 관찰은 표시용 메타데이터이며 실제 각도 보정·속도 하한이 아닙니다.
         steering_input_limit_rad_ = parameter<double>("steering_input_limit_rad", 0.5);
         observed_smooth_start_erpm_ = parameter<double>("observed_smooth_start_erpm", 0.0);
-        if (!std::isfinite(steering_input_limit_rad_) || steering_input_limit_rad_ <= 0.0 ||
+        if (!isfinite(steering_input_limit_rad_) || steering_input_limit_rad_ <= 0.0 ||
             steering_input_limit_rad_ > 0.55)
-            throw std::invalid_argument("invalid candidate steering input limit; expected 0 < radians <= 0.55");
-        if (!std::isfinite(observed_smooth_start_erpm_) || observed_smooth_start_erpm_ < 0.0)
-            throw std::invalid_argument("invalid observed smooth startup ERPM; zero means unset");
+            throw invalid_argument("invalid candidate steering input limit; expected 0 < radians <= 0.55");
+        if (!isfinite(observed_smooth_start_erpm_) || observed_smooth_start_erpm_ < 0.0)
+            throw invalid_argument("invalid observed smooth startup ERPM; zero means unset");
         return raw;
     }
 
     TrialState activeState() const { return commissioning_ ? raw_controller_->state() : controller_->state(); }
-    const std::string& activeReason() const { return commissioning_ ? raw_controller_->reason() : controller_->reason(); }
+    const string& activeReason() const { return commissioning_ ? raw_controller_->reason() : controller_->reason(); }
     bool activeManual() const { return commissioning_ ? raw_controller_->manualActive() : controller_->manualActive(); }
     bool activeOwnsOutput() const { return commissioning_ ? raw_controller_->ownsOutput() : controller_->ownsOutput(); }
     bool activeHealthy(double steady, double ros) const {
@@ -723,7 +727,7 @@ private:
         logRawTransition();
         return accepted;
     }
-    void activeStop(const std::string& reason) {
+    void activeStop(const string& reason) {
         autonomous_active_=false;
 #ifdef NOMAD_ENABLE_PLANNING
         if(planning_headless_){headless_blocked_=true;planning_soft_stopped_=false;planning_resume_pending_=false;}
@@ -737,7 +741,7 @@ private:
     }
     // The one full stop path: end autonomy/trial, close the GUI session, release the motor with 0A.
     // Takes the reason by value because callers may pass activeReason(), which activeStop overwrites.
-    void stopAndRelease(std::string reason) {
+    void stopAndRelease(string reason) {
         activeStop(reason);
         closeManualSession();
         releaseMotor();
@@ -824,7 +828,7 @@ private:
     }
 
     // raw 모터 시험의 optional 서보가 비어 있으면 서보 토픽에는 아무것도 보내지 않습니다.
-    void publishOutput(OutputKind kind, double erpm, std::optional<double> servo) {
+    void publishOutput(OutputKind kind, double erpm, optional<double> servo) {
         if (kind == OutputKind::Release) releaseMotor();
         else if (kind == OutputKind::Drive) {
             if (servo) publishScalar(servo_pub_, *servo);
@@ -873,13 +877,13 @@ private:
 #ifdef NOMAD_ENABLE_PLANNING
         publishVehicleState(fresh,driver_ready);
 #endif
-        const auto speed = commissioning_ ? std::optional<double>{} : controller_->measuredSpeed();
-        std::optional<ActuatorCommand> preview;
+        const auto speed = commissioning_ ? optional<double>{} : controller_->measuredSpeed();
+        optional<ActuatorCommand> preview;
         if (!commissioning_) {
             const auto& active = controller_->options();
             preview = convertTarget(active.target_speed_mps, active.target_steering_rad, calibration_).value;
         }
-        std::ostringstream text;
+        ostringstream text;
         text << "state=" << trialStateName(activeState()) << " telemetry_fresh=" << fresh
              << " control_units=" << (commissioning_ ? "raw" : "calibrated")
              << " calibration_verified=" << (!commissioning_ && options_.calibration_verified)
@@ -931,7 +935,7 @@ private:
             data["steering_range_config_supported"]=true;
             data["steering_test_servo_min"]=raw_controller_->steeringTestMin();
             data["steering_test_servo_max"]=raw_controller_->steeringTestMax();
-            data["steering_test_span_max"]=std::min(raw_options_.servo_center,1.0-raw_options_.servo_center);
+            data["steering_test_span_max"]=min(raw_options_.servo_center,1.0-raw_options_.servo_center);
             data["steering_outside_drive_range"]=raw_controller_->outsideDriveRange();
             data["max_duration_s"] = raw_options_.max_duration_s;
             data["continuous_manual_supported"] = true;
@@ -989,8 +993,8 @@ private:
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
                 planningStartReason(steady_now).c_str(),static_cast<int>(headless_blocked_));
         }
-        data["planning_speed_mps"]=std::isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
-        data["planning_steering_rad"]=std::isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
+        data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
+        data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
 #else
         data["planning_supported"]=false;data["planning_ready"]=false;
 #endif
@@ -1002,16 +1006,16 @@ private:
     bool autonomous_active_=false;
 #ifdef NOMAD_ENABLE_PLANNING
     PlanningCalibration planning_calibration_;
-    std::unique_ptr<PlanningCommandGuard> planning_guard_;
-    std::unique_ptr<PlanningStartGate> planning_start_gate_;
-    std::unique_ptr<PlanningSpeedFeedback> planning_speed_feedback_;
+    unique_ptr<PlanningCommandGuard> planning_guard_;
+    unique_ptr<PlanningStartGate> planning_start_gate_;
+    unique_ptr<PlanningSpeedFeedback> planning_speed_feedback_;
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     bool planning_measured_speed_control_=false,planning_feedback_reducing_=false;
     double planning_feedback_target_=0;
-    std::optional<double> planning_feedback_tick_;
+    optional<double> planning_feedback_tick_;
     double planning_start_hold_s_=.75,planning_restart_cooldown_s_=1,planning_min_start_erpm_=0,planning_feedback_limit_erpm_=0;
-    std::optional<double> planning_overspeed_since_;
+    optional<double> planning_overspeed_since_;
     bool planning_headless_=false,planning_allow_estimated_=false,headless_blocked_=false;
     bool planning_resume_after_stop_=false,planning_soft_stopped_=false,planning_resume_pending_=false;
     rclcpp::Subscription<nomad_interfaces::msg::DriveCommand>::SharedPtr planning_sub_;
@@ -1020,8 +1024,8 @@ private:
     int planning_feedback_sign_=0;
 #endif
     bool stability_enabled_=false;
-    std::string imu_frame_;
-    std::unique_ptr<StabilityGuard> stability_guard_;
+    string imu_frame_;
+    unique_ptr<StabilityGuard> stability_guard_;
     StabilityDecision stability_decision_;
     rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr imu_sub_;
     uint8_t commissioning_axis_ = 0;
@@ -1032,29 +1036,29 @@ private:
     double steering_input_limit_rad_ = 0.5;
     rclcpp::Service<SteeringRange>::SharedPtr steering_range_service_;
     double observed_smooth_start_erpm_ = 0.0;
-    std::unique_ptr<RawTrialController> raw_controller_;
+    unique_ptr<RawTrialController> raw_controller_;
     TrialOptions options_;
     Calibration calibration_{};
-    std::unique_ptr<TrialController> controller_;
+    unique_ptr<TrialController> controller_;
     rclcpp::Publisher<Scalar>::SharedPtr speed_pub_, current_pub_, servo_pub_;
-    std::size_t graph_telemetry_publishers_=0,graph_speed_subscribers_=0,graph_current_subscribers_=0,graph_servo_subscribers_=0;
-    std::size_t graph_speed_publishers_=0,graph_current_publishers_=0,graph_servo_publishers_=0,graph_other_publishers_=0;
+    size_t graph_telemetry_publishers_=0,graph_speed_subscribers_=0,graph_current_subscribers_=0,graph_servo_subscribers_=0;
+    size_t graph_speed_publishers_=0,graph_current_publishers_=0,graph_servo_publishers_=0,graph_other_publishers_=0;
     bool graph_competing_publishers_=false;
-    std::string planning_wait_reason_="LPP pause; waiting for fresh command";
+    string planning_wait_reason_="LPP pause; waiting for fresh command";
     rclcpp::Subscription<VescState>::SharedPtr telemetry_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_, status_json_pub_;
     rclcpp::Service<Manual>::SharedPtr manual_service_;
     rclcpp::Service<Commissioning>::SharedPtr commissioning_service_;
-    std::string manual_session_;
-    std::set<std::string> closed_sessions_;
+    string manual_session_;
+    set<string> closed_sessions_;
     uint64_t manual_sequence_ = 0;
-    std::optional<double> last_accepted_raw_update_at_;
+    optional<double> last_accepted_raw_update_at_;
     bool sessions_exhausted_ = false;
     rclcpp::Service<Trigger>::SharedPtr start_service_, stop_service_, reset_service_;
     rclcpp::TimerBase::SharedPtr timer_;
     rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr time_guard_;
-    std::vector<std::string> other_command_topics_;
-    std::optional<double> last_graph_check_at_;
+    vector<string> other_command_topics_;
+    optional<double> last_graph_check_at_;
     bool cached_driver_ready_ = false;
     double last_status_at_ = 0.0;
     double last_raw_erpm_ = 0.0, last_voltage_ = 0.0, last_current_ = 0.0;
@@ -1062,7 +1066,7 @@ private:
 };
 } // namespace
 
-std::shared_ptr<ControllerNode> ControllerNode::create(const rclcpp::NodeOptions& options) {
+shared_ptr<ControllerNode> ControllerNode::create(const rclcpp::NodeOptions& options) {
     return std::make_shared<ControllerNodeImpl>(options);
 }
 } // namespace nomad

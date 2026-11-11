@@ -15,27 +15,29 @@
 #define NOMAD_GUI_NO_MAIN
 #include "../src/gui_server.cpp"
 
+using namespace std;
+
 using nomad::steadySeconds;
 
 namespace {
 int checks = 0, failures = 0;
 void expect(bool ok, const char* name) {
     ++checks;
-    if (!ok) { ++failures; std::cerr << "FAIL: " << name << '\n'; }
+    if (!ok) { ++failures; cerr << "FAIL: " << name << '\n'; }
 }
 
 class RosRig {
 public:
     explicit RosRig(bool bench, bool commission = false, bool setup_acknowledged = true,
                     bool timeout_verified = true, bool stall_watchdog = false,
-                    const std::vector<rclcpp::Parameter>& extra_parameters = {}) {
-        const auto token = std::chrono::steady_clock::now().time_since_epoch().count();
-        prefix_ = "/nomad_cpp_test_" + std::to_string(token);
-        fake_ = std::make_shared<rclcpp::Node>("fake_vesc", prefix_);
+                    const vector<rclcpp::Parameter>& extra_parameters = {}) {
+        const auto token = chrono::steady_clock::now().time_since_epoch().count();
+        prefix_ = "/nomad_cpp_test_" + to_string(token);
+        fake_ = make_shared<rclcpp::Node>("fake_vesc", prefix_);
         pub_ = fake_->create_publisher<nomad::VescState>(prefix_ + "/sensors/core", 1);
         for (const auto& suffix : {"speed", "current"}) {
             subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/" + suffix, 10,
-                [this, name = std::string(suffix)](nomad::Scalar::ConstSharedPtr msg) {
+                [this, name = string(suffix)](nomad::Scalar::ConstSharedPtr msg) {
                     if (name == "speed") {
                         ++speed_messages_; if (msg->data != 0.0) ++moving_messages_;
                         observed_motor_erpm_.push_back(msg->data);
@@ -101,7 +103,7 @@ public:
                 if (imu_pub_ && send_imu_) {
                     sensor_msgs::msg::Imu imu;
                     imu.header.stamp=fake_->now(); imu.header.frame_id=imu_frame_;
-                    imu.orientation.w=std::cos(imu_roll_/2); imu.orientation.x=std::sin(imu_roll_/2);
+                    imu.orientation.w=cos(imu_roll_/2); imu.orientation.x=sin(imu_roll_/2);
                     imu.orientation_covariance[0]=imu.orientation_covariance[4]=imu.orientation_covariance[8]=0.001;
                     imu.linear_acceleration.z=9.80665;
                     imu_pub_->publish(imu);
@@ -116,43 +118,43 @@ public:
 #endif
             }
             executor_.spin_some();
-            std::this_thread::sleep_for(std::chrono::milliseconds(3));
+            this_thread::sleep_for(chrono::milliseconds(3));
         }
     }
 
-    bool call(const std::string& action) {
+    bool call(const string& action) {
         auto client = fake_->create_client<nomad::Trigger>(prefix_ + "/nomad_vesc_trial/" + action);
         const double deadline = steadySeconds() + 3.0;
         while (!client->service_is_ready() && steadySeconds() < deadline) pump(0.02);
-        if (!client->service_is_ready()) throw std::runtime_error("test service discovery timed out");
-        auto future = client->async_send_request(std::make_shared<nomad::Trigger::Request>());
-        while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready && steadySeconds() < deadline)
+        if (!client->service_is_ready()) throw runtime_error("test service discovery timed out");
+        auto future = client->async_send_request(make_shared<nomad::Trigger::Request>());
+        while (future.wait_for(chrono::milliseconds(0)) != future_status::ready && steadySeconds() < deadline)
             pump(0.01);
-        if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-            throw std::runtime_error("test service response timed out");
+        if (future.wait_for(chrono::milliseconds(0)) != future_status::ready)
+            throw runtime_error("test service response timed out");
         return future.get()->success;
     }
 
-    bool manual(int action, const std::string& session, uint64_t sequence = 1, double age = 0.0) {
+    bool manual(int action, const string& session, uint64_t sequence = 1, double age = 0.0) {
         auto client = fake_->create_client<nomad::Manual>(prefix_ + "/nomad_vesc_trial/manual_control");
         const double deadline = steadySeconds() + 3.0;
         while (!client->service_is_ready() && steadySeconds() < deadline) pump(0.01);
-        auto request = std::make_shared<nomad::Manual::Request>();
+        auto request = make_shared<nomad::Manual::Request>();
         request->action = static_cast<uint8_t>(action); request->session = session; request->sequence = sequence;
         request->stamp = rclcpp::Time(static_cast<int64_t>((fake_->now().seconds() - age) * 1e9));
         request->speed_mps = 0.1; request->steering_rad = 0.0; request->duration_s = 1.0;
         auto future = client->async_send_request(request);
-        while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready && steadySeconds() < deadline) pump(0.005);
-        if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) throw std::runtime_error("manual service timeout");
+        while (future.wait_for(chrono::milliseconds(0)) != future_status::ready && steadySeconds() < deadline) pump(0.005);
+        if (future.wait_for(chrono::milliseconds(0)) != future_status::ready) throw runtime_error("manual service timeout");
         return future.get()->accepted;
     }
 
-    bool commission(int action, int axis, const std::string& session, uint64_t sequence = 1,
+    bool commission(int action, int axis, const string& session, uint64_t sequence = 1,
                     double erpm = 300.0, double servo = 0.50, double duration = 1.0, double age = 0.0) {
         auto client = fake_->create_client<nomad::Commissioning>(prefix_ + "/nomad_vesc_trial/commissioning_control");
         const double deadline = steadySeconds() + 3.0;
         while (!client->service_is_ready() && steadySeconds() < deadline) pump(0.01);
-        auto request = std::make_shared<nomad::Commissioning::Request>();
+        auto request = make_shared<nomad::Commissioning::Request>();
         request->action = static_cast<uint8_t>(action); request->session = session; request->sequence = sequence;
         if (action != nomad::Commissioning::Request::STOP) {
             request->axis = static_cast<uint8_t>(axis);
@@ -160,15 +162,15 @@ public:
             request->motor_erpm = erpm; request->servo_position = servo; request->duration_s = duration;
         }
         auto future = client->async_send_request(request);
-        while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready && steadySeconds() < deadline) pump(0.005);
-        if (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready)
-            throw std::runtime_error("commissioning service timeout");
+        while (future.wait_for(chrono::milliseconds(0)) != future_status::ready && steadySeconds() < deadline) pump(0.005);
+        if (future.wait_for(chrono::milliseconds(0)) != future_status::ready)
+            throw runtime_error("commissioning service timeout");
         return future.get()->accepted;
     }
 
     void runCommissionGate() {
         pump(0.7);
-        expect(!commission(1, 1, std::string(32, '1')), "raw setup/timeout gate refuses start");
+        expect(!commission(1, 1, string(32, '1')), "raw setup/timeout gate refuses start");
         pump(0.1);
         expect(speed_messages_ == 0 && servo_messages_ == 0 && release_messages_ == 0, "raw gate refusal has no output");
     }
@@ -177,7 +179,7 @@ public:
     void runMinimumRunningFloor() {
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
         send_planning_=false;pump(.75);
-        const auto outputs_at_least=[this](std::size_t first,double floor) {
+        const auto outputs_at_least=[this](size_t first,double floor) {
             if(first==observed_motor_erpm_.size())return false;
             for(auto i=first;i<observed_motor_erpm_.size();++i)
                 if(observed_motor_erpm_[i]+1e-6<floor)return false;
@@ -186,7 +188,7 @@ public:
 
         auto first=observed_motor_erpm_.size();
         planner_speed_=1.0/4000.0;send_planning_=true;pump(.20);
-        expect(std::abs(status_.value("planning_requested_erpm",0.0)-1.0)<1e-6&&
+        expect(abs(status_.value("planning_requested_erpm",0.0)-1.0)<1e-6&&
                outputs_at_least(first,700.0),
                "positive 1 ERPM planner request publishes at least the configured 700 ERPM floor");
         first=observed_motor_erpm_.size();pump(.95);
@@ -194,12 +196,12 @@ public:
                "700 ERPM floor remains active beyond the former 0.8 second startup duration");
 
         first=observed_motor_erpm_.size();planner_speed_=206.0/4000.0;pump(.15);
-        expect(std::abs(status_.value("planning_requested_erpm",0.0)-206.0)<1e-6&&
+        expect(abs(status_.value("planning_requested_erpm",0.0)-206.0)<1e-6&&
                outputs_at_least(first,700.0),
                "206 ERPM planner request continues publishing at least 700 ERPM");
         first=observed_motor_erpm_.size();planner_speed_=930.0/4000.0;pump(.40);
         expect(outputs_at_least(first,700.0)&&observed_motor_erpm_.back()+1e-6>=930.0&&
-               std::abs(status_.value("target_motor_erpm",0.0)-930.0)<1e-6,
+               abs(status_.value("target_motor_erpm",0.0)-930.0)<1e-6,
                "930 ERPM planner request ramps from the floor to its larger requested output");
 
         const int zero_releases=release_messages_;planner_speed_=0.0;pump(.06);
@@ -232,7 +234,7 @@ public:
         send_planning_=false;pump(.75); // 발견·초기 정지 확인은 이동 명령 없이 끝냅니다.
         planner_speed_=.0515;send_planning_=true;pump(.18); // 206 ERPM, 기존 550 입력 gate 미만
         expect(moving_messages_>0,"measured-speed mode starts low valid request without fixed 750ms dwell");
-        expect(std::abs(status_.value("planning_requested_erpm",0.0)-206.0)<1e-6&&
+        expect(abs(status_.value("planning_requested_erpm",0.0)-206.0)<1e-6&&
                status_.value("target_motor_erpm",0.0)>0&&status_.value("target_motor_erpm",1000.0)<=206.000001,
                "measured-speed mode preserves 206 ERPM request without blocking or boosting it to 550");
 
@@ -261,7 +263,7 @@ public:
                "speed recovery automatically restores bounded demand without operator reset");
     }
 
-    void runMeasuredSpeedSafety(const std::string& failure) {
+    void runMeasuredSpeedSafety(const string& failure) {
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
         send_planning_=false;pump(.75);
         planner_speed_=.0515;send_planning_=true;pump(.18);
@@ -272,7 +274,7 @@ public:
         else if(failure=="invalid command") {
             send_planning_=false;
             nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();cmd.header.frame_id="base_link";
-            cmd.valid_for.nanosec=300000000;cmd.target_speed=std::numeric_limits<double>::quiet_NaN();
+            cmd.valid_for.nanosec=300000000;cmd.target_speed=numeric_limits<double>::quiet_NaN();
             planning_pub_->publish(cmd);pump(.13);
         } else if(failure=="command expiry") {send_planning_=false;pump(.45);}
         else if(failure=="telemetry timeout") {send_telemetry_=false;pump(.45);}
@@ -283,7 +285,7 @@ public:
             pump(.25);
         }
         else if(failure=="hard overspeed") {telemetry_erpm_=2501.0;pump(.13);}
-        else throw std::runtime_error("unknown measured-speed safety case");
+        else throw runtime_error("unknown measured-speed safety case");
         const int stopped=moving_messages_;
         expect(status_.value("planning_reset_required",false)&&!status_.value("autonomous_active",true),
                ("measured-speed mode preserves latched stop for "+failure).c_str());
@@ -365,7 +367,7 @@ public:
         pump(.6);expect(moving_messages_==0,"headless waits for planner");
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
         pump(.8);expect(moving_messages_>0,"headless starts without GUI");
-        expect(!commission(1,3,std::string(32,'c'),1,0,.5,0),"manual cannot steal headless output");
+        expect(!commission(1,3,string(32,'c'),1,0,.5,0),"manual cannot steal headless output");
         const int first=moving_messages_;pump(2.2);
         expect(moving_messages_>first&&status_.value("autonomous_active",false),"headless continues beyond GUI heartbeat");
         send_planning_=false;pump(.45);const int stopped=moving_messages_;
@@ -382,7 +384,7 @@ public:
         send_planning_=true;pump(.3);
         expect(moving_messages_==stopped3&&status_.value("planning_reset_required",false),"LPP stop_requested latches headless stop");
         expect(call("reset"),"reset before session STOP");pump(.4);
-        expect(commission(3,0,std::string(32,'d')),"session STOP accepted without GUI owner");
+        expect(commission(3,0,string(32,'d')),"session STOP accepted without GUI owner");
         const int stopped4=moving_messages_;pump(.3);
         expect(moving_messages_==stopped4,"session STOP halts headless output");
         expect(!status_.value("planning_calibration_verified",true),"estimated execution does not fake calibration verification");
@@ -392,7 +394,7 @@ public:
         auto vehicle=fake_->create_subscription<nomad_interfaces::msg::VehicleState>(prefix_+"/vehicle_state",1,
             [](nomad_interfaces::msg::VehicleState::ConstSharedPtr msg){expect(!msg->steering_valid,"servo command never presented as measured angle");});
         pump(.8);
-        const std::string id(32,'a'),other(32,'b');
+        const string id(32,'a'),other(32,'b');
         expect(moving_messages_==0,"planner reception alone cannot actuate");
         expect(commission(1,4,id,1,0,.5,0),"explicit LPP session starts");
         pump(.15);expect(moving_messages_>0,"LPP converted ERPM reaches fake VESC");
@@ -408,7 +410,7 @@ public:
     }
 #endif
     void runManualBelowRunningFloor() {
-        const std::string active(32,'f');
+        const string active(32,'f');
         pump(.70);
         expect(commission(1,3,active,1,0.0,.5,0.0),"independent manual session starts at zero motor target");
         const auto first=observed_motor_erpm_.size();
@@ -417,14 +419,14 @@ public:
         bool bounded=observed_motor_erpm_.size()>first;
         for(auto i=first;i<observed_motor_erpm_.size();++i)
             bounded=bounded&&observed_motor_erpm_[i]>=0.0&&observed_motor_erpm_[i]<=200.000001;
-        expect(bounded&&std::abs(observed_motor_erpm_.back()-200.0)<1e-6&&
-               std::abs(status_.value("target_motor_erpm",0.0)-200.0)<1e-6,
+        expect(bounded&&abs(observed_motor_erpm_.back()-200.0)<1e-6&&
+               abs(status_.value("target_motor_erpm",0.0)-200.0)<1e-6,
                "manual 200 ERPM output preserves its ramp and is never raised to the autonomy floor");
         expect(commission(3,0,active),"manual floor-isolation fixture stops normally");
     }
 
     void runCommission() {
-        const std::string a(32, '1'), b(32, '2'), c(32, '3'), d(32, '4');
+        const string a(32, '1'), b(32, '2'), c(32, '3'), d(32, '4');
         pump(0.7);
         expect(status_.value("control_units", "") == "raw" && status_.value("commissioning", false), "raw status labels device units");
         expect(status_.at("speed_mps").is_null() && !status_.value("calibration_verified", true), "raw status never invents calibrated speed");
@@ -457,14 +459,14 @@ public:
     void runCommissionGuiBridge() {
         rclcpp::NodeOptions options;
         options.parameter_overrides({{"controller", prefix_ + "/nomad_vesc_trial"}});
-        auto bridge = std::make_shared<nomad::GuiBridge>(options);
+        auto bridge = make_shared<nomad::GuiBridge>(options);
         executor_.add_node(bridge); pump(0.8);
         auto invoke = [&](const nomad::Json& data) {
-            auto future = std::async(std::launch::async, [&] { return bridge->command("commissioning", data); });
-            while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) pump(0.005);
+            auto future = async(launch::async, [&] { return bridge->command("commissioning", data); });
+            while (future.wait_for(chrono::milliseconds(0)) != future_status::ready) pump(0.005);
             return future.get().value("accepted", false);
         };
-        const std::string id(32, '5');
+        const string id(32, '5');
         auto request = nomad::Json{{"action", 1}, {"axis", 2}, {"session", id}, {"sequence", 1},
             {"motor_erpm", 0.0}, {"servo_position", 0.50}, {"duration_s", 1.0}, {"server_time_s", nomad::unixSeconds()}};
         expect(invoke(request), "GUI bridge raw START reaches commissioning service");
@@ -474,7 +476,7 @@ public:
         pump(0.3);
         expect(bridge->status().value("state", "") != "RUNNING", "GUI bridge observes raw stop");
         expect(call("reset"), "GUI continuous preparation resets stopped state");
-        const std::string manual_id(32, '8');
+        const string manual_id(32, '8');
         request["axis"] = 3; request["session"] = manual_id; request["duration_s"] = 0.0;
         request["server_time_s"] = nomad::unixSeconds();
         expect(invoke(request), "GUI bridge accepts continuous manual axis and explicit zero duration");
@@ -489,7 +491,7 @@ public:
     }
 
     void runContinuousCommission() {
-        const std::string rejected(32, '9'), active(32, 'a'), next(32, 'b');
+        const string rejected(32, '9'), active(32, 'a'), next(32, 'b');
         pump(0.7);
         expect(status_.value("continuous_manual_supported", false) &&
                !status_.value("continuous_manual_active", true) &&
@@ -521,7 +523,7 @@ public:
     }
 
     void runRawMotorOptimization() {
-        const std::string active(32, '1'), blocked(32, '2'), resumed(32, '3');
+        const string active(32, '1'), blocked(32, '2'), resumed(32, '3');
         pump(0.7);
         expect(status_.value("motor_control_mode", "") == "vesc_speed_pid" &&
                status_.value("speed_pid_min_erpm", -1.0) == 50.0 &&
@@ -556,7 +558,7 @@ public:
         competing = fake_->create_publisher<nomad::Scalar>(prefix_ + "/commands/motor/speed", 1);
         pump(0.22);
         expect(status_.value("state", "") == "FAULT" &&
-               status_.value("reason", "").find("competing") != std::string::npos,
+               status_.value("reason", "").find("competing") != string::npos,
                "cached graph is refreshed within bounded time and faults an active competing publisher");
     }
 
@@ -564,18 +566,18 @@ public:
     void runWifiManualProfile() {
         rclcpp::NodeOptions options;
         options.parameter_overrides({{"controller", prefix_ + "/nomad_vesc_trial"}});
-        auto bridge = std::make_shared<nomad::GuiBridge>(options);
+        auto bridge = make_shared<nomad::GuiBridge>(options);
         executor_.add_node(bridge); pump(0.8);
         expect(status_.value("wifi_manual_profile", false) && status_.value("manual_timeout_s", 0.0) == 2.0 &&
                status_.value("command_max_age_s", 0.0) == 1.5 && status_.value("browser_freshness_s", 0.0) == 1.5 &&
                status_.value("browser_request_timeout_ms", 0) == 1500,
                "Wi-Fi commissioning advertises bounded command and browser timing policy");
         auto invoke = [&](const nomad::Json& data) {
-            auto future = std::async(std::launch::async, [&] { return bridge->command("commissioning", data); });
-            while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) pump(0.005);
+            auto future = async(launch::async, [&] { return bridge->command("commissioning", data); });
+            while (future.wait_for(chrono::milliseconds(0)) != future_status::ready) pump(0.005);
             return future.get().value("accepted", false);
         };
-        const std::string active(32, 'a');
+        const string active(32, 'a');
         auto request = nomad::Json{{"action", 1}, {"axis", 3}, {"session", active}, {"sequence", 1},
             {"motor_erpm", 0.0}, {"servo_position", 0.5}, {"duration_s", 0.0}, {"server_time_s", nomad::unixSeconds()}};
         expect(invoke(request), "Wi-Fi MANUAL starts explicitly at zero through GUI bridge");
@@ -589,13 +591,13 @@ public:
         expect(status_.value("state", "") == "RUNNING", "Wi-Fi issued-command lease tolerates bounded delivery delay");
         pump(0.65);
         expect(status_.value("state", "") == "FAULT" && status_.value("telemetry_fresh", false) &&
-               status_.value("reason", "").find("GUI command timeout") != std::string::npos,
+               status_.value("reason", "").find("GUI command timeout") != string::npos,
                "delayed update expires from original issue time instead of adding two seconds after receipt");
         expect(!commission(2, 3, active, 4, 0, 0.5, 0), "expired Wi-Fi session cannot be revived by fresh update");
         expect(call("reset") && !commission(1, 3, active, 5, 0, 0.5, 0), "Wi-Fi reset cannot reopen expired session ID");
 
         for (const int axis : {1, 2}) {
-            const std::string id(32, axis == 1 ? 'b' : 'c');
+            const string id(32, axis == 1 ? 'b' : 'c');
             request["action"] = 1; request["axis"] = axis; request["session"] = id;
             request["sequence"] = 1; request["duration_s"] = 1.0;
             request["server_time_s"] = nomad::unixSeconds() - 1.2;
@@ -605,29 +607,29 @@ public:
             expect(invoke(request), "short-axis trial accepts a fresh command under Wi-Fi profile");
             pump(0.5);
             expect(status_.value("state", "") == "FAULT" &&
-                   status_.value("reason", "").find("GUI command timeout") != std::string::npos,
+                   status_.value("reason", "").find("GUI command timeout") != string::npos,
                    "short-axis trial retains 350ms heartbeat lease in Wi-Fi profile");
             expect(call("reset"), "short-axis Wi-Fi fixture resets only explicitly");
         }
-        const std::string telemetry(32, 'd'), timer(32, 'e');
+        const string telemetry(32, 'd'), timer(32, 'e');
         expect(commission(1, 3, telemetry, 1, 0, 0.5, 0), "Wi-Fi telemetry guard fixture starts");
         send_telemetry_ = false; pump(0.45);
         expect(status_.value("state", "") == "FAULT" &&
-               status_.value("reason", "").find("telemetry") != std::string::npos,
+               status_.value("reason", "").find("telemetry") != string::npos,
                "Wi-Fi grace does not extend the local 300ms telemetry guard");
         send_telemetry_ = true; pump(0.4);
         expect(call("reset") && commission(1, 3, timer, 1, 0, 0.5, 0), "Wi-Fi timer guard fixture starts explicitly");
-        std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        this_thread::sleep_for(chrono::milliseconds(250));
         pump(0.15);
         expect(status_.value("state", "") == "FAULT" &&
-               status_.value("reason", "").find("control timer stalled") != std::string::npos,
+               status_.value("reason", "").find("control timer stalled") != string::npos,
                "Wi-Fi grace does not extend the local 200ms timer guard");
         expect(moving_messages_ == 0, "Wi-Fi timing integration tests never request positive motor output");
         executor_.remove_node(bridge);
     }
 
     void runRawStallWatchdog() {
-        const std::string active(32, '4');
+        const string active(32, '4');
         pump(0.7);
         expect(commission(1, 3, active, 1, 0, 0.5, 0), "stall watchdog fixture starts at zero");
         for (uint64_t sequence = 2; sequence < 11; ++sequence) {
@@ -635,7 +637,7 @@ public:
             pump(0.1);
         }
         expect(status_.value("state", "") == "FAULT" &&
-               status_.value("reason", "").find("stalled") != std::string::npos,
+               status_.value("reason", "").find("stalled") != string::npos,
                "ROS controller detects commanded speed without rotation while heartbeat is fresh");
         const int moves = moving_messages_, servos = servo_messages_;
         pump(0.15);
@@ -644,7 +646,7 @@ public:
     }
 
     void runExpandedSteeringContract() {
-        const std::string active(32, '5');
+        const string active(32, '5');
         pump(0.7);
         expect(status_.value("steering_input_limit_rad", 0.0) == 0.55 &&
                status_.value("servo_min", 0.0) == 0.3625 && status_.value("servo_max", 0.0) == 0.6375,
@@ -666,7 +668,7 @@ public:
                 accepted = commission(2, 3, active, ++sequence, 0, target, 0) && accepted;
                 pump(0.05);
             }
-            expect(accepted && std::abs(status_.value("commanded_servo_position", 0.0) - target) < 1e-9 &&
+            expect(accepted && abs(status_.value("commanded_servo_position", 0.0) - target) < 1e-9 &&
                    status_.value("commanded_motor_erpm", -1.0) == 0.0,
                    "both configured candidate endpoints are reachable with motor released");
         }
@@ -678,7 +680,7 @@ public:
     }
 
     void runManual() {
-        const std::string a(32, 'a'), b(32, 'b'), c(32, 'c');
+        const string a(32, 'a'), b(32, 'b'), c(32, 'c');
         pump(0.7);
         expect(manual(3, a), "STOP before START accepted");
         expect(!manual(1, a), "delayed START after STOP refused");
@@ -703,16 +705,16 @@ public:
     void runGuiBridge() {
         rclcpp::NodeOptions options;
         options.parameter_overrides({{"controller", prefix_ + "/nomad_vesc_trial"}});
-        auto bridge = std::make_shared<nomad::GuiBridge>(options);
+        auto bridge = make_shared<nomad::GuiBridge>(options);
         executor_.add_node(bridge);
         pump(0.8);
         expect(bridge->status().value("connected", false), "GUI bridge receives controller status");
-        const std::string id(32, 'e');
+        const string id(32, 'e');
         auto request = nomad::Json{{"action", 1}, {"session", id}, {"sequence", 1},
             {"speed_mps", 0.1}, {"steering_rad", 0.0}, {"duration_s", 1.0}, {"server_time_s", nomad::unixSeconds()}};
-        auto invoke = [&](const std::string& route, const nomad::Json& data) {
-            auto future = std::async(std::launch::async, [&] { return bridge->command(route, data); });
-            while (future.wait_for(std::chrono::milliseconds(0)) != std::future_status::ready) pump(0.005);
+        auto invoke = [&](const string& route, const nomad::Json& data) {
+            auto future = async(launch::async, [&] { return bridge->command(route, data); });
+            while (future.wait_for(chrono::milliseconds(0)) != future_status::ready) pump(0.005);
             return future.get().value("accepted", false);
         };
         expect(invoke("manual", request), "GUI bridge starts via real ROS service");
@@ -733,8 +735,8 @@ public:
         expect(fake_->count_publishers(prefix_ + "/commands/motor/speed") == 0, "monitor creates no motor publisher");
         expect(fake_->count_publishers(prefix_ + "/commands/servo/position") == 0, "monitor creates no servo publisher");
         expect(!call("start_test"), "monitor start refused");
-        expect(!manual(1, std::string(32, 'd')), "monitor manual start refused");
-        expect(!commission(1, 1, std::string(32, '6')), "monitor raw start refused");
+        expect(!manual(1, string(32, 'd')), "monitor manual start refused");
+        expect(!commission(1, 1, string(32, '6')), "monitor raw start refused");
         expect(call("stop"), "monitor stop service callable");
         pump(0.1);
         expect(speed_messages_ == 0 && servo_messages_ == 0 && release_messages_ == 0, "monitor emits no actuator data");
@@ -742,7 +744,7 @@ public:
 
     void runBench() {
         pump(1.0);
-        expect(!commission(1, 1, std::string(32, '7')), "calibrated bench rejects raw start service");
+        expect(!commission(1, 1, string(32, '7')), "calibrated bench rejects raw start service");
         expect(speed_messages_ == 0 && servo_messages_ == 0 && release_messages_ == 0, "bench boot never auto-starts");
         expect(call("start_test"), "explicit bench start succeeds");
         expect(!call("start_test"), "duplicate start rejected");
@@ -771,14 +773,14 @@ public:
     }
 
     void runSteeringRecords() {
-        const auto directory=std::filesystem::temp_directory_path()/prefix_.substr(1);
+        const auto directory=filesystem::temp_directory_path()/prefix_.substr(1);
         rclcpp::NodeOptions options;
         options.parameter_overrides({{"controller",prefix_+"/nomad_vesc_trial"},{"steering_records_directory",directory.string()}});
-        auto bridge=std::make_shared<nomad::GuiBridge>(options);executor_.add_node(bridge);pump(.8);
+        auto bridge=make_shared<nomad::GuiBridge>(options);executor_.add_node(bridge);pump(.8);
         auto setRange=[&](double span){
             const nomad::Json data={{"span",span},{"server_time_s",nomad::unixSeconds()}};
-            auto future=std::async(std::launch::async,[&]{return bridge->command("steering-range",data);});
-            while(future.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready)pump(.005);
+            auto future=async(launch::async,[&]{return bridge->command("steering-range",data);});
+            while(future.wait_for(chrono::milliseconds(0))!=future_status::ready)pump(.005);
             return future.get().value("accepted",false);
         };
         const auto servo_before=servo_messages_;
@@ -786,15 +788,15 @@ public:
         expect(servo_messages_==servo_before&&moving_messages_==0,"range change publishes neither steering nor motor movement");
         expect(bridge->status().at("steering_test_servo_max")==.8&&bridge->status().at("servo_max")!=.8,"test range is separate from drive range");
         expect(!setRange(.6),"GUI range request above protocol bounds rejected");
-        nomad::Json row={{"operation","save"},{"id",std::string(32,'a')},{"servo_command",.5},
+        nomad::Json row={{"operation","save"},{"id",string(32,'a')},{"servo_command",.5},
             {"left_deg",0.0},{"right_deg",0.0},{"note","integration test only"},{"measured_confirmed",true}};
         expect(bridge->command("steering-records",row).value("accepted",false),"stationary measurement stored through GUI bridge");
         auto invoke=[&](const nomad::Json& data){
-            auto future=std::async(std::launch::async,[&]{return bridge->command("commissioning",data);});
-            while(future.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready)pump(.005);
+            auto future=async(launch::async,[&]{return bridge->command("commissioning",data);});
+            while(future.wait_for(chrono::milliseconds(0))!=future_status::ready)pump(.005);
             return future.get().value("accepted",false);
         };
-        nomad::Json step={{"action",1},{"axis",2},{"session",std::string(32,'b')},{"sequence",1},
+        nomad::Json step={{"action",1},{"axis",2},{"session",string(32,'b')},{"sequence",1},
             {"motor_erpm",0},{"servo_position",.505},{"duration_s",bridge->status().at("max_duration_s")},{"server_time_s",nomad::unixSeconds()},
             {"record_steering_command",true}};
         expect(invoke(step),"calibration uses steering-only trial and automatic recording");pump(.12);
@@ -803,26 +805,26 @@ public:
         expect(invoke(step),"recorded steering heartbeat accepted");
         auto automatic=bridge->command("steering-records",{{"operation","list"}});
         expect(automatic.at("records").size()==2,"unchanged heartbeat does not duplicate command record");
-        for(const auto& record:automatic.at("records"))if(record.value("kind",std::string{})=="command")
+        for(const auto& record:automatic.at("records"))if(record.value("kind",string{})=="command")
             expect(record.at("left_deg").is_null()&&!record.at("measured_confirmed").get<bool>()&&record.at("servo_command")==.505,
                    "automatic record contains accepted servo target but no fabricated angle");
         expect(!bridge->command("steering-records",row).value("accepted",true),"cannot save while steering trial running");
         expect(call("stop"),"calibration explicit stop");pump(.25);
-        row["id"]=std::string(32,'c');row["servo_command"]=.6;
+        row["id"]=string(32,'c');row["servo_command"]=.6;
         expect(!bridge->command("steering-records",row).value("accepted",true),"stale servo pairing refused");
         row["servo_command"]=bridge->status().at("commanded_servo_position");row["left_deg"]=1.2;row["right_deg"]=1.1;
         expect(bridge->command("steering-records",row).value("accepted",false),"settled command pairs with user measurement");
-        auto note=row;note["id"]=std::string(32,'e');note["kind"]="observation";
+        auto note=row;note["id"]=string(32,'e');note["kind"]="observation";
         note.erase("left_deg");note.erase("right_deg");note.erase("measured_confirmed");
         auto noted=bridge->command("steering-records",note);
         expect(noted.value("accepted",false)&&noted.at("record").at("left_rad").is_null(),"memo needs no measured angle");
         auto listed=bridge->command("steering-records",{{"operation","list"}});
         expect(listed.at("records").size()==4&&!listed.value("applied",true),"command, observation and measurements remain distinct without applying calibration");
-        send_telemetry_=false;pump(.4);row["id"]=std::string(32,'d');
+        send_telemetry_=false;pump(.4);row["id"]=string(32,'d');
         expect(!bridge->command("steering-records",row).value("accepted",true),"stale telemetry cannot save measurement");
         expect(moving_messages_==0,"calibration emitted no nonzero motor speed command");
         executor_.remove_node(bridge);
-        if(directory.parent_path()==std::filesystem::temp_directory_path())std::filesystem::remove_all(directory);
+        if(directory.parent_path()==filesystem::temp_directory_path())filesystem::remove_all(directory);
     }
 
     void runStability() {
@@ -855,27 +857,27 @@ private:
 #endif
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
     bool send_imu_=false;
-    std::string imu_frame_="base_link";
+    string imu_frame_="base_link";
     double imu_roll_=0;
-    std::string prefix_;
+    string prefix_;
     rclcpp::Node::SharedPtr fake_;
-    std::shared_ptr<nomad::ControllerNode> controller_;
+    shared_ptr<nomad::ControllerNode> controller_;
     rclcpp::Publisher<nomad::VescState>::SharedPtr pub_;
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr status_sub_;
     nomad::Json status_ = nomad::Json::object();
-    std::vector<rclcpp::Subscription<nomad::Scalar>::SharedPtr> subs_;
+    vector<rclcpp::Subscription<nomad::Scalar>::SharedPtr> subs_;
     rclcpp::executors::SingleThreadedExecutor executor_;
     bool send_telemetry_ = true;
     double last_sent_ = 0.0;
     double telemetry_erpm_ = 0.0;
     int telemetry_fault_ = 0;
     int speed_messages_ = 0, moving_messages_ = 0, servo_messages_ = 0, release_messages_ = 0;
-    std::vector<double> observed_motor_erpm_;
+    vector<double> observed_motor_erpm_;
 };
 
 #ifdef NOMAD_ENABLE_PLANNING
 void testMinimumRunningFloor() {
-    const std::vector<rclcpp::Parameter> parameters={
+    const vector<rclcpp::Parameter> parameters={
         {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.minimum_running_erpm",700.0},
         {"planning.start_hold_s",.75},{"planning.restart_cooldown_s",1.0},
@@ -887,7 +889,7 @@ void testMinimumRunningFloor() {
 }
 
 void testMeasuredSpeedControl() {
-    const std::vector<rclcpp::Parameter> parameters={
+    const vector<rclcpp::Parameter> parameters={
         {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.start_hold_s",.75},{"planning.restart_cooldown_s",1.0},
         {"planning.minimum_start_erpm",550.0},{"planning.feedback_limit_erpm",1200.0},
@@ -896,16 +898,16 @@ void testMeasuredSpeedControl() {
     auto feedback_parameters=parameters;
     feedback_parameters.emplace_back("planning.minimum_running_erpm",0.0);
     {RosRig feedback(true,true,true,true,false,feedback_parameters);feedback.runMeasuredSpeedFeedback();}
-    for(const std::string failure:{"operator STOP","invalid command","command expiry","telemetry timeout","VESC fault","hard overspeed"}) {
+    for(const string failure:{"operator STOP","invalid command","command expiry","telemetry timeout","VESC fault","hard overspeed"}) {
         RosRig guarded(true,true,true,true,false,parameters);guarded.runMeasuredSpeedSafety(failure);
     }
 }
 #endif
 
 void testRawMetadataConfiguration() {
-    const double nan = std::numeric_limits<double>::quiet_NaN();
-    const double infinity = std::numeric_limits<double>::infinity();
-    const std::vector<rclcpp::Parameter> invalid = {
+    const double nan = numeric_limits<double>::quiet_NaN();
+    const double infinity = numeric_limits<double>::infinity();
+    const vector<rclcpp::Parameter> invalid = {
         {"steering_input_limit_rad", 0.0}, {"steering_input_limit_rad", -0.01},
         {"steering_input_limit_rad", 0.5501}, {"steering_input_limit_rad", nan},
         {"steering_input_limit_rad", infinity}, {"observed_smooth_start_erpm", -1.0},
@@ -915,7 +917,7 @@ void testRawMetadataConfiguration() {
         options.parameter_overrides({{"mode", "commission"}, parameter});
         bool rejected = false;
         try { auto node = nomad::ControllerNode::create(options); }
-        catch (const std::invalid_argument&) { rejected = true; }
+        catch (const invalid_argument&) { rejected = true; }
         expect(rejected, "invalid raw angle or observation metadata is rejected before output creation");
     }
 }
@@ -925,17 +927,17 @@ int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
     try {
 #ifdef NOMAD_ENABLE_PLANNING
-        if(argc>1&&std::string(argv[1])=="--running-floor-only"){
+        if(argc>1&&string(argv[1])=="--running-floor-only"){
             testMinimumRunningFloor();
-            std::cout<<checks<<" checks, "<<failures<<" failures\n";
+            cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }
-        if(argc>1&&std::string(argv[1])=="--measured-speed-only"){
+        if(argc>1&&string(argv[1])=="--measured-speed-only"){
             testMeasuredSpeedControl();
-            std::cout<<checks<<" checks, "<<failures<<" failures\n";
+            cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }
-        if(argc>1&&std::string(argv[1])=="--headless-resume-only"){
+        if(argc>1&&string(argv[1])=="--headless-resume-only"){
             {
             RosRig resume(true,true,true,true,false,{
                 {"planning.headless",true},{"planning.allow_estimated_calibration",true},
@@ -943,28 +945,28 @@ int main(int argc, char* argv[]) {
                 {"planning.servo_per_rad",.5},{"planning.max_mps",.25},{"planning.max_rad",.3}});
             resume.runHeadlessResume();
             }
-            std::cout<<checks<<" checks, "<<failures<<" failures\n";
+            cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }
 #endif
         testRawMetadataConfiguration();
-        for (const auto& params : std::vector<std::vector<rclcpp::Parameter>>{
+        for (const auto& params : vector<vector<rclcpp::Parameter>>{
                 {{"operation_environment","ground"}},{{"mode","commission"},{"stability.enabled",true}}}) {
             rclcpp::NodeOptions options;options.parameter_overrides(params);
             bool refused=false;
             try { auto node=nomad::ControllerNode::create(options); }
-            catch(const std::invalid_argument&) { refused=true; }
+            catch(const invalid_argument&) { refused=true; }
             expect(refused,"unvalidated ground/raw stability modes refused");
         }
 #ifdef NOMAD_ENABLE_PLANNING
-        for (const std::string mode : {"bench","monitor"}) {
+        for (const string mode : {"bench","monitor"}) {
             rclcpp::NodeOptions options;
             options.parameter_overrides({{"mode",mode},{"planning.headless",true},
                 {"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true}});
             bool refused=false;
             try { auto node=nomad::ControllerNode::create(options); }
-            catch(const std::invalid_argument& error) {
-                refused=std::string(error.what()).find("planning.headless")!=std::string::npos;
+            catch(const invalid_argument& error) {
+                refused=string(error.what()).find("planning.headless")!=string::npos;
             }
             expect(refused,"headless planning outside commission mode refused at startup");
         }
@@ -992,8 +994,8 @@ int main(int argc, char* argv[]) {
         { RosRig table(true,true,true,true,false,{
             {"planning.calibration_verified",true},{"planning.erpm_per_mps",1000.0},
             {"planning.feedback_erpm_sign",1},{"planning.max_mps",.6},{"planning.max_rad",.1},
-            {"planning.steering_rads",std::vector<double>{-.1,0.0,.1}},
-            {"planning.steering_servos",std::vector<double>{.55,.5,.45}}});table.runPlanning(); }
+            {"planning.steering_rads",vector<double>{-.1,0.0,.1}},
+            {"planning.steering_servos",vector<double>{.55,.5,.45}}});table.runPlanning(); }
 #endif
         { RosRig bench(true); bench.runBench(); }
         { RosRig manual(true); manual.runManual(); }
@@ -1012,11 +1014,11 @@ int main(int argc, char* argv[]) {
         { RosRig stalled(true, true, true, true, true); stalled.runRawStallWatchdog(); }
         { RosRig no_setup(true, true, false, true); no_setup.runCommissionGate(); }
         { RosRig no_timeout(true, true, true, false); no_timeout.runCommissionGate(); }
-    } catch (const std::exception& error) {
+    } catch (const exception& error) {
         ++failures;
-        std::cerr << "ROS integration test error: " << error.what() << '\n';
+        cerr << "ROS integration test error: " << error.what() << '\n';
     }
     rclcpp::shutdown();
-    std::cout << checks << " ROS checks, " << failures << " failures\n";
+    cout << checks << " ROS checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

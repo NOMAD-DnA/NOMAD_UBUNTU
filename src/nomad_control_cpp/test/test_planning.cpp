@@ -3,16 +3,18 @@
 #include <limits>
 #include <random>
 #include "nomad_control_cpp/vehicle_reference.hpp"
+
+using namespace std;
 int main(){
     int failures=0;
-    auto check=[&](bool ok,const char* name){if(!ok){std::cerr<<name<<'\n';++failures;}};
+    auto check=[&](bool ok,const char* name){if(!ok){cerr<<name<<'\n';++failures;}};
     // 합성 보정값은 단위/유효기간 검사용이며 차량 설정이 아닙니다.
     nomad::PlanningCalibration c{true,1000,-.5,.5,1,.7};
     nomad::PlanningCommandGuard g(c);
     nomad::PlanningCommand cmd{100,.3,.5,.4,"base_link",false};
     check(g.receive(cmd,100,1),"receive fresh");
     auto t=g.target(100.1,1.1);
-    check(t&&t->erpm==500&&std::abs(t->servo-.3)<1e-9,"m/s and rad conversion/sign");
+    check(t&&t->erpm==500&&abs(t->servo-.3)<1e-9,"m/s and rad conversion/sign");
     check(!g.receive(cmd,100.2,1.2),"duplicates do not renew");
     check(!g.target(100.31,1.31),"source expiry");
     check(!g.target(100.1,1.36),"steady timeout even if ROS clock stalls");
@@ -58,11 +60,11 @@ int main(){
     cmd={350,.3,.2,.05,"base_link",false};
     lookup.receive(cmd,350,4);
     auto mapped=lookup.target(350,4);
-    check(mapped&&std::abs(mapped->servo-.6)<1e-9&&std::abs(mapped->erpm-744.3765235788016)<1e-8,"table interpolation and positive-left raw servo");
-    check(std::abs(table.servoFor(-.1)-.35)<1e-9,"negative-right interpolation");
+    check(mapped&&abs(mapped->servo-.6)<1e-9&&abs(mapped->erpm-744.3765235788016)<1e-8,"table interpolation and positive-left raw servo");
+    check(abs(table.servoFor(-.1)-.35)<1e-9,"negative-right interpolation");
     check(table.servoFor(0)==.5,"neutral exact");
     check(table.servoFor(-.4)==0&&table.servoFor(.4)==1,"table endpoint exact");
-    check(std::isnan(table.servoFor(.401)),"no extrapolation");
+    check(isnan(table.servoFor(.401)),"no extrapolation");
     for(int fault=0;fault<6;++fault){
         auto invalid=table;
         if(fault==0)invalid.steering_servos.pop_back();
@@ -72,21 +74,21 @@ int main(){
         if(fault==4)invalid.max_rad=.5;
         if(fault==5)invalid.steering_servos[1]=.8;
         check(!nomad::PlanningCommandGuard(invalid).calibrated(),"invalid table rejected");
-        check(std::isnan(invalid.servoFor(.1)),"invalid table cannot be indexed");
+        check(isnan(invalid.servoFor(.1)),"invalid table cannot be indexed");
     }
     table.verified=false;
     check(!nomad::PlanningCommandGuard(table).calibrated(),"estimated table does not bypass verification");
-    check(std::abs(nomad::referenceSpeedMps(1000)-.26868123008291983)<1e-12,"two wheel speed reference");
-    std::mt19937 random(20261108);std::uniform_real_distribution<double> speed(-2,3),angle(-3,3),age(-.2,.8);
+    check(abs(nomad::referenceSpeedMps(1000)-.26868123008291983)<1e-12,"two wheel speed reference");
+    mt19937 random(20261108);uniform_real_distribution<double> speed(-2,3),angle(-3,3),age(-.2,.8);
     int outputs=0;
     for(int i=0;i<20000;++i){
         nomad::PlanningCommandGuard sample({true,1000,-.5,.5,1,.7});
         cmd={400,.3,speed(random),angle(random),"base_link",false};
         const double elapsed=age(random);sample.receive(cmd,400,5);
         const auto out=sample.target(400+elapsed,5+elapsed);
-        const bool expected=elapsed>=0&&elapsed<=.3&&cmd.speed_mps>=0&&cmd.speed_mps<=1&&std::abs(cmd.steering_rad)<=.7;
+        const bool expected=elapsed>=0&&elapsed<=.3&&cmd.speed_mps>=0&&cmd.speed_mps<=1&&abs(cmd.steering_rad)<=.7;
         check(out.has_value()==expected,"randomized validity oracle");
         if(out){++outputs;check(out->erpm>=0&&out->erpm<=1850&&out->servo>=0&&out->servo<=1,"output bounds invariant");}
     }
-    std::cout<<"20000 randomized cases, "<<outputs<<" valid outputs. Planning contract failures: "<<failures<<'\n';return failures?1:0;
+    cout<<"20000 randomized cases, "<<outputs<<" valid outputs. Planning contract failures: "<<failures<<'\n';return failures?1:0;
 }

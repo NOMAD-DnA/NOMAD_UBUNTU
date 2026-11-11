@@ -6,17 +6,19 @@
 #include <memory>
 #include <thread>
 
+using namespace std;
+
 namespace {
-volatile std::sig_atomic_t interrupted = 0;
+volatile sig_atomic_t interrupted = 0;
 void signalHandler(int) { interrupted = 1; }
 } // namespace
 
 int main(int argc, char* argv[]) {
     // Own signal handling: on Ctrl+C/SIGTERM send 0A before ROS shuts down.
     rclcpp::init(argc, argv, rclcpp::InitOptions(), rclcpp::SignalHandlerOptions::None);
-    std::signal(SIGINT, signalHandler);
-    std::signal(SIGTERM, signalHandler);
-    std::shared_ptr<nomad::ControllerNode> node;
+    signal(SIGINT, signalHandler);
+    signal(SIGTERM, signalHandler);
+    shared_ptr<nomad::ControllerNode> node;
     int result = 0;
     try {
         node = nomad::ControllerNode::create();
@@ -24,10 +26,10 @@ int main(int argc, char* argv[]) {
         executor.add_node(node);
         while (rclcpp::ok() && !interrupted) {
             executor.spin_some();
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
+            this_thread::sleep_for(chrono::milliseconds(2));
         }
-    } catch (const std::exception& error) {
-        std::cerr << "Controller error: " << error.what() << '\n';
+    } catch (const exception& error) {
+        cerr << "Controller error: " << error.what() << '\n';
         result = 1;
     }
     if (node) node->prepareShutdown();
