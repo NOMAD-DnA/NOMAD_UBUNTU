@@ -930,8 +930,23 @@ void testCriticalAndNonCriticalSplit() {
         expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "spike recovers without reset"); }
     {   // Input (battery) current is reported separately.
         Rig r = running(); send(r, 900, 5.0, 31.5, 16.3, 0);
-        expect(r.controller.reason().rfind("raw current spike: motor 5.0 A, input 31.5 A", 0) == 0,
+        expect(r.controller.reason().rfind("raw current spike: motor 5.0 A (limit 30), input 31.5 A (limit 30)", 0) == 0,
                "input current spike is named separately"); }
+    {   // Separate limits: 50 A motor current is fine under a 55 A motor limit; input keeps 30 A.
+        auto options = enabled(); options.motor_current_limit_a = 55.0; options.overcurrent_hard_a = 60.0;
+        Rig r = running(options); send(r, 300, 50.0, 3.0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Running, "motor current below its own limit keeps running");
+        send(r, 300, 56.0, 3.0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Stopped &&
+               r.controller.reason().rfind("raw current spike: motor 56.0 A (limit 55)", 0) == 0,
+               "motor current above its limit is a spike");
+        Rig in = running(options); send(in, 300, 20.0, 31.0, 16.3, 0);
+        expect(in.controller.state() == TrialState::Stopped, "input current keeps its 30 A limit");
+        Rig hard = running(options); send(hard, 300, 61.0, 3.0, 16.3, 0);
+        expect(hard.controller.state() == TrialState::Fault, "motor current above the hard limit latches");
+        auto bad = enabled(); bad.motor_current_limit_a = 55.0; bad.overcurrent_hard_a = 50.0;
+        bool refused = false; try { nomad::RawTrialController c(bad); } catch (const std::invalid_argument&) { refused = true; }
+        expect(refused, "hard limit must stay above the motor limit"); }
     {   Rig r = running(); send(r, 900, 46.0, 0, 16.3, 0);
         expect(r.controller.state() == TrialState::Fault && r.controller.reason().rfind("raw overcurrent: motor 46.0 A", 0) == 0,
                "current above the hard limit latches at once"); }

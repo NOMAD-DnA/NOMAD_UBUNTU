@@ -43,7 +43,9 @@ RawTrialController::RawTrialController(RawOptions options)
         !positive(options_.stationary_hold_s) || options_.stationary_hold_s < 0.20 ||
         !positive(options_.stationary_erpm) || options_.stationary_erpm > 50.0 ||
         !positive(options_.current_limit_a) || options_.current_limit_a > 30.0 ||
-        !positive(options_.overcurrent_hard_a) || options_.overcurrent_hard_a <= options_.current_limit_a ||
+        !positive(options_.motor_current_limit_a) || options_.motor_current_limit_a > 60.0 ||
+        !positive(options_.overcurrent_hard_a) ||
+        options_.overcurrent_hard_a <= max(options_.current_limit_a, options_.motor_current_limit_a) ||
         options_.overcurrent_hard_a > 60.0 ||
         !positive(options_.overcurrent_sustain_s) || options_.overcurrent_sustain_s > 1.0 ||
         options_.overcurrent_spike_limit < 1 || options_.overcurrent_spike_limit > 10 ||
@@ -335,7 +337,7 @@ RawOutput RawTrialController::restingOutput() const {
 bool RawTrialController::checkCurrent(const TelemetrySample& sample, double steady_now) {
     const double motor = abs(sample.current_motor_a), input = abs(sample.current_input_a);
     const double peak = max(motor, input);
-    if (peak <= options_.current_limit_a) {
+    if (motor <= options_.motor_current_limit_a && input <= options_.current_limit_a) {
         overcurrent_since_.reset();
         return true;
     }
@@ -345,19 +347,20 @@ bool RawTrialController::checkCurrent(const TelemetrySample& sample, double stea
            steady_now - overcurrent_spikes_.front() > options_.overcurrent_spike_window_s)
         overcurrent_spikes_.pop_front();
     if (new_episode) overcurrent_spikes_.push_back(steady_now);
+    const double motor_limit = options_.motor_current_limit_a, input_limit = options_.current_limit_a;
     if (peak > options_.overcurrent_hard_a) {
         invalidateTelemetry(format("raw overcurrent: motor %.1f A, input %.1f A > hard limit %.0f A",
                                    motor, input, options_.overcurrent_hard_a));
     } else if (steady_now - *overcurrent_since_ >= options_.overcurrent_sustain_s) {
-        invalidateTelemetry(format("raw overcurrent sustained %.2f s: motor %.1f A, input %.1f A > %.0f A",
-                                   steady_now - *overcurrent_since_, motor, input, options_.current_limit_a));
+        invalidateTelemetry(format("raw overcurrent sustained %.2f s: motor %.1f A (limit %.0f), input %.1f A (limit %.0f)",
+                                   steady_now - *overcurrent_since_, motor, motor_limit, input, input_limit));
     } else if (static_cast<int>(overcurrent_spikes_.size()) >= options_.overcurrent_spike_limit) {
-        invalidateTelemetry(format("raw current spikes repeated %d times in %.0f s: motor %.1f A, input %.1f A > %.0f A",
+        invalidateTelemetry(format("raw current spikes repeated %d times in %.0f s: motor %.1f A (limit %.0f), input %.1f A (limit %.0f)",
                                    static_cast<int>(overcurrent_spikes_.size()), options_.overcurrent_spike_window_s,
-                                   motor, input, options_.current_limit_a));
+                                   motor, motor_limit, input, input_limit));
     } else {
-        invalidateTelemetry(format("raw current spike: motor %.1f A, input %.1f A > %.0f A; output released",
-                                   motor, input, options_.current_limit_a), true);
+        invalidateTelemetry(format("raw current spike: motor %.1f A (limit %.0f), input %.1f A (limit %.0f); output released",
+                                   motor, motor_limit, input, input_limit), true);
     }
     return false;
 }

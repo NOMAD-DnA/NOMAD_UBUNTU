@@ -692,6 +692,7 @@ private:
         raw.stationary_hold_s = parameter<double>("commissioning.stationary_hold_s", raw.stationary_hold_s);
         raw.stationary_erpm = parameter<double>("commissioning.stationary_erpm", raw.stationary_erpm);
         raw.current_limit_a = parameter<double>("commissioning.current_limit_a", raw.current_limit_a);
+        raw.motor_current_limit_a = parameter<double>("commissioning.motor_current_limit_a", raw.motor_current_limit_a);
         raw.overcurrent_hard_a = parameter<double>("commissioning.overcurrent_hard_a", raw.overcurrent_hard_a);
         raw.overcurrent_sustain_s = parameter<double>("commissioning.overcurrent_sustain_s", raw.overcurrent_sustain_s);
         raw.overcurrent_spike_limit = parameter<int>("commissioning.overcurrent_spike_limit", raw.overcurrent_spike_limit);
@@ -984,6 +985,9 @@ private:
             data["motor_acceleration_erpm_s"] = raw_options_.motor_ramp_erpm_s;
             data["motor_deceleration_erpm_s"] = raw_options_.motor_deceleration_erpm_s;
             data["stall_watchdog_enabled"] = raw_options_.stall_watchdog_enabled;
+            data["motor_current_limit_a"] = raw_options_.motor_current_limit_a;
+            data["input_current_limit_a"] = raw_options_.current_limit_a;
+            data["overcurrent_hard_a"] = raw_options_.overcurrent_hard_a;
         } else {
             data["speed_min"] = calibration_.speed_min_mps;
             data["speed_max"] = calibration_.speed_max_mps;

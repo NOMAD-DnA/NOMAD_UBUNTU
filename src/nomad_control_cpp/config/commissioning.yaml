@@ -34,10 +34,14 @@ nomad_vesc_trial:
     commissioning.max_tick_gap_s: 0.20
     commissioning.stationary_hold_s: 0.50
     commissioning.stationary_erpm: 50.0
+    # Battery input current limit. VESC battery limit is set higher; this keeps the 30 A guard.
     commissioning.current_limit_a: 30.0
-    # Current above 30 A: a short spike releases output and headless planning resumes on its own.
-    # It latches (RESET needed) when it lasts 0.3 s, goes above 45 A once, or repeats 3 times in 10 s.
-    commissioning.overcurrent_hard_a: 45.0
+    # Motor (phase) current limit. Low-speed starts on rough ground draw 30-35 A of motor current
+    # while the battery supplies only 2-3 A (11-11 integration logs); VESC motor limit is +-60 A.
+    commissioning.motor_current_limit_a: 55.0
+    # Above a limit: a short spike releases output and headless planning resumes on its own.
+    # It latches (RESET needed) when it lasts 0.3 s, goes above 60 A once, or repeats 3 times in 10 s.
+    commissioning.overcurrent_hard_a: 60.0
     commissioning.overcurrent_sustain_s: 0.30
     commissioning.overcurrent_spike_limit: 3
     commissioning.overcurrent_spike_window_s: 10.0

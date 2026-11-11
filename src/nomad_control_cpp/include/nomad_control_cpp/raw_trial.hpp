@@ -25,10 +25,13 @@ struct RawOptions {
     double max_tick_gap_s = 0.20;
     double stationary_hold_s = 0.50;
     double stationary_erpm = 50.0;
+    // Battery input current limit. Low-speed starts draw large motor (phase) current but little
+    // input current, so the two have separate limits.
     double current_limit_a = 30.0;
-    // Above current_limit_a: a short spike only releases output (headless planning resumes);
-    // it latches when it lasts overcurrent_sustain_s, exceeds overcurrent_hard_a once, or
-    // repeats overcurrent_spike_limit times within overcurrent_spike_window_s.
+    double motor_current_limit_a = 30.0;
+    // Above a limit: a short spike only releases output (headless planning resumes); it latches
+    // when it lasts overcurrent_sustain_s, exceeds overcurrent_hard_a once, or repeats
+    // overcurrent_spike_limit times within overcurrent_spike_window_s.
     double overcurrent_hard_a = 45.0;
     double overcurrent_sustain_s = 0.30;
     int overcurrent_spike_limit = 3;
