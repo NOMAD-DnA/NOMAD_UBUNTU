@@ -23,7 +23,9 @@ bench:
 
 2. 파일과 설정
 
-src/controller_node.cpp: ROS 구독, publisher, 서비스, 주기 실행, 정상 종료 처리
+src/controller_node.cpp: ROS 구독, publisher, 서비스, 주기 실행 (nomad_controller_core 라이브러리)
+src/controller_main.cpp: 실행 진입점, Ctrl+C/SIGTERM 시 0A 정상 종료 처리
+include/nomad_control_cpp/controller_node.hpp: 노드 생성(ControllerNode::create)과 종료 준비 인터페이스
 include/nomad_control_cpp/trial_controller.hpp: 시험 설정·telemetry·상태 자료형
 src/trial_controller.cpp: 시작 조건, 시간 제한, 정지·fault, 출력 변화율
 config/controller.yaml: ROS 실행 설정. 기본 비구동, 미보정 상태

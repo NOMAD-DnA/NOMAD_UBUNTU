@@ -1,10 +1,21 @@
 // 실제 노드 구현을 가짜 VESC와 같은 executor에서 시험합니다. 시험 토픽은 고유 namespace에 격리합니다.
-#define NOMAD_CONTROLLER_NO_MAIN
-#include "../src/controller_node.cpp"
+#include "nomad_control_cpp/controller_node.hpp"
+#include "json.hpp"
+#include <nomad_interfaces/msg/drive_command.hpp>
+#include <nomad_interfaces/msg/vehicle_state.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <cmath>
+#include <iostream>
+#include <set>
+#include <string>
+#include <thread>
 #include <functional>
 #include <limits>
 #define NOMAD_GUI_NO_MAIN
 #include "../src/gui_server.cpp"
+
+using nomad::steadySeconds;
 
 namespace {
 int checks = 0, failures = 0;
@@ -66,7 +77,7 @@ public:
         overrides.emplace_back("stability.imu_topic", prefix_+"/imu_body");
         overrides.insert(overrides.end(), extra_parameters.begin(), extra_parameters.end());
         options.parameter_overrides(overrides);
-        controller_ = std::make_shared<nomad::ControllerNode>(options);
+        controller_ = nomad::ControllerNode::create(options);
         status_sub_ = fake_->create_subscription<std_msgs::msg::String>(prefix_ + "/nomad_vesc_trial/status_json", 1,
             [this](std_msgs::msg::String::ConstSharedPtr message) { status_ = nomad::Json::parse(message->data); });
         executor_.add_node(fake_);
@@ -903,7 +914,7 @@ void testRawMetadataConfiguration() {
         rclcpp::NodeOptions options;
         options.parameter_overrides({{"mode", "commission"}, parameter});
         bool rejected = false;
-        try { auto node = std::make_shared<nomad::ControllerNode>(options); }
+        try { auto node = nomad::ControllerNode::create(options); }
         catch (const std::invalid_argument&) { rejected = true; }
         expect(rejected, "invalid raw angle or observation metadata is rejected before output creation");
     }
@@ -941,7 +952,7 @@ int main(int argc, char* argv[]) {
                 {{"operation_environment","ground"}},{{"mode","commission"},{"stability.enabled",true}}}) {
             rclcpp::NodeOptions options;options.parameter_overrides(params);
             bool refused=false;
-            try { auto node=std::make_shared<nomad::ControllerNode>(options); }
+            try { auto node=nomad::ControllerNode::create(options); }
             catch(const std::invalid_argument&) { refused=true; }
             expect(refused,"unvalidated ground/raw stability modes refused");
         }
@@ -951,7 +962,7 @@ int main(int argc, char* argv[]) {
             options.parameter_overrides({{"mode",mode},{"planning.headless",true},
                 {"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true}});
             bool refused=false;
-            try { auto node=std::make_shared<nomad::ControllerNode>(options); }
+            try { auto node=nomad::ControllerNode::create(options); }
             catch(const std::invalid_argument& error) {
                 refused=std::string(error.what()).find("planning.headless")!=std::string::npos;
             }

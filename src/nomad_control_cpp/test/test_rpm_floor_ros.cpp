@@ -1,6 +1,15 @@
 // Isolated fake VESC/DriveCommand endpoints only; no driver or serial access.
-#define NOMAD_CONTROLLER_NO_MAIN
-#include "../src/controller_node.cpp"
+#include "nomad_control_cpp/controller_node.hpp"
+#include "json.hpp"
+#include <nomad_interfaces/msg/drive_command.hpp>
+#include <nomad_interfaces/msg/vehicle_state.hpp>
+#include <std_msgs/msg/string.hpp>
+#include <sensor_msgs/msg/imu.hpp>
+#include <cmath>
+#include <iostream>
+#include <set>
+#include <string>
+#include <thread>
 #include <cstdlib>
 #include <functional>
 #include <vector>
@@ -33,7 +42,7 @@ public:
    {"telemetry_topic",prefix_+"/telemetry"},{"motor_speed_topic",prefix_+"/speed"},{"motor_current_topic",prefix_+"/current"},
    {"servo_topic",prefix_+"/servo"},{"motor_duty_topic",prefix_+"/duty"},{"motor_brake_topic",prefix_+"/brake"},
    {"motor_position_topic",prefix_+"/position"},{"stability.imu_topic",prefix_+"/imu"}});
-  controller_=std::make_shared<nomad::ControllerNode>(o);executor_.add_node(fake_);executor_.add_node(controller_);
+  controller_=nomad::ControllerNode::create(o);executor_.add_node(fake_);executor_.add_node(controller_);
  }
  ~FloorRig(){controller_->prepareShutdown();}
  void pump(double duration){

@@ -1,3 +1,4 @@
+#include "nomad_control_cpp/controller_node.hpp"
 #include "nomad_control_cpp/trial_controller.hpp"
 #include "nomad_control_cpp/raw_trial.hpp"
 #include "nomad_control_cpp/stability_guard.hpp"
@@ -26,8 +27,6 @@
 #include <chrono>
 #include <algorithm>
 #include <cmath>
-#include <csignal>
-#include <iostream>
 #include <memory>
 #include <set>
 #include <sstream>
@@ -35,29 +34,13 @@
 #include <thread>
 #include <vector>
 
-namespace {
-#ifndef NOMAD_CONTROLLER_NO_MAIN
-volatile std::sig_atomic_t interrupted = 0;
-void signalHandler(int) { interrupted = 1; }
-#endif
-double steadySeconds() {
-    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
-}
-} // namespace
-
 namespace nomad {
-using Scalar = std_msgs::msg::Float64;
-using Manual = nomad_control_cpp::srv::ManualControl;
-using Commissioning = nomad_control_cpp::srv::CommissioningControl;
-using Trigger = std_srvs::srv::Trigger;
-using SteeringRange = nomad_control_cpp::srv::SetSteeringRange;
-using VescState = vesc_msgs::msg::VescStateStamped;
-
+namespace {
 // 하나의 출력 소유자가 수동/LPP 입력을 중재합니다. monitor는 장치 publisher를 만들지 않습니다.
-class ControllerNode final : public rclcpp::Node {
+class ControllerNodeImpl final : public ControllerNode {
 public:
-    explicit ControllerNode(const rclcpp::NodeOptions& options = rclcpp::NodeOptions())
-        : Node("nomad_vesc_trial", options) {
+    explicit ControllerNodeImpl(const rclcpp::NodeOptions& options)
+        : ControllerNode(options) {
         bool sim_time = false;
         get_parameter("use_sim_time", sim_time);
         if (sim_time) throw std::invalid_argument("real VESC trial requires use_sim_time=false");
@@ -195,7 +178,7 @@ public:
     }
 
     // 기본 ROS signal shutdown보다 먼저 호출해 정상 Ctrl+C/SIGTERM 시 0A 전송 기회를 확보합니다.
-    void prepareShutdown() noexcept {
+    void prepareShutdown() noexcept override {
         if (!controller_ && !raw_controller_) return;
         activeStop("node shutting down");
         for (int i = 0; i < 5 && rclcpp::ok(); ++i) {
@@ -1077,30 +1060,9 @@ private:
     double last_raw_erpm_ = 0.0, last_voltage_ = 0.0, last_current_ = 0.0;
     int last_fault_ = -1;
 };
-} // namespace nomad
+} // namespace
 
-#ifndef NOMAD_CONTROLLER_NO_MAIN
-int main(int argc, char* argv[]) {
-    rclcpp::init(argc, argv, rclcpp::InitOptions(), rclcpp::SignalHandlerOptions::None);
-    std::signal(SIGINT, signalHandler);
-    std::signal(SIGTERM, signalHandler);
-    std::shared_ptr<nomad::ControllerNode> node;
-    int result = 0;
-    try {
-        node = std::make_shared<nomad::ControllerNode>();
-        rclcpp::executors::SingleThreadedExecutor executor;
-        executor.add_node(node);
-        while (rclcpp::ok() && !interrupted) {
-            executor.spin_some();
-            std::this_thread::sleep_for(std::chrono::milliseconds(2));
-        }
-    } catch (const std::exception& error) {
-        std::cerr << "Controller error: " << error.what() << '\n';
-        result = 1;
-    }
-    if (node) node->prepareShutdown();
-    node.reset();
-    rclcpp::shutdown();
-    return result;
+std::shared_ptr<ControllerNode> ControllerNode::create(const rclcpp::NodeOptions& options) {
+    return std::make_shared<ControllerNodeImpl>(options);
 }
-#endif
+} // namespace nomad
