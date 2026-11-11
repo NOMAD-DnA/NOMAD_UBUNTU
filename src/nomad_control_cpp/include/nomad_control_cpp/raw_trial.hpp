@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nomad_control_cpp/trial_controller.hpp"
+#include <deque>
 #include <optional>
 #include <string>
 
@@ -25,6 +26,13 @@ struct RawOptions {
     double stationary_hold_s = 0.50;
     double stationary_erpm = 50.0;
     double current_limit_a = 30.0;
+    // Above current_limit_a: a short spike only releases output (headless planning resumes);
+    // it latches when it lasts overcurrent_sustain_s, exceeds overcurrent_hard_a once, or
+    // repeats overcurrent_spike_limit times within overcurrent_spike_window_s.
+    double overcurrent_hard_a = 45.0;
+    double overcurrent_sustain_s = 0.30;
+    int overcurrent_spike_limit = 3;
+    double overcurrent_spike_window_s = 10.0;
     double motor_ramp_erpm_s = 1200.0;
     double motor_deceleration_erpm_s = 2400.0;
     bool stall_watchdog_enabled = false;
@@ -93,6 +101,8 @@ private:
     bool checkClock(double steady_now, double ros_now);
     bool checkRunning(double steady_now, double ros_now);
     bool checkMotorProgress(double steady_now);
+    // Returns true when the sample is within the current limit.
+    bool checkCurrent(const TelemetrySample& sample, double steady_now);
     void invalidateTelemetry(const std::string& reason, bool recoverable = false);
     RawOutput restingOutput() const;
 
@@ -105,6 +115,8 @@ private:
     std::optional<double> last_steady_now_, last_ros_now_;
     std::optional<double> stationary_since_, last_tick_;
     std::optional<double> stalled_since_;
+    std::optional<double> overcurrent_since_;
+    std::deque<double> overcurrent_spikes_;
     RawAxis axis_ = RawAxis::Motor;
     double received_at_ = 0.0;
     double started_at_ = 0.0;

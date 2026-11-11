@@ -35,6 +35,12 @@ nomad_vesc_trial:
     commissioning.stationary_hold_s: 0.50
     commissioning.stationary_erpm: 50.0
     commissioning.current_limit_a: 30.0
+    # Current above 30 A: a short spike releases output and headless planning resumes on its own.
+    # It latches (RESET needed) when it lasts 0.3 s, goes above 45 A once, or repeats 3 times in 10 s.
+    commissioning.overcurrent_hard_a: 45.0
+    commissioning.overcurrent_sustain_s: 0.30
+    commissioning.overcurrent_spike_limit: 3
+    commissioning.overcurrent_spike_window_s: 10.0
     commissioning.motor_ramp_erpm_s: 1200.0
     commissioning.motor_deceleration_erpm_s: 2400.0
     commissioning.stall_watchdog_enabled: true

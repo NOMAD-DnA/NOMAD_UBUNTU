@@ -54,6 +54,9 @@ public:
     explicit PlanningCommandGuard(const PlanningCalibration& calibration,double max_erpm=limits::kMotorMaxErpm)
         :calibration_(calibration),max_erpm_(max_erpm){}
     void clear(){command_.reset();reason_="waiting for new planning command";}
+    // The ROS clock moved backwards (time sync): drop the cached command and the stamp fence,
+    // otherwise every new command would look older than the last one until time catches up.
+    void rebaseClock(){command_.reset();last_stamp_=0;reason_="planning clock moved backwards; waiting for new command";}
     bool calibrated() const {
         const auto& c=calibration_;
         return c.verified&&std::isfinite(c.erpm_per_mps)&&c.erpm_per_mps>0&&

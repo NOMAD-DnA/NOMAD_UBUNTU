@@ -655,7 +655,7 @@ void testWifiIssuedTimeLease() {
            "Wi-Fi profile keeps local telemetry timeout at 300ms");
     Rig timer(options); timer.prime(); timer.start(nomad::RawAxis::Manual, 0, 0.5, 0);
     timer.feed(0.21); timer.tick();
-    expect(timer.controller.reason() == "raw control timer stalled", "Wi-Fi profile keeps control tick gap at 200ms");
+    expect(timer.controller.reason().rfind("raw control timer stalled", 0) == 0, "Wi-Fi profile keeps control tick gap at 200ms");
 }
 void testAdjustableSteeringRange() {
     auto direct_options=enabled();direct_options.servo_min=0;direct_options.servo_max=1;
@@ -883,13 +883,106 @@ void testPlanningTransientRecovery() {
     Rig timer;timer.prime();timer.controller.setPlanningRecovery(true);
     expect(timer.start(nomad::RawAxis::Manual,0,.5,0),"planning timer fixture starts");
     timer.tick();timer.feed(.21);
-    expect(!timer.controller.pausePlanning("module unavailable",timer.steady,timer.ros)&&timer.controller.state()==nomad::TrialState::Fault,"real control timer stall still latches on pause");
+    expect(timer.controller.pausePlanning("module unavailable",timer.steady,timer.ros)&&
+           timer.controller.state()==nomad::TrialState::Stopped&&timer.controller.planningWaitActive()&&
+           timer.controller.reason().rfind("raw control timer stalled",0)==0,
+           "control timer stall pauses headless planning with its own reason instead of latching");
     Rig gap;gap.prime();gap.controller.setPlanningRecovery(true);
     expect(gap.start(nomad::RawAxis::Manual,0,.5,0),"telemetry gap fixture starts");gap.tick();
     for(int j=0;j<7;++j){gap.steady+=.05;gap.ros+=.05;gap.controller.update(nomad::RawAxis::Manual,1000,.5,gap.steady,gap.ros);gap.tick();}
     expect(gap.controller.state()==nomad::TrialState::Stopped&&gap.controller.planningWaitActive(),"missing telemetry releases to wait in headless mode");
     gap.feed(.02);
     expect(gap.controller.resumePlanning(1000,.5,gap.steady,gap.ros,true),"telemetry gap recovers without resetting controller");
+}
+
+// Critical physical faults latch with their own reason; non-critical ones only pause headless planning.
+void testCriticalAndNonCriticalSplit() {
+    using nomad::TrialState;
+    auto running = [](nomad::RawOptions options = enabled()) {
+        Rig r(options); r.prime(); r.controller.setPlanningRecovery(true);
+        r.start(nomad::RawAxis::Manual, 0, .5, 0); r.tick(); r.feed(.02);
+        r.update(nomad::RawAxis::Manual, 1000, .5); r.tick();
+        return r;
+    };
+    auto send = [](Rig& r, double erpm, double motor_a, double input_a, double volt, int code, double dt = .02) {
+        r.steady += dt; r.ros += dt;
+        r.controller.observe({r.ros, erpm, motor_a, input_a, volt, code}, r.steady, r.ros);
+    };
+    {   Rig r = running(); send(r, 0, 0, 0, 16.3, 7);
+        expect(r.controller.state() == TrialState::Fault && r.controller.reason() == "raw VESC fault code 7",
+               "VESC fault code latches and names the code"); }
+    {   Rig r = running(); send(r, 0, 0, 0, 0.0, 0);
+        expect(r.controller.state() == TrialState::Fault && r.controller.reason().rfind("raw voltage invalid", 0) == 0,
+               "invalid voltage latches with its own reason"); }
+    {   Rig r = running(); send(r, 2600, 0, 0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Fault && r.controller.reason().rfind("raw overspeed: 2600 ERPM", 0) == 0,
+               "overspeed latches with the measured ERPM"); }
+    {   Rig r = running(); send(r, 0, std::numeric_limits<double>::quiet_NaN(), 0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Stopped && r.controller.planningWaitActive() &&
+               r.controller.reason() == "raw telemetry value not finite", "non-finite sample only pauses"); }
+    {   // Short spike: release, wait, resume on the next normal sample without RESET.
+        Rig r = running(); send(r, 900, 33.0, 5.0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Stopped && r.controller.planningWaitActive() &&
+               r.controller.reason().rfind("raw current spike: motor 33.0 A", 0) == 0,
+               "current spike pauses with motor/input values");
+        expect(r.tick().kind == nomad::OutputKind::Release, "current spike releases output");
+        send(r, 900, 4.0, 2.0, 16.3, 0);
+        expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "spike recovers without reset"); }
+    {   // Input (battery) current is reported separately.
+        Rig r = running(); send(r, 900, 5.0, 31.5, 16.3, 0);
+        expect(r.controller.reason().rfind("raw current spike: motor 5.0 A, input 31.5 A", 0) == 0,
+               "input current spike is named separately"); }
+    {   Rig r = running(); send(r, 900, 46.0, 0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Fault && r.controller.reason().rfind("raw overcurrent: motor 46.0 A", 0) == 0,
+               "current above the hard limit latches at once"); }
+    {   // Current that stays above 30 A for 0.3 s latches even though output was released.
+        Rig r = running();
+        for (int i = 0; i < 18; ++i) send(r, 900, 32.0, 0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Fault &&
+               r.controller.reason().rfind("raw overcurrent sustained", 0) == 0, "sustained overcurrent latches"); }
+    {   // Three separate spikes within 10 s latch.
+        Rig r = running();
+        for (int spike = 0; spike < 3; ++spike) {
+            send(r, 900, 33.0, 0, 16.3, 0);
+            send(r, 900, 3.0, 0, 16.3, 0);
+            if (r.controller.state() == TrialState::Stopped) r.controller.resumePlanning(1000, .5, r.steady, r.ros, true);
+            r.tick();
+        }
+        expect(r.controller.state() == TrialState::Fault &&
+               r.controller.reason().rfind("raw current spikes repeated 3 times", 0) == 0, "repeated spikes latch"); }
+    {   // Spikes spread over more than the window do not accumulate.
+        Rig r = running();
+        for (int spike = 0; spike < 3; ++spike) {
+            send(r, 900, 33.0, 0, 16.3, 0);
+            send(r, 900, 3.0, 0, 16.3, 0);
+            r.controller.resumePlanning(1000, .5, r.steady, r.ros, true); r.tick();
+            for (int i = 0; i < 110; ++i) { send(r, 1000, 3.0, 0, 16.3, 0, .05); r.update(nomad::RawAxis::Manual, 1000, .5); r.tick(); }
+        }
+        expect(r.controller.state() != TrialState::Fault, "spikes outside the window do not latch"); }
+    {   // Manual (non-headless) sessions keep latching on any spike.
+        Rig r; r.prime(); r.start(nomad::RawAxis::Manual, 0, .5, 0); r.tick();
+        send(r, 0, 33.0, 0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Fault, "manual session still latches on a current spike"); }
+    {   // Control timer stall: headless waits, manual latches.
+        Rig r = running(); r.steady += .25; r.ros += .25;
+        expect(!r.update(nomad::RawAxis::Manual, 1000, .5) && r.controller.state() == TrialState::Stopped &&
+               r.controller.planningWaitActive(), "timer stall pauses headless planning");
+        r.feed(.02);
+        expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "timer stall recovers without reset");
+        Rig m; m.prime(); m.start(nomad::RawAxis::Manual, 0, .5, 0); m.tick(); m.feed(.02);
+        m.steady += .25; m.ros += .25;
+        expect(!m.update(nomad::RawAxis::Manual, 0, .5) && m.controller.state() == TrialState::Fault,
+               "timer stall still latches a manual session"); }
+    {   // Clock moved backwards: headless waits, rebases and accepts fresh lower-stamped telemetry.
+        Rig r = running(); r.ros -= 5.0;
+        expect(r.tick().kind == nomad::OutputKind::Release && r.controller.state() == TrialState::Stopped &&
+               r.controller.planningWaitActive(), "backwards clock pauses headless planning");
+        send(r, 0, 0, 0, 16.3, 0);
+        expect(r.controller.healthy(r.steady, r.ros), "telemetry stamped on the new clock is accepted");
+        expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "backwards clock recovers without reset");
+        Rig bad = running();
+        expect(bad.controller.tick(std::numeric_limits<double>::quiet_NaN(), bad.ros, true).kind == nomad::OutputKind::Release &&
+               bad.controller.state() == TrialState::Fault, "invalid clock value still latches"); }
 }
 } // namespace
 
@@ -915,6 +1008,7 @@ int main() {
     testPlanningContinuation();
     testPlanningContinuationGates();
     testPlanningMinimumDriveOutput();
+    testCriticalAndNonCriticalSplit();
     std::cout << checks << " raw commissioning checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

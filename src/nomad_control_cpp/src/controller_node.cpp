@@ -369,7 +369,9 @@ private:
                 stopAndRelease(fault);logPlanningWait(fault,steady,ros);return;
             }
             if(supervisor_.active() && (raw_controller_->planningWaitActive() || !activeHealthy(steady,ros) || !driver_ready)){
-                pausePlanning(!driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting",steady,ros);return;
+                const string reason=raw_controller_->planningWaitActive()?raw_controller_->reason():
+                    !driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting";
+                pausePlanning(reason,steady,ros);return;
             }
         }
         if(planning_headless_&&planning_resume_after_stop_&&supervisor_.softStopped()&&!supervisor_.blocked()){
@@ -434,9 +436,13 @@ private:
             onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
         }
-        if((!planning_headless_&&steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS)||
-           !raw_controller_->update(RawAxis::Manual,execution_erpm,target->servo,steady,ros)){
-            stopAndRelease("autonomy hardware/timer fault or operator disconnected");
+        if(!planning_headless_&&steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS){
+            stopAndRelease("autonomy operator heartbeat expired");
+        }else if(!raw_controller_->update(RawAxis::Manual,execution_erpm,target->servo,steady,ros)){
+            // A non-critical raw stop (timer stall, current spike, clock rebase) waits and resumes.
+            if(planning_headless_&&planning_resume_after_stop_&&raw_controller_->planningWaitActive())
+                pausePlanning(raw_controller_->reason(),steady,ros);
+            else stopAndRelease(activeState()==TrialState::Fault?activeReason():"autonomy raw update refused");
         }
     }
 
@@ -684,6 +690,10 @@ private:
         raw.stationary_hold_s = parameter<double>("commissioning.stationary_hold_s", raw.stationary_hold_s);
         raw.stationary_erpm = parameter<double>("commissioning.stationary_erpm", raw.stationary_erpm);
         raw.current_limit_a = parameter<double>("commissioning.current_limit_a", raw.current_limit_a);
+        raw.overcurrent_hard_a = parameter<double>("commissioning.overcurrent_hard_a", raw.overcurrent_hard_a);
+        raw.overcurrent_sustain_s = parameter<double>("commissioning.overcurrent_sustain_s", raw.overcurrent_sustain_s);
+        raw.overcurrent_spike_limit = parameter<int>("commissioning.overcurrent_spike_limit", raw.overcurrent_spike_limit);
+        raw.overcurrent_spike_window_s = parameter<double>("commissioning.overcurrent_spike_window_s", raw.overcurrent_spike_window_s);
         raw.motor_ramp_erpm_s = parameter<double>("commissioning.motor_ramp_erpm_s", raw.motor_ramp_erpm_s);
         raw.motor_deceleration_erpm_s = parameter<double>("commissioning.motor_deceleration_erpm_s", raw.motor_deceleration_erpm_s);
         raw.stall_watchdog_enabled = parameter<bool>("commissioning.stall_watchdog_enabled", raw.stall_watchdog_enabled);
@@ -845,6 +855,11 @@ private:
         const double ros_now = now().seconds();
         const bool driver_ready = exclusiveDriverReady(false);
 #ifdef NOMAD_ENABLE_PLANNING
+        if(planning_guard_&&last_tick_ros_&&ros_now<*last_tick_ros_-1e-3){
+            planning_guard_->rebaseClock();
+            RCLCPP_WARN(get_logger(),"ROS clock moved backwards by %.3f s; planning stamp fence rebased",*last_tick_ros_-ros_now);
+        }
+        last_tick_ros_=ros_now;
         tickPlanning(steady_now,ros_now);
 #endif
         if (!stabilityReady() && activeState()==TrialState::Running) {
@@ -1025,6 +1040,7 @@ private:
     rclcpp::Publisher<nomad_interfaces::msg::VehicleState>::SharedPtr vehicle_state_pub_;
     double autonomous_heartbeat_=0,planning_speed_=NAN,planning_angle_=NAN;
     int planning_feedback_sign_=0;
+    optional<double> last_tick_ros_;
 #endif
     bool stability_enabled_=false;
     string imu_frame_;

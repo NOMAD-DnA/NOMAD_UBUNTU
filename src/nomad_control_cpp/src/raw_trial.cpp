@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+#include <cstdio>
 #include <cstdlib>
 
 using namespace std;
@@ -13,6 +14,13 @@ bool positive(double value) { return isfinite(value) && value > 0.0; }
 
 double approach(double previous, double target, double rate, double dt) {
     return previous + clamp(target - previous, -rate * dt, rate * dt);
+}
+
+template <typename... Args>
+string format(const char* pattern, Args... args) {
+    char text[200];
+    snprintf(text, sizeof(text), pattern, args...);
+    return text;
 }
 } // namespace
 
@@ -35,6 +43,11 @@ RawTrialController::RawTrialController(RawOptions options)
         !positive(options_.stationary_hold_s) || options_.stationary_hold_s < 0.20 ||
         !positive(options_.stationary_erpm) || options_.stationary_erpm > 50.0 ||
         !positive(options_.current_limit_a) || options_.current_limit_a > 30.0 ||
+        !positive(options_.overcurrent_hard_a) || options_.overcurrent_hard_a <= options_.current_limit_a ||
+        options_.overcurrent_hard_a > 60.0 ||
+        !positive(options_.overcurrent_sustain_s) || options_.overcurrent_sustain_s > 1.0 ||
+        options_.overcurrent_spike_limit < 1 || options_.overcurrent_spike_limit > 10 ||
+        !positive(options_.overcurrent_spike_window_s) || options_.overcurrent_spike_window_s > 60.0 ||
         !positive(options_.motor_ramp_erpm_s) || options_.motor_ramp_erpm_s > 1200.0 ||
         !positive(options_.motor_deceleration_erpm_s) || options_.motor_deceleration_erpm_s > 2400.0 ||
         !positive(options_.stall_timeout_s) || options_.stall_timeout_s < 0.5 || options_.stall_timeout_s > 2.0 ||
@@ -83,14 +96,19 @@ bool RawTrialController::validCommandAge(RawAxis axis, double age) const {
     return isfinite(age) && age >= -limits::kFutureStampToleranceS && age <= max_age && age <= manualTimeout(axis);
 }
 
-// 시계 역행은 이전 메시지를 다시 유효하게 만들 수 있어 현재 시험을 중단합니다.
+// An invalid clock value is a fault. A clock that moved backwards (time sync) stops the
+// current output, rebases the references and drops the old sample so fresh telemetry is
+// required; headless planning then resumes on its own, manual sessions still latch.
 bool RawTrialController::checkClock(double steady_now, double ros_now) {
-    const bool valid = isfinite(steady_now) && steady_now >= 0.0 &&
-        isfinite(ros_now) && ros_now > 0.0 &&
-        (!last_steady_now_ || steady_now >= *last_steady_now_) &&
-        (!last_ros_now_ || ros_now >= *last_ros_now_);
-    if (!valid) {
-        invalidateTelemetry("raw clock invalid or moved backwards");
+    if (!isfinite(steady_now) || steady_now < 0.0 || !isfinite(ros_now) || ros_now <= 0.0) {
+        invalidateTelemetry("raw clock value invalid");
+        return false;
+    }
+    if ((last_steady_now_ && steady_now < *last_steady_now_) || (last_ros_now_ && ros_now < *last_ros_now_)) {
+        last_steady_now_ = steady_now;
+        last_ros_now_ = ros_now;
+        sample_.reset();
+        invalidateTelemetry("raw clock moved backwards; rebased, waiting for fresh telemetry", true);
         return false;
     }
     last_steady_now_ = steady_now;
@@ -115,15 +133,23 @@ void RawTrialController::invalidateTelemetry(const string& reason, bool recovera
 void RawTrialController::observe(const TelemetrySample& sample, double steady_now, double ros_now) {
     if (!checkClock(steady_now, ros_now)) return;
     const double age = ros_now - sample.stamp_s;
-    if (!isfinite(sample.raw_erpm) || abs(sample.raw_erpm) > options_.overspeed_erpm ||
-        !isfinite(sample.current_motor_a) || !isfinite(sample.current_input_a) ||
-        abs(sample.current_motor_a) > options_.current_limit_a ||
-        abs(sample.current_input_a) > options_.current_limit_a ||
-        !positive(sample.voltage_v) || sample.fault_code != 0) {
-        invalidateTelemetry(sample.fault_code != 0 ? "raw VESC fault code nonzero" :
-            "raw physical telemetry invalid, overspeed, current limit or voltage invalid");
-        return;
+    // Each physical check reports its own reason. Fault code, voltage and overspeed latch;
+    // a non-finite sample or a short current spike only releases output.
+    if (sample.fault_code != 0) {
+        invalidateTelemetry(format("raw VESC fault code %d", sample.fault_code)); return;
     }
+    if (!isfinite(sample.raw_erpm) || !isfinite(sample.current_motor_a) ||
+        !isfinite(sample.current_input_a) || !isfinite(sample.voltage_v)) {
+        invalidateTelemetry("raw telemetry value not finite", true); return;
+    }
+    if (sample.voltage_v <= 0.0) {
+        invalidateTelemetry(format("raw voltage invalid: %.2f V", sample.voltage_v)); return;
+    }
+    if (abs(sample.raw_erpm) > options_.overspeed_erpm) {
+        invalidateTelemetry(format("raw overspeed: %.0f ERPM > %.0f ERPM",
+                                   sample.raw_erpm, options_.overspeed_erpm)); return;
+    }
+    if (!checkCurrent(sample, steady_now)) return;
     if (!isfinite(sample.stamp_s) || sample.stamp_s <= 0.0) {
         invalidateTelemetry("raw telemetry stamp invalid"); return;
     }
@@ -209,8 +235,11 @@ bool RawTrialController::checkRunning(double steady_now, double ros_now) {
     if (!healthy(steady_now, ros_now)) invalidateTelemetry("raw telemetry timeout or invalid sample", true);
     else if (axis_ != RawAxis::Manual && steady_now - started_at_ >= duration_s_) stop("raw trial duration elapsed");
     else if (steady_now - last_manual_at_ > manualTimeout(axis_)) stop("raw GUI command timeout", true);
-    else if (last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s)
-        stop("raw control timer stalled", true);
+    else if (last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
+        const string reason = format("raw control timer stalled %.2f s", steady_now - *last_tick_);
+        stop(reason, !planning_recovery_);
+        planning_wait_ = planning_recovery_;
+    }
     return state_ == TrialState::Running;
 }
 
@@ -230,9 +259,10 @@ bool RawTrialController::update(RawAxis axis, double erpm, double servo, double 
 
 bool RawTrialController::pausePlanning(const string& reason, double steady_now, double ros_now) {
     if (!planning_recovery_ || !checkClock(steady_now, ros_now) || state_ == TrialState::Fault) return false;
-    // Keep a real stalled control loop distinct from a missing module/telemetry sample.
+    // A stalled control loop is reported as such but, like a missing input, only pauses.
     if (state_ == TrialState::Running && last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
-        stop("raw control timer stalled", true); return false;
+        stop(format("raw control timer stalled %.2f s", steady_now - *last_tick_)); planning_wait_ = true;
+        return true;
     }
     if (state_ == TrialState::Running || state_ == TrialState::Stopped) {
         stop(reason); planning_wait_ = true;
@@ -292,6 +322,36 @@ RawOutput RawTrialController::restingOutput() const {
     return {output_owned_ ? OutputKind::Release : OutputKind::None, 0.0, nullopt};
 }
 
+bool RawTrialController::checkCurrent(const TelemetrySample& sample, double steady_now) {
+    const double motor = abs(sample.current_motor_a), input = abs(sample.current_input_a);
+    const double peak = max(motor, input);
+    if (peak <= options_.current_limit_a) {
+        overcurrent_since_.reset();
+        return true;
+    }
+    const bool new_episode = !overcurrent_since_;
+    if (new_episode) overcurrent_since_ = steady_now;
+    while (!overcurrent_spikes_.empty() &&
+           steady_now - overcurrent_spikes_.front() > options_.overcurrent_spike_window_s)
+        overcurrent_spikes_.pop_front();
+    if (new_episode) overcurrent_spikes_.push_back(steady_now);
+    if (peak > options_.overcurrent_hard_a) {
+        invalidateTelemetry(format("raw overcurrent: motor %.1f A, input %.1f A > hard limit %.0f A",
+                                   motor, input, options_.overcurrent_hard_a));
+    } else if (steady_now - *overcurrent_since_ >= options_.overcurrent_sustain_s) {
+        invalidateTelemetry(format("raw overcurrent sustained %.2f s: motor %.1f A, input %.1f A > %.0f A",
+                                   steady_now - *overcurrent_since_, motor, input, options_.current_limit_a));
+    } else if (static_cast<int>(overcurrent_spikes_.size()) >= options_.overcurrent_spike_limit) {
+        invalidateTelemetry(format("raw current spikes repeated %d times in %.0f s: motor %.1f A, input %.1f A > %.0f A",
+                                   static_cast<int>(overcurrent_spikes_.size()), options_.overcurrent_spike_window_s,
+                                   motor, input, options_.current_limit_a));
+    } else {
+        invalidateTelemetry(format("raw current spike: motor %.1f A, input %.1f A > %.0f A; output released",
+                                   motor, input, options_.current_limit_a), true);
+    }
+    return false;
+}
+
 // 명령이 실제로 출발 임계값에 도달한 뒤에만 정체 시간을 셉니다. 회전 확인 시 다시 시작합니다.
 bool RawTrialController::checkMotorProgress(double steady_now) {
     const bool stalled = options_.stall_watchdog_enabled && sample_ &&
@@ -316,7 +376,10 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
                                   double minimum_drive_erpm) {
     if (!checkClock(steady_now, ros_now) || !checkRunning(steady_now, ros_now)) return restingOutput();
     if (!exclusive_driver_ready) {
-        stop("raw driver disconnected or competing command publisher", true);
+        // Competing publishers are latched by the node before this point; a missing driver
+        // endpoint only pauses headless planning.
+        stop("raw driver endpoints unavailable or competing command publisher", !planning_recovery_);
+        planning_wait_ = planning_recovery_;
         return restingOutput();
     }
     if (!isfinite(minimum_drive_erpm) || minimum_drive_erpm < 0.0 ||
