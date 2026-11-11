@@ -1,5 +1,6 @@
 #include "nomad_control_cpp/gui_http.hpp"
 #include "nomad_control_cpp/steering_records.hpp"
+#include "nomad_control_cpp/control_limits.hpp"
 #include "nomad_control_cpp/srv/manual_control.hpp"
 #include "nomad_control_cpp/srv/commissioning_control.hpp"
 #include "nomad_control_cpp/srv/set_steering_range.hpp"
@@ -66,7 +67,7 @@ public:
             const auto s=status();const double span=data.at("span").get<double>(),sent=data.at("server_time_s").get<double>();
             const double age=unixSeconds()-sent;
             if(!s.value("connected",false)||!s.value("steering_range_config_supported",false)||
-               !std::isfinite(span)||!std::isfinite(sent)||age<-.05||age>1.5||!steering_range_->service_is_ready())
+               !std::isfinite(span)||!std::isfinite(sent)||age<-limits::kFutureStampToleranceS||age>limits::kWifiManualCommandMaxAgeS||!steering_range_->service_is_ready())
                 return refused("range request invalid, stale or controller unavailable");
             auto request=std::make_shared<SteeringRange::Request>();request->span=span;request->stamp=rclcpp::Time(static_cast<int64_t>(sent*1e9));
             auto future=steering_range_->async_send_request(request);
@@ -94,7 +95,7 @@ public:
             // 브라우저가 마지막으로 받은 서버 시각을 사용하여 지연된 HTTP 명령도 거절합니다.
             const double sent = data.at("server_time_s").get<double>();
             const double age = unixSeconds() - sent;
-            if (!std::isfinite(sent) || age < -0.05 || age > 0.30 || !status().value("connected", false))
+            if (!std::isfinite(sent) || age < -limits::kFutureStampToleranceS || age > limits::kWiredCommandMaxAgeS || !status().value("connected", false))
                 return refused("stale browser command or controller status");
             request->stamp = rclcpp::Time(static_cast<int64_t>(sent * 1e9));
             request->speed_mps = data.at("speed_mps").get<double>();
@@ -172,7 +173,7 @@ private:
             const double elapsed_ms = std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - entered_at).count();
             if (elapsed_ms > 100.0 || timed_out || !result.value("accepted", false) ||
-                (has_stamp && (command_age_s > 0.15 || command_age_s < -0.05)))
+                (has_stamp && (command_age_s > 0.15 || command_age_s < -limits::kFutureStampToleranceS)))
                 RCLCPP_INFO(get_logger(), "GUI timing action=%d handler_ms=%.1f has_stamp=%d command_age_ms=%.1f accepted=%d timeout=%d",
                             action, elapsed_ms, static_cast<int>(has_stamp), command_age_s * 1000.0,
                             static_cast<int>(result.value("accepted", false)), static_cast<int>(timed_out));
@@ -194,9 +195,9 @@ private:
             // GUI가 보낸 정책을 믿지 않고 제어기가 알린 Wi-Fi 연속 MANUAL 한계만 사용합니다.
             const bool wifi_manual = (axis == Commissioning::Request::MANUAL || axis == Commissioning::Request::AUTONOMOUS) &&
                 current.value("wifi_manual_profile", false) && current.value("commissioning", false);
-            const double max_age = wifi_manual ? current.value("command_max_age_s", 0.30) : 0.30;
-            if (!std::isfinite(sent) || !std::isfinite(max_age) || max_age <= 0.0 || max_age > 1.5 ||
-                age < -0.05 || age > max_age ||
+            const double max_age = wifi_manual ? current.value("command_max_age_s", limits::kWiredCommandMaxAgeS) : limits::kWiredCommandMaxAgeS;
+            if (!std::isfinite(sent) || !std::isfinite(max_age) || max_age <= 0.0 || max_age > limits::kWifiManualCommandMaxAgeS ||
+                age < -limits::kFutureStampToleranceS || age > max_age ||
                 !current.value("connected", false) || current.value("control_units", "") != "raw")
                 return timed_result(refused("stale command or not in raw commissioning mode"));
             request->axis = static_cast<uint8_t>(axis);

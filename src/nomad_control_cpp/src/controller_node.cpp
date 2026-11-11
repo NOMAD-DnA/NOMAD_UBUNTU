@@ -4,6 +4,7 @@
 #include "nomad_control_cpp/planning_command.hpp"
 #include "nomad_control_cpp/planning_start_gate.hpp"
 #include "nomad_control_cpp/planning_speed_feedback.hpp"
+#include "nomad_control_cpp/control_limits.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
 #include <nomad_interfaces/msg/vehicle_state.hpp>
@@ -149,7 +150,7 @@ public:
         steering_range_service_=create_service<SteeringRange>("~/steering_test_range",
             [this](const std::shared_ptr<SteeringRange::Request> request,std::shared_ptr<SteeringRange::Response> response){
                 const double sent=rclcpp::Time(request->stamp).seconds(),age=now().seconds()-sent;
-                response->accepted=commissioning_&&std::isfinite(age)&&age>=-.05&&age<=1.5&&
+                response->accepted=commissioning_&&std::isfinite(age)&&age>=-limits::kFutureStampToleranceS&&age<=limits::kWifiManualCommandMaxAgeS&&
                     raw_controller_->setSteeringTestSpan(request->span,steadySeconds(),now().seconds());
                 response->reason=response->accepted?"steering-only range applied; no actuator command sent":
                     "range refused: stop first, require fresh stationary telemetry, valid span and current command inside new range";
@@ -255,7 +256,7 @@ private:
         auto execution_calibration=planning_calibration_;
         // 초기값 사용 동의는 출력 변환에만 적용합니다. 실측 피드백 유효 상태는 바꾸지 않습니다.
         if(planning_allow_estimated_)execution_calibration.verified=true;
-        planning_guard_=std::make_unique<PlanningCommandGuard>(execution_calibration);
+        planning_guard_=std::make_unique<PlanningCommandGuard>(execution_calibration,raw_options_.motor_max_erpm);
         planning_sub_=create_subscription<nomad_interfaces::msg::DriveCommand>(
             "/nomad/planning/drive_command",rclcpp::QoS(1).reliable().durability_volatile(),
             [this](nomad_interfaces::msg::DriveCommand::ConstSharedPtr msg){
@@ -279,7 +280,7 @@ private:
                 if(received){
                     planning_speed_=c.speed_mps;planning_angle_=c.steering_rad;
                     if(auto target=planning_guard_->target(ros,steady))
-                        planning_start_gate_->update(steady,target->erpm,std::min(.35,c.valid_for-std::max(0.0,ros-c.stamp)));
+                        planning_start_gate_->update(steady,target->erpm,std::min(limits::kPlanningReceiveLeaseS,c.valid_for-std::max(0.0,ros-c.stamp)));
                     else planning_start_gate_->reset(steady,true);
                     if(planning_soft_stopped_)planning_resume_pending_=true;
                 }
@@ -313,9 +314,9 @@ private:
         },[&]{
             const double steady=steadySeconds();
             if(!autonomous_active_)return false;
-            if(steady-autonomous_heartbeat_>2.0){activeStop("operator heartbeat expired");return false;}
+            if(steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS){activeStop("operator heartbeat expired");return false;}
             autonomous_heartbeat_=steady-std::max(0.0,now().seconds()-rclcpp::Time(request.stamp).seconds());return true;
-        },1.5);
+        },limits::kWifiManualCommandMaxAgeS);
         if(!response.accepted&&!autonomous_active_)response.reason="autonomy requires one fresh planner and verified m/s/rad calibration; stop manual control first";
     }
     void resetPlanningSpeedFeedback() {
@@ -444,7 +445,7 @@ private:
             else {activeStop("autonomy expired or invalid");closeManualSession();releaseMotor();}
             return;
         }
-        if((!planning_headless_&&steady-autonomous_heartbeat_>2.0)||
+        if((!planning_headless_&&steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS)||
            !raw_controller_->update(RawAxis::Manual,execution_erpm,target->servo,steady,ros)){
             activeStop("autonomy hardware/timer fault or operator disconnected");closeManualSession();releaseMotor();
         }
@@ -590,7 +591,7 @@ private:
         }
         const auto axis = static_cast<RawAxis>(request.axis);
         const double command_stamp = static_cast<double>(request.stamp.sec) + request.stamp.nanosec * 1e-9;
-        const double max_command_age = axis == RawAxis::Manual && raw_options_.manual_timeout_s > 0.35 ? 1.5 : 0.30;
+        const double max_command_age = limits::commandMaxAge(axis == RawAxis::Manual, raw_options_.manual_timeout_s);
         handleSession(request, response,
             [&] {
                 const bool driver_ready = exclusiveDriverReady();
@@ -635,7 +636,7 @@ private:
 
     template <typename Request, typename Response, typename Start, typename Update>
     void handleSession(const Request& request, Response& response, Start start, Update update,
-                       double max_command_age_s = 0.30) {
+                       double max_command_age_s = limits::kWiredCommandMaxAgeS) {
         response.accepted = false;
         response.reason = "invalid, expired or closed manual session";
         const bool valid_id = request.session.size() == 32 &&
@@ -662,7 +663,7 @@ private:
         }
         const double stamp = static_cast<double>(request.stamp.sec) + request.stamp.nanosec * 1e-9;
         const double age = now().seconds() - stamp;
-        if (request.stamp.nanosec >= 1000000000u || stamp <= 0.0 || age < -0.05 || age > max_command_age_s || sessions_exhausted_ ||
+        if (request.stamp.nanosec >= 1000000000u || stamp <= 0.0 || age < -limits::kFutureStampToleranceS || age > max_command_age_s || sessions_exhausted_ ||
             closed_sessions_.size() >= 4096 || closed_sessions_.count(request.session)) return;
         if (request.action == Request::START) {
             if (!manual_session_.empty()) return;
@@ -925,10 +926,11 @@ private:
             nlohmann::json(stability_decision_.speed_cap_mps):nlohmann::json(nullptr);
         data["preview_erpm"] = preview ? nlohmann::json(preview->motor_erpm) : nlohmann::json(nullptr);
         data["preview_servo"] = preview ? nlohmann::json(preview->servo_position) : nlohmann::json(nullptr);
-        const bool wifi_manual = commissioning_ && raw_options_.manual_timeout_s > 0.35;
+        const bool wifi_manual = commissioning_ && limits::wifiManualProfile(raw_options_.manual_timeout_s);
         data["wifi_manual_profile"] = wifi_manual;
-        data["command_max_age_s"] = wifi_manual ? 1.5 : 0.30;
-        data["browser_freshness_s"] = wifi_manual ? 1.5 : 0.30;
+        const double command_max_age = wifi_manual ? limits::kWifiManualCommandMaxAgeS : limits::kWiredCommandMaxAgeS;
+        data["command_max_age_s"] = command_max_age;
+        data["browser_freshness_s"] = command_max_age;
         data["browser_request_timeout_ms"] = wifi_manual ? 1500 : 600;
         if (commissioning_) {
             data["commissioning_setup_acknowledged"] = raw_options_.setup_acknowledged;

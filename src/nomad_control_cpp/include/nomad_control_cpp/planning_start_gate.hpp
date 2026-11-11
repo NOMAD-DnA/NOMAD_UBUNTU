@@ -5,6 +5,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include "nomad_control_cpp/control_limits.hpp"
 
 namespace nomad {
 
@@ -54,7 +55,7 @@ public:
         if (!since_ || gap || motion != motion_) since_ = steady_now;
         motion_ = motion;
         last_command_ = steady_now;
-        lease_s_ = std::min(valid_for, .35);
+        lease_s_ = std::min(valid_for, limits::kPlanningReceiveLeaseS);
         reason_ = "waiting for stable planning commands";
         return true;
     }

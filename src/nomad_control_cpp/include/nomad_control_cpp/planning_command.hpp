@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include "nomad_control_cpp/control_limits.hpp"
 
 namespace nomad {
 // DriveCommand의 물리 단위 입력. 서보 0~1과 혼용하지 않습니다.
@@ -49,7 +50,9 @@ struct PlanningTarget {double erpm=0,servo=.5;};
 // 발행 stamp 기준 유효기간과 마지막 수신 이후 경과 시간을 함께 감시합니다.
 class PlanningCommandGuard {
 public:
-    explicit PlanningCommandGuard(const PlanningCalibration& calibration):calibration_(calibration){}
+    // max_erpm should be the raw controller motor_max_erpm so both layers refuse the same targets.
+    explicit PlanningCommandGuard(const PlanningCalibration& calibration,double max_erpm=limits::kMotorMaxErpm)
+        :calibration_(calibration),max_erpm_(max_erpm){}
     void clear(){command_.reset();reason_="waiting for new planning command";}
     bool calibrated() const {
         const auto& c=calibration_;
@@ -62,13 +65,13 @@ public:
         if(command.stamp==last_stamp_){if(command.stop){command_.reset();reason_="planning STOP";}return false;}
         if(command.stop){
             // 정상 시각의 STOP보다 먼저 발행된 이동 명령이 뒤늦게 도착해도 되살리지 않습니다.
-            if(std::isfinite(ros_now)&&command.stamp<=ros_now+.05)last_stamp_=command.stamp;
+            if(std::isfinite(ros_now)&&command.stamp<=ros_now+limits::kFutureStampToleranceS)last_stamp_=command.stamp;
             command_.reset();reason_="planning STOP";return false;
         }
         const double age=ros_now-command.stamp;
         if(command.frame!="base_link"||!std::isfinite(ros_now)||!std::isfinite(steady_now)||
-           !std::isfinite(command.valid_for)||command.valid_for<=0||command.valid_for>.5||
-           age<-.05||age>command.valid_for||!std::isfinite(command.speed_mps)||!std::isfinite(command.steering_rad)){
+           !std::isfinite(command.valid_for)||command.valid_for<=0||command.valid_for>limits::kPlanningMaxValidForS||
+           age<-limits::kFutureStampToleranceS||age>command.valid_for||!std::isfinite(command.speed_mps)||!std::isfinite(command.steering_rad)){
             command_.reset();reason_="invalid/stale planning command";return false;
         }
         last_stamp_=command.stamp;
@@ -80,24 +83,25 @@ public:
         if(!command_)return reason_;
         const auto& cmd=*command_;
         const double age=ros_now-cmd.stamp,wall_age=steady_now-received_;
-        if(!std::isfinite(age)||!std::isfinite(wall_age)||age<-.05||wall_age<0)return "planning clock invalid";
-        if(age>cmd.valid_for||wall_age>.35)return "planning command expired";
+        if(!std::isfinite(age)||!std::isfinite(wall_age)||age<-limits::kFutureStampToleranceS||wall_age<0)return "planning clock invalid";
+        if(age>cmd.valid_for||wall_age>limits::kPlanningReceiveLeaseS)return "planning command expired";
         if(cmd.speed_mps<0||cmd.speed_mps>c.max_mps)return "planning speed outside configured range";
         if(std::abs(cmd.steering_rad)>c.max_rad)return "planning steering outside configured range";
         const double erpm=cmd.speed_mps*c.erpm_per_mps,servo=c.servoFor(cmd.steering_rad);
-        if(!std::isfinite(erpm)||erpm>1850||!std::isfinite(servo)||servo<0||servo>1)return "planning mapped actuator outside range";
+        if(!std::isfinite(erpm)||erpm>max_erpm_||!std::isfinite(servo)||servo<0||servo>1)return "planning mapped actuator outside range";
         return "ready";
     }
     std::optional<PlanningTarget> target(double ros_now,double steady_now) const {
         if(targetReason(ros_now,steady_now)!="ready")return {};
         const auto& c=calibration_;const auto& cmd=*command_;
         const PlanningTarget out{cmd.speed_mps*c.erpm_per_mps,c.servoFor(cmd.steering_rad)};
-        if(!std::isfinite(out.erpm)||out.erpm>1850||!std::isfinite(out.servo)||out.servo<0||out.servo>1)return {};
+        if(!std::isfinite(out.erpm)||out.erpm>max_erpm_||!std::isfinite(out.servo)||out.servo<0||out.servo>1)return {};
         return out;
     }
     const std::string& reason() const{return reason_;}
 private:
     PlanningCalibration calibration_;
+    double max_erpm_;
     std::optional<PlanningCommand> command_;
     double last_stamp_=0,received_=0;
     std::string reason_="waiting for planning";

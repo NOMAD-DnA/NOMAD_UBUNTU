@@ -1,4 +1,5 @@
 #include "nomad_control_cpp/raw_trial.hpp"
+#include "nomad_control_cpp/control_limits.hpp"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -18,7 +19,7 @@ RawTrialController::RawTrialController(RawOptions options)
     : options_(options), state_(options.enabled ? TrialState::Idle : TrialState::Monitor),
       target_servo_(options.servo_center), commanded_servo_(options.servo_center),
       steering_test_min_(options.servo_min),steering_test_max_(options.servo_max) {
-    if (!positive(options_.motor_max_erpm) || options_.motor_max_erpm > 1850.0 ||
+    if (!positive(options_.motor_max_erpm) || options_.motor_max_erpm > limits::kMotorMaxErpm ||
         !positive(options_.overspeed_erpm) || options_.overspeed_erpm > 2500.0 ||
         options_.overspeed_erpm <= options_.motor_max_erpm ||
         !std::isfinite(options_.servo_center) || !std::isfinite(options_.servo_min) ||
@@ -72,12 +73,12 @@ bool RawTrialController::setSteeringTestSpan(double span,double steady_now,doubl
 
 // Wi-Fi 여유는 연속 MANUAL에만 적용합니다. 짧은 단축 시험의 감시는 350ms 이하로 유지합니다.
 double RawTrialController::manualTimeout(RawAxis axis) const {
-    return axis == RawAxis::Manual ? options_.manual_timeout_s : std::min(0.35, options_.manual_timeout_s);
+    return axis == RawAxis::Manual ? options_.manual_timeout_s : std::min(limits::kShortAxisWatchdogMaxS, options_.manual_timeout_s);
 }
 
 bool RawTrialController::validCommandAge(RawAxis axis, double age) const {
-    const double max_age = axis == RawAxis::Manual && options_.manual_timeout_s > 0.35 ? 1.5 : 0.30;
-    return std::isfinite(age) && age >= -0.05 && age <= max_age && age <= manualTimeout(axis);
+    const double max_age = limits::commandMaxAge(axis == RawAxis::Manual, options_.manual_timeout_s);
+    return std::isfinite(age) && age >= -limits::kFutureStampToleranceS && age <= max_age && age <= manualTimeout(axis);
 }
 
 // 시계 역행은 이전 메시지를 다시 유효하게 만들 수 있어 현재 시험을 중단합니다.
@@ -124,8 +125,8 @@ void RawTrialController::observe(const TelemetrySample& sample, double steady_no
     if (!std::isfinite(sample.stamp_s) || sample.stamp_s <= 0.0) {
         invalidateTelemetry("raw telemetry stamp invalid"); return;
     }
-    if (age < -0.05 || age > options_.telemetry_timeout_s) {
-        invalidateTelemetry(age < -0.05 ? "raw telemetry stamp in future" : "raw telemetry source age expired", true);
+    if (age < -limits::kFutureStampToleranceS || age > options_.telemetry_timeout_s) {
+        invalidateTelemetry(age < -limits::kFutureStampToleranceS ? "raw telemetry stamp in future" : "raw telemetry source age expired", true);
         return;
     }
     if (sample_ && sample.stamp_s <= sample_->stamp_s) return;
@@ -147,7 +148,7 @@ bool RawTrialController::healthy(double steady_now, double ros_now) const {
     const double receipt_age = steady_now - received_at_;
     const double stamp_age = ros_now - sample_->stamp_s;
     return receipt_age >= 0.0 && receipt_age <= options_.telemetry_timeout_s &&
-        stamp_age >= -0.05 && stamp_age <= options_.telemetry_timeout_s;
+        stamp_age >= -limits::kFutureStampToleranceS && stamp_age <= options_.telemetry_timeout_s;
 }
 
 bool RawTrialController::stationary(double steady_now, double ros_now) const {

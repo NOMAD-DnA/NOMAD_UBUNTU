@@ -26,6 +26,16 @@ int main(){
     g.clear();check(!g.target(103,4),"disarm clears cached command");
     c.verified=false;nomad::PlanningCommandGuard unverified(c);unverified.receive(cmd,103,4);check(!unverified.target(103,4),"unverified calibration cannot actuate");
     c.verified=true;c.erpm_per_mps=4000;nomad::PlanningCommandGuard excessive(c);excessive.receive(cmd,103,4);check(!excessive.target(103,4),"motor limit");
+    {
+        // The guard follows the configured raw motor limit instead of a fixed 1850 ERPM.
+        nomad::PlanningCalibration lim{true,4000,-.5,.5,.25,.7};
+        nomad::PlanningCommand slow{500,.3,.25,0,"base_link",false};
+        nomad::PlanningCommandGuard defaultLimit(lim);defaultLimit.receive(slow,500,10);
+        check(defaultLimit.target(500,10).has_value(),"1000 ERPM accepted under default limit");
+        nomad::PlanningCommandGuard lowered(lim,900);lowered.receive(slow,500,10);
+        check(!lowered.target(500,10)&&lowered.targetReason(500,10)=="planning mapped actuator outside range",
+              "configured motor limit rejects targets above it");
+    }
     nomad::PlanningCommandGuard stopped({true,1000,-.5,.5,1,.7});
     cmd={200,.3,.2,0,"base_link",false};stopped.receive(cmd,200,1);
     cmd.stamp=200.1;cmd.stop=true;stopped.receive(cmd,200.1,1.1);
