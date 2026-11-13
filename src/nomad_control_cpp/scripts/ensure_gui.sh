@@ -50,8 +50,8 @@ python3 - "$session/firmware_readback.json" <<'PY'
 import json,sys
 v=json.load(open(sys.argv[1]));m=v['motor']
 assert 0<v['timeout_ms']<=300 and v['timeout_brake_a']==0 and v['servo_output'] and v['app_to_use']==3
-assert m['motor_type']==2 and 0<m['current_max_a']<=30 and -30<=m['current_min_a']<=0
-assert 0<m['battery_max_a']<=30 and m['battery_regen_a']==0
+assert m['motor_type']==2 and 0<m['current_max_a']<=50 and -50<=m['current_min_a']<=-30, 'VESC motor current limits differ from the 2026-11-13 configuration (max <=50 A, min -50..-30 A for the stop brake)'
+assert 0<m['battery_max_a']<=30 and -30<=m['battery_regen_a']<=0, 'VESC battery limits differ from the 2026-11-13 configuration (max <=30 A, regen -30..0 A)'
 assert m['speed_pid_min_erpm']==50, 'VESC speed PID minimum differs from validated configuration'
 print('VESC configuration checked. No configuration changed.')
 PY

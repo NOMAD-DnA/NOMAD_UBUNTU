@@ -171,7 +171,7 @@ ROS 환경에서는 `colcon test`로 18개 시험이 돕니다(ROS 통합시험�
 
 ## 작업 내역 (2026-11-11 ~ 11-13, BAE)
 
-e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실행 파일 sha256 `f03e70a3…`). 그 뒤 Pi4에서 직접 온도 보호(11-12 야지 시험 전)와 정지 출력(11-12 저녁)을 넣어 21:33에 빌드했고(sha256 `c4a86cf9…`, 백업 `log/stop_brake_20261112`, `log/handbrake_20261112`), 그 소스를 아래 11-13 커밋으로 옮겼습니다. 07668df까지는 Pi4 설치본과 동작이 같고 문구·`status_json` 정지 필드·스타일만 다릅니다. 그 뒤 정지 출력 1단계(유지 고정·포기, VESC 고장 0 A, 대기 사유)는 Pi4 설치본과 동작이 다르며, 다음 Pi4 빌드 때 반영됩니다.
+e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실행 파일 sha256 `f03e70a3…`). 그 뒤 Pi4에서 직접 온도 보호(11-12 야지 시험 전)와 정지 출력(11-12 저녁)을 넣어 21:33에 빌드했고(sha256 `c4a86cf9…`, 백업 `log/stop_brake_20261112`, `log/handbrake_20261112`), 그 소스를 아래 11-13 커밋으로 옮겼습니다. 07668df까지는 Pi4 설치본과 동작이 같고 문구·`status_json` 정지 필드·스타일만 다릅니다. 11-13 17:24에 f6a662b와 수동 GUI VESC 점검 수정을 Pi4에 배포했습니다(실행 파일 sha256 `d65b65c9…`, Release 빌드 5분, Pi4 시험 17/18 통과·실패는 의도된 `rpm_running_floor_ros` 2건, 백업 `release_backups/feat_control_f6a662b_pre_20261113_172018`). Pi4의 실행 스크립트(`scripts/*.sh`, `desktop/`)는 Pi4 것을 그대로 두었습니다(저장소 판은 경로 일반화판, Pi4 미검증).
 
 | 커밋 | 내용 |
 |---|---|
@@ -194,14 +194,15 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 0e9fed4 | (11-13) 재출발 기록 `[RESTART_TRACE]`(`restart_trace_s`), VESC 속도 PID 조정 시험 절차, 출발 보조 검토 결과 |
 | 5124b81 | (11-13) 정지 출력 3단계: 핸드브레이크 유지 전류를 정지 직전 안정 주행의 `avg_iq`(구동 부하)에 맞춤(12.5~30 A, 안정 주행이 아니면 약 24 cm 이내 제자리면 직전 값 이상·아니면 30 A, `stop_hold_basis`, 상태값·파라미터 이름은 `load`), VESC Tool 측정(14°·20°에서 30 A로 정지) 기록 |
 | 1a2cc4f | (11-13) VESC 속도 PID `s_pid_ki` 0.04 적용과 11-13 VESC 전류 한계(±50 A·배터리 30 A·회생 −30 A) 기록(문서만) |
-| (이 커밋) | (11-13) 지금 VESC 설정 `mcconf_20261113_PID.xml` 추가 |
+| f6a662b | (11-13) 지금 VESC 설정 `mcconf_20261113_PID.xml` 추가 |
+| (이 커밋) | (11-13) 수동 GUI VESC 점검 기대값을 11-13 VESC 설정에 맞춤, Pi4 배포(`d65b65c9…`) 기록 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
 ### 남은 일
 
 1. VESC 전류 한계 정리: 11-13 VESC에 적용(모터 ±50 A, 배터리 30 A, 회생 −30 A, 같은 날 `s_pid_ki` 0.04). 정지 브레이크 때문에 `l_current_min`은 −30 A 이하로 둡니다(지금 −50 A). 설정 파일 `vesc_config_20261112/VESC_설정파일/mcconf_20261113_PID.xml`.
-2. Pi4 `commission_session/ensure_gui.sh`의 VESC 점검 기대값(30 A·회생 0·PID 50)을 새 VESC 값에 맞추기. 지금은 수동 GUI 경로가 이 점검에서 막힙니다. 자율주행 경로(`run_planning_output.sh`)에는 VESC 설정 점검이 없습니다.
+2. 수동 GUI VESC 점검(`ensure_gui.sh`): 11-13 새 VESC 값으로 맞춤(모터 ≤50 A·하한 −50~−30 A, 배터리 ≤30 A·회생 −30~0 A, PID 최소 50). 자율주행 경로(`run_planning_output.sh`)에는 VESC 설정 점검이 없습니다. Pi4 `~/vesc_ws/inspect_vesc.py --bench-current-a`는 VESC 전류 한계를 써 버리므로(회생 0 A) 쓰지 마세요.
 3. 리뷰에서 나온 개선 후보(미수정): 전류 피크 직후 재출발 대기 없음, RESET 때 과전류 기록 미초기화, 과속 감속 명령이 VESC PID 최소값 아래로 내려감, 운영자 STOP 후 복구하면 곧바로 출발.
 4. 플래너 쪽 합의: 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복.
 5. HFI 적용 후 통합시험(ERPM 모드)에서 턱 넘기·바퀴 걸림 감시·모터 발열 확인. VIO duty 모드는 계속 사용 금지(Pi4의 `nomad_vio_duty_control`에도 11-12에 같은 정지 출력과 온도 보호가 들어갔지만 실차 미시험, 이 저장소 밖).
