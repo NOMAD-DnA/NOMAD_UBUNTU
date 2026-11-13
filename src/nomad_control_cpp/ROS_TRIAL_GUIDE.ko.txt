@@ -24,7 +24,7 @@ bench:
 2. 파일과 설정
 
 src/controller_node.cpp: ROS 구독, publisher, 서비스, 주기 실행 (nomad_controller_core 라이브러리)
-src/controller_main.cpp: 실행 진입점, Ctrl+C/SIGTERM 시 0A 정상 종료 처리
+src/controller_main.cpp: 실행 진입점, Ctrl+C/SIGTERM 시 정지 출력 후 정상 종료 처리
 include/nomad_control_cpp/controller_node.hpp: 노드 생성(ControllerNode::create)과 종료 준비 인터페이스
 include/nomad_control_cpp/trial_controller.hpp: 시험 설정·telemetry·상태 자료형
 src/trial_controller.cpp: 시작 조건, 시간 제한, 정지·fault, 출력 변화율
@@ -165,14 +165,16 @@ stop은 이 노드가 시작한 시험만 중단합니다. monitor의 stop이나
 주기·스케줄링 지연이 있으며, 실제 물리적 정지까지의 시간은 별도로 측정해야 합니다.
 
 정지 요청/시간 만료/telemetry 이상/과전류/fault/타이머 지연/다른 발행자 발견 시
-이동 명령을 중단하고 commands/motor/current에 0A를 보냅니다.
+이동 명령을 중단하고 정지 출력을 보냅니다: stop_brake_current_a·stop_handbrake_current_a가 0이면
+commands/motor/current에 0A, 설정하면 |ERPM|>stop_handbrake_below_erpm에서 commands/motor/brake,
+그 이하에서 commands/motor/handbrake(패치한 VESC 드라이버 필요)를 보냅니다.
 STOPPED_OUTPUT은 출력 중단 상태이지 차량의 물리적 정지를 뜻하지 않습니다.
-0A는 관성 정지이며 능동 제동이나 경사 유지가 아닙니다.
+0A는 관성 정지입니다. 브레이크 전류는 감속만 하고, 핸드브레이크는 정지 유지지만 미끄러져도 ERPM이 0으로 보입니다.
 정지 때 서보를 갑자기 중앙으로 돌리지 않습니다.
 
-한 번 시험을 시작한 뒤에는 정지 상태에서도 0A 출력을 유지합니다.
+한 번 시험을 시작한 뒤에는 정지 상태에서도 정지 출력을 계속 보냅니다.
 다른 제어기로 넘기려면 실제 정지 확인 후 이 노드를 종료하세요.
-정상 Ctrl+C/SIGTERM 종료 때에도 제한된 횟수로 0A를 보냅니다.
+정상 Ctrl+C/SIGTERM 종료 때에도 제한된 횟수로 정지 출력을 보냅니다. 그 뒤 VESC는 300ms timeout 후 풀립니다.
 SIGKILL, 프로세스 정지, 전원 상실에는 종료 코드를 실행할 수 없으므로 실제 VESC timeout이 필수입니다.
 
 ROS graph 검사는 경쟁 발행자를 발견하는 보조 검사이지 원자적 잠금이 아닙니다.

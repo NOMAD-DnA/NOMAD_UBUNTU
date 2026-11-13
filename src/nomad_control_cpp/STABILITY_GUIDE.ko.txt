@@ -5,8 +5,9 @@ NOMAD 경사·무게중심 안정성 검토 (2026-11-06)
 새 코드는 공중/시뮬레이션 검증용 안정성 감시와 제한 계산이다.
 현재 RAW GUI는 기존 공중 조종을 유지하며 stability.enabled=false이다.
 바퀴가 실제로 들려 있는지는 이 코드가 감지하지 못한다. raised_bench 설정은 물리적 안전장치가 아니다.
-operation_environment=ground는 시작 시 거부한다. 이 노드의 STOP은 0A coast로,
-경사에서 정차/밀림 방지/회생제동을 보장하지 못하므로 ground 지원을 추가하지 않았다.
+operation_environment=ground는 시작 시 거부한다. 2026-11-12부터 정지 출력은 VESC 브레이크·핸드브레이크
+유지(후보 설정)지만, 핸드브레이크 중에는 ERPM이 0으로 고정돼 미끄러짐을 감지하지 못하고 내리막 정지는
+시험하지 않았으므로 경사 정차를 보장하지 못한다. 그래서 ground 지원은 여전히 추가하지 않았다.
 
 확인한 자료
 - 사용자 모델: CB58334-4 Slash 2WD BL-2S HD 1/10.
@@ -28,7 +29,7 @@ include/nomad_control_cpp/stability_guard.hpp:
 src/controller_node.cpp:
   sensor_msgs/Imu 구독. 명시적으로 보정한 차체 frame만 수락.
   quaternion norm, 자세 covariance, timestamp 확인. 누락 시 시작 거부.
-  실행 중 입력 이상 시 세션 종료/0A 출력 해제. 회복 후 자동 재시작 없음.
+  실행 중 입력 이상 시 세션 종료/정지 출력(0A 또는 설정된 브레이크·유지). 회복 후 자동 재시작 없음.
   stability.enabled=true는 보정된 bench 모드에만 적용. RAW 단위에는 적용 금지.
 src/trial_controller.cpp:
   안정성 계산의 속도/가속도 상한을 기존 목표 램프에 적용.

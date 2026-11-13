@@ -44,7 +44,8 @@ GPP의 경로 점들을 모터에 직접 출력하지 않습니다.
   반복 stamp는 유효기간을 늘리지 않음. 같은 stamp의 STOP은 우선.
   GUI 승인 heartbeat는 발행시각 기준 2초. 전역 STOP은 어떤 모드든 해제.
   기존 telemetry, 출력 독점, 타이머 지연, 전류, 정체, 램프 제한은 유지.
-  STOP은 0A coast이며 경사 제동/정차 유지 기능은 아닙니다.
+  STOP·LPP 정지는 설정된 VESC 브레이크 후 핸드브레이크 유지입니다(0이면 0A coast). 핸드브레이크 중
+  미끄러짐은 감지하지 못하므로 경사 정차가 보장되지는 않습니다(README '정지 출력').
 
 상태 출력: /nomad/control/vehicle_state (nomad_interfaces/msg/VehicleState)
   검증된 환산값 + 유효 telemetry일 때 speed_valid=true.

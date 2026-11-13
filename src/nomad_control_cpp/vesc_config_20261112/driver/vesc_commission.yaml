@@ -1,0 +1,19 @@
+/**:
+  ros__parameters:
+    port: /dev/serial/by-id/usb-STMicroelectronics_ChibiOS_RT_Virtual_COM_Port_304-if00
+    duty_cycle_min: 0.0
+    duty_cycle_max: 0.0
+    current_min: 0.0
+    current_max: 0.0
+    brake_min: 0.0
+    # 2026-11-12: controller stop release uses VESC brake current (stop_brake_current_a, max 30 A).
+    brake_max: 30.0
+    # 2026-11-12: standstill handbrake for slope hold (controllers send at most 30 A).
+    handbrake_min: 0.0
+    handbrake_max: 30.0
+    position_min: 0.0
+    position_max: 0.0
+    speed_min: 0.0
+    speed_max: 1850.0
+    servo_min: 0.3625
+    servo_max: 0.6375

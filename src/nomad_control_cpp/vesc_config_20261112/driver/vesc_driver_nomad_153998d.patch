@@ -1,0 +1,186 @@
+diff --git a/vesc_driver/include/vesc_driver/vesc_driver.hpp b/vesc_driver/include/vesc_driver/vesc_driver.hpp
+index eddf44d..a48d4d7 100644
+--- a/vesc_driver/include/vesc_driver/vesc_driver.hpp
++++ b/vesc_driver/include/vesc_driver/vesc_driver.hpp
+@@ -60,6 +60,7 @@ class VescDriver
+ {
+ public:
+   explicit VescDriver(const rclcpp::NodeOptions & options);
++  ~VescDriver() override;
+ 
+ private:
+   // interface to the VESC
+@@ -87,6 +88,7 @@ private:
+   CommandLimit duty_cycle_limit_;
+   CommandLimit current_limit_;
+   CommandLimit brake_limit_;
++  CommandLimit handbrake_limit_;
+   CommandLimit speed_limit_;
+   CommandLimit position_limit_;
+   CommandLimit servo_limit_;
+@@ -100,6 +102,7 @@ private:
+   rclcpp::SubscriptionBase::SharedPtr duty_cycle_sub_;
+   rclcpp::SubscriptionBase::SharedPtr current_sub_;
+   rclcpp::SubscriptionBase::SharedPtr brake_sub_;
++  rclcpp::SubscriptionBase::SharedPtr handbrake_sub_;
+   rclcpp::SubscriptionBase::SharedPtr speed_sub_;
+   rclcpp::SubscriptionBase::SharedPtr position_sub_;
+   rclcpp::SubscriptionBase::SharedPtr servo_sub_;
+@@ -120,6 +123,7 @@ private:
+ 
+   // ROS callbacks
+   void brakeCallback(const Float64::SharedPtr brake);
++  void handbrakeCallback(const Float64::SharedPtr current);
+   void currentCallback(const Float64::SharedPtr current);
+   void dutyCycleCallback(const Float64::SharedPtr duty_cycle);
+   void positionCallback(const Float64::SharedPtr position);
+diff --git a/vesc_driver/include/vesc_driver/vesc_interface.hpp b/vesc_driver/include/vesc_driver/vesc_interface.hpp
+index dcca50f..7522423 100644
+--- a/vesc_driver/include/vesc_driver/vesc_interface.hpp
++++ b/vesc_driver/include/vesc_driver/vesc_interface.hpp
+@@ -121,6 +121,7 @@ public:
+   void setDutyCycle(double duty_cycle);
+   void setCurrent(double current);
+   void setBrake(double brake);
++  void setHandbrake(double current);
+   void setSpeed(double speed);
+   void setPosition(double position);
+   void setServo(double servo);
+diff --git a/vesc_driver/include/vesc_driver/vesc_packet.hpp b/vesc_driver/include/vesc_driver/vesc_packet.hpp
+index 950ad91..c40f21d 100644
+--- a/vesc_driver/include/vesc_driver/vesc_packet.hpp
++++ b/vesc_driver/include/vesc_driver/vesc_packet.hpp
+@@ -212,6 +212,15 @@ public:
+ 
+ /*------------------------------------------------------------------------------------------------*/
+ 
++// 2026-11-12 NOMAD: COMM_SET_HANDBRAKE (holds the rotor at standstill with a fixed current).
++class VescPacketSetHandbrake : public VescPacket
++{
++public:
++  explicit VescPacketSetHandbrake(double current);
++};
++
++/*------------------------------------------------------------------------------------------------*/
++
+ class VescPacketSetRPM : public VescPacket
+ {
+ public:
+diff --git a/vesc_driver/src/vesc_driver.cpp b/vesc_driver/src/vesc_driver.cpp
+index 5c8ef62..5c960c5 100644
+--- a/vesc_driver/src/vesc_driver.cpp
++++ b/vesc_driver/src/vesc_driver.cpp
+@@ -58,6 +58,7 @@ VescDriver::VescDriver(const rclcpp::NodeOptions & options)
+   duty_cycle_limit_(this, "duty_cycle", -1.0, 1.0),
+   current_limit_(this, "current"),
+   brake_limit_(this, "brake"),
++  handbrake_limit_(this, "handbrake"),
+   speed_limit_(this, "speed"),
+   position_limit_(this, "position"),
+   servo_limit_(this, "servo", 0.0, 1.0),
+@@ -96,6 +97,10 @@ VescDriver::VescDriver(const rclcpp::NodeOptions & options)
+     "commands/motor/current", rclcpp::QoS{10}, std::bind(&VescDriver::currentCallback, this, _1));
+   brake_sub_ = create_subscription<Float64>(
+     "commands/motor/brake", rclcpp::QoS{10}, std::bind(&VescDriver::brakeCallback, this, _1));
++  // 2026-11-12 NOMAD: standstill hold (VESC handbrake current, clipped by handbrake_min/max).
++  handbrake_sub_ = create_subscription<Float64>(
++    "commands/motor/handbrake", rclcpp::QoS{10},
++    std::bind(&VescDriver::handbrakeCallback, this, _1));
+   speed_sub_ = create_subscription<Float64>(
+     "commands/motor/speed", rclcpp::QoS{10}, std::bind(&VescDriver::speedCallback, this, _1));
+   position_sub_ = create_subscription<Float64>(
+@@ -120,6 +125,13 @@ VescDriver::VescDriver(const rclcpp::NodeOptions & options)
+   - try to predict vesc bounds (from vesc config) and command detect bounds errors
+ */
+ 
++// Stop the serial worker before publisher members are destroyed.
++VescDriver::~VescDriver()
++{
++  if (timer_) { timer_->cancel(); }
++  vesc_.disconnect();
++}
++
+ void VescDriver::timerCallback()
+ {
+   // VESC interface should not unexpectedly disconnect, but test for it anyway
+@@ -299,6 +311,17 @@ void VescDriver::brakeCallback(const Float64::SharedPtr brake)
+   }
+ }
+ 
++/**
++ * @param current VESC handbrake current in Amps (2026-11-12 NOMAD). Holds the rotor at its
++ *                current angle; clipped by handbrake_min/handbrake_max (default 0 = disabled).
++ */
++void VescDriver::handbrakeCallback(const Float64::SharedPtr current)
++{
++  if (driver_mode_ == MODE_OPERATING) {
++    vesc_.setHandbrake(handbrake_limit_.clip(current->data));
++  }
++}
++
+ /**
+  * @param speed Commanded VESC speed in electrical RPM. Electrical RPM is the mechanical RPM
+  *              multiplied by the number of motor poles. Any value is accepted by this
+diff --git a/vesc_driver/src/vesc_interface.cpp b/vesc_driver/src/vesc_interface.cpp
+index 9557431..4ee2a68 100644
+--- a/vesc_driver/src/vesc_interface.cpp
++++ b/vesc_driver/src/vesc_interface.cpp
+@@ -32,6 +32,7 @@
+ 
+ #include <algorithm>
+ #include <cassert>
++#include <atomic>
+ #include <iomanip>
+ #include <iostream>
+ #include <memory>
+@@ -58,7 +59,7 @@ public:
+   void on_configure();
+   void connect(const std::string & port);
+ 
+-  bool packet_thread_run_;
++  std::atomic<bool> packet_thread_run_{false};
+   std::unique_ptr<std::thread> packet_thread_;
+   PacketHandlerFunction packet_handler_;
+   ErrorHandlerFunction error_handler_;
+@@ -266,6 +267,11 @@ void VescInterface::setBrake(double brake)
+   send(VescPacketSetCurrentBrake(brake));
+ }
+ 
++void VescInterface::setHandbrake(double current)
++{
++  send(VescPacketSetHandbrake(current));
++}
++
+ void VescInterface::setSpeed(double speed)
+ {
+   send(VescPacketSetRPM(speed));
+diff --git a/vesc_driver/src/vesc_packet.cpp b/vesc_driver/src/vesc_packet.cpp
+index b9ab26f..8a76265 100644
+--- a/vesc_driver/src/vesc_packet.cpp
++++ b/vesc_driver/src/vesc_packet.cpp
+@@ -452,6 +452,25 @@ VescPacketSetCurrent::VescPacketSetCurrent(double current)
+ 
+ /*------------------------------------------------------------------------------------------------*/
+ 
++// 2026-11-12 NOMAD: firmware 5.03 decodes COMM_SET_HANDBRAKE as buffer_get_float32(data, 1e3) = int32 / 1000.
++VescPacketSetHandbrake::VescPacketSetHandbrake(double current)
++: VescPacket("SetHandbrake", 5, COMM_SET_HANDBRAKE)
++{
++  int32_t v = static_cast<int32_t>(current * 1000.0);
++
++  *(payload_.first + 1) = static_cast<uint8_t>((static_cast<uint32_t>(v) >> 24) & 0xFF);
++  *(payload_.first + 2) = static_cast<uint8_t>((static_cast<uint32_t>(v) >> 16) & 0xFF);
++  *(payload_.first + 3) = static_cast<uint8_t>((static_cast<uint32_t>(v) >> 8) & 0xFF);
++  *(payload_.first + 4) = static_cast<uint8_t>(static_cast<uint32_t>(v) & 0xFF);
++
++  uint16_t crc = CRC::Calculate(
++    &(*payload_.first), std::distance(payload_.first, payload_.second), VescFrame::CRC_TYPE);
++  *(frame_->end() - 3) = static_cast<uint8_t>(crc >> 8);
++  *(frame_->end() - 2) = static_cast<uint8_t>(crc & 0xFF);
++}
++
++/*------------------------------------------------------------------------------------------------*/
++
+ VescPacketSetCurrentBrake::VescPacketSetCurrentBrake(double current_brake)
+ : VescPacket("SetCurrentBrake", 5, COMM_SET_CURRENT_BRAKE)
+ {
