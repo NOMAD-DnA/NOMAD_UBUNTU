@@ -429,6 +429,7 @@ public:
         send_planning_=true;pump(.5);
         expect(moving_messages_>moves&&stop_output()=="none"&&status_.value("erpm_valid",false),
                "stop profile: resume ends the hold and ERPM is valid again");
+        expect(status_.value("restart_trace_active",false),"stop profile: a restart after the hold starts the restart trace");
         // STOP while still turning: brake first, hold once slow.
         telemetry_erpm_=600.0;pump(.1); // the stop must see a fresh sample above the threshold
         holds=handbrake_messages_;int brakes=brake_messages_;

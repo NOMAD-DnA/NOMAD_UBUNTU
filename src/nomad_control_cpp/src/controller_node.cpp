@@ -90,6 +90,11 @@ public:
         stop_output_ = StopOutput({parameter<double>("stop_brake_current_a", 0.0),
                                    parameter<double>("stop_handbrake_current_a", 0.0),
                                    parameter<double>("stop_handbrake_below_erpm", 200.0)});
+        // 2026-11-13: after each restart (stop output -> nonzero speed) log every control tick for this long,
+        // to see how fast the VESC speed PID rebuilds torque (hill start, s_pid_kp/ki tuning). 0 = off.
+        restart_trace_s_ = parameter<double>("restart_trace_s", 3.0);
+        if (!isfinite(restart_trace_s_) || restart_trace_s_ < 0.0 || restart_trace_s_ > 5.0)
+            throw invalid_argument("restart_trace_s must be within 0..5 s");
         // 정지 유지(브레이크·핸드브레이크)는 후보 설정입니다. 핸드브레이크 중에는 VESC ERPM이 0으로 고정돼
         // 미끄러짐을 볼 수 없고 내리막 정지는 시험하지 않았으므로 지상/경사 주행 모드는 계속 막습니다.
         const auto environment = parameter<string>("operation_environment", "raised_bench");
@@ -897,6 +902,7 @@ private:
         last_telemetry_rx_ = steadySeconds();
         last_voltage_ = s.voltage_input;
         last_current_ = s.current_motor;
+        last_iq_ = s.avg_iq;
         last_fault_ = s.fault_code;
         if (thermal_.update({s.ntc_temp_mos1, s.ntc_temp_mos2, s.ntc_temp_mos3}))
             RCLCPP_WARN(get_logger(), thermal_.stopped() ? "[ESC_TEMP] STOP %.1f C >= 80 C; autonomous output paused until below 70 C"
@@ -926,6 +932,7 @@ private:
     // subscriber disappears), else the brake
     // current, else 0A. Repeated every tick while stopped and owned.
     void releaseMotor() {
+        driving_ = false;
         if (!current_pub_ || !activeOwnsOutput()) return;
         const double steady = steadySeconds(), ros = now().seconds();
         const bool vesc_fault = activeVescFault();
@@ -954,8 +961,41 @@ private:
         else if (kind == OutputKind::Drive) {
             if (servo) publishScalar(servo_pub_, *servo);
             if (erpm == 0.0) releaseMotor();
-            else { stop_output_.onDrive(); publishScalar(speed_pub_, erpm); }
+            else {
+                if (!driving_) startRestartTrace(erpm);
+                driving_ = true;
+                stop_output_.onDrive();
+                publishScalar(speed_pub_, erpm);
+            }
         }
+    }
+
+    // Restart trace: one line per control tick for restart_trace_s after a not-driving -> driving change.
+    // t is seconds since the first speed command; iq_a is the VESC avg_iq (current_a is the sign-weighted
+    // avg_motor_current that under-reads at standstill).
+    void startRestartTrace(double erpm) {
+        if (restart_trace_s_ <= 0.0) return;
+        const double steady = steadySeconds();
+        restart_trace_start_ = steady;
+        restart_trace_until_ = steady + restart_trace_s_;
+        const auto& last = stop_output_.last();
+        RCLCPP_INFO(get_logger(), "[RESTART_TRACE] start from=%s hold_s=%.2f stop_a=%.1f cmd_erpm=%.0f measured_erpm=%.0f "
+                    "current_a=%.2f iq_a=%.2f",
+                    last ? stopOutputKindName(last->kind) : "none", stop_output_.holdSeconds(steady),
+                    last ? last->current_a : 0.0, erpm, last_raw_erpm_, last_current_, last_iq_);
+    }
+    void tickRestartTrace(double steady, double commanded_erpm) {
+        if (!restart_trace_until_) return;
+        if (steady > *restart_trace_until_ || !driving_) {
+            RCLCPP_INFO(get_logger(), "[RESTART_TRACE] end t=%.3f reason=%s", steady - restart_trace_start_,
+                        driving_ ? "window" : "stopped");
+            restart_trace_until_.reset();
+            return;
+        }
+        RCLCPP_INFO(get_logger(), "[RESTART_TRACE] t=%.3f cmd_erpm=%.0f measured_erpm=%.0f current_a=%.2f iq_a=%.2f "
+                    "telemetry_age_ms=%.0f state=%s",
+                    max(0.0, steady - restart_trace_start_), commanded_erpm, last_raw_erpm_, last_current_, last_iq_,
+                    last_telemetry_rx_ ? 1000.0 * (steady - *last_telemetry_rx_) : -1.0, trialStateName(activeState()));
     }
 
     void controlTick() {
@@ -984,9 +1024,11 @@ private:
 #endif
             const auto output = raw_controller_->tick(steady_now, ros_now, driver_ready,minimum_drive_erpm);
             publishOutput(output.kind, output.motor_erpm, output.servo_position);
+            tickRestartTrace(steady_now, output.motor_erpm);
         } else {
             const auto output = controller_->tick(steady_now, ros_now, driver_ready);
             publishOutput(output.kind, output.motor_erpm, output.servo_position);
+            tickRestartTrace(steady_now, output.motor_erpm);
         }
 
         logRawTransition();
@@ -1111,6 +1153,7 @@ private:
         data["erpm_valid"]=stop_output_.erpmValid();
         data["vesc_fault"]=activeVescFault();
         data["stop_holds_abandoned"]=stop_output_.holdsAbandoned();
+        data["restart_trace_active"]=restart_trace_until_.has_value();
 #ifdef NOMAD_ENABLE_PLANNING
         data["planning_supported"]=true;
         data["planning_calibration_verified"]=planning_calibration_.verified;
@@ -1195,6 +1238,9 @@ private:
     unique_ptr<TrialController> controller_;
     rclcpp::Publisher<Scalar>::SharedPtr speed_pub_, current_pub_, servo_pub_, brake_pub_, handbrake_pub_;
     StopOutput stop_output_;
+    bool driving_ = false; // last motor output was a nonzero speed command
+    double restart_trace_s_ = 3.0, restart_trace_start_ = 0.0, last_iq_ = 0.0;
+    optional<double> restart_trace_until_;
     bool vesc_fault_release_logged_ = false;
     optional<double> last_telemetry_rx_;
     size_t graph_telemetry_publishers_=0,graph_speed_subscribers_=0,graph_current_subscribers_=0,graph_servo_subscribers_=0;

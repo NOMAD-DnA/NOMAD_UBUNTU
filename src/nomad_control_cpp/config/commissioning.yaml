@@ -35,6 +35,10 @@ nomad_vesc_trial:
     motor_handbrake_topic: /nomad_bench/commands/motor/handbrake
     stop_handbrake_current_a: 15.0
     stop_handbrake_below_erpm: 200.0
+    # 2026-11-13: after each restart (stop output -> speed command) log '[RESTART_TRACE]' every control tick
+    # (cmd/measured ERPM, current_a, VESC avg_iq) for this many seconds, to judge VESC speed-PID tuning
+    # (s_pid_kp/ki) on slopes; 3 s also covers slow restarts with the current gains. 0 = off.
+    restart_trace_s: 3.0
     # 후보 시험 한계이며 측정된 속도/각도 또는 기계적 안전 범위가 아닙니다.
     commissioning.motor_max_erpm: 1850.0
     commissioning.overspeed_erpm: 2500.0
@@ -53,7 +57,7 @@ nomad_vesc_trial:
     # Battery input current limit. VESC battery limit is set higher; this keeps the 30 A guard.
     commissioning.current_limit_a: 30.0
     # Motor (phase) current limit. Low-speed starts on rough ground draw 30-35 A of motor current
-    # while the battery supplies only 2-3 A (11-11 integration logs); VESC motor limit is +-60 A.
+    # while the battery supplies only 2-3 A (11-11 integration logs); VESC motor limit was +-60 A (11-13: being lowered to +-50 A).
     commissioning.motor_current_limit_a: 55.0
     # Above a limit: a short spike releases output and headless planning resumes on its own.
     # It latches (RESET needed) when it lasts 0.3 s, goes above 60 A once, or repeats 3 times in 10 s.
