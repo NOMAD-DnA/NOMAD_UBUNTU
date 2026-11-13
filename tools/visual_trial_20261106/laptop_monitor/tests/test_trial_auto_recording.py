@@ -129,6 +129,9 @@ class TrialAutoRecordingTest(unittest.TestCase):
         self.assertTrue(dialog.save_button.isEnabled())
         dialog.accept()
         self.assertFalse(w._trial_notes_required)
+        path = w._trial_record_path
+        self.assertEqual(Path(path).name, "우회전 비교.nomad")
+        self.assertEqual(w.recording_result["path"], path)
         reader = SessionReader(path)
         self.addCleanup(reader.close)
         trial = reader.metadata["trial"]
@@ -189,7 +192,9 @@ class TrialAutoRecordingTest(unittest.TestCase):
             w.stop_trial()
             w.on_trial_stopped({"ok": True, "boards": {"pi5": {"ok": True}, "jetson": {"ok": True}}})
             w._trial_notes_dialog.accept()
-        self.assertEqual(w._trial_record_path, path)
+        self.assertFalse(Path(path).exists())
+        path = w._trial_record_path
+        self.assertEqual(Path(path).name, "종료 실패 시험.nomad")
         self.assertEqual(len(list(Path(self.temp.name).rglob("*.nomad"))), 1)
         reader = SessionReader(path)
         self.addCleanup(reader.close)
@@ -211,6 +216,42 @@ class TrialAutoRecordingTest(unittest.TestCase):
         reader = SessionReader(w._trial_record_path)
         self.addCleanup(reader.close)
         self.assertEqual(reader.metadata["recording_trigger"], "trial_end_without_output_allow")
+
+    def test_manual_segments_get_same_trial_name_and_keep_separate_data(self):
+        w = self.window()
+        w.start_recording()
+        first = w.recorder.path
+        w.stop_recording()
+        worker = Mock()
+        worker.isRunning.return_value = False
+        with patch.object(monitor, "TrialStopWorker", return_value=worker):
+            w.stop_trial()
+        w.on_trial_stopped({"ok": True, "boards": {}})
+        w._trial_notes_dialog.name_edit.setText("나눈 시험")
+        w._trial_notes_dialog.description_edit.setPlainText("수동 기록과 종료 상태")
+        from recording_names import rename_trial_recording
+        calls = []
+        def fail_second_once(path, name):
+            calls.append(path)
+            if len(calls) == 2:
+                raise OSError("temporary rename failure")
+            return rename_trial_recording(path, name)
+        with patch("recording_names.rename_trial_recording", side_effect=fail_second_once):
+            w._trial_notes_dialog.accept()
+        self.assertTrue(w._trial_notes_required)
+        self.assertIn("저장 실패", w._trial_notes_dialog.error_label.text())
+        self.assertEqual(Path(w._trial_record_paths[0]).name, "나눈 시험.nomad")
+        self.assertTrue(all(Path(p).exists() for p in w._trial_record_paths))
+        w._trial_notes_dialog.accept()  # Retry must use the first file's new path.
+        self.assertFalse(w._trial_notes_required)
+        files = sorted(Path(self.temp.name).rglob("*.nomad"))
+        self.assertEqual({p.name for p in files}, {"나눈 시험.nomad", "나눈 시험 (2).nomad"})
+        self.assertFalse(Path(first).exists())
+        for path in files:
+            reader = SessionReader(path)
+            self.assertEqual(reader.metadata["trial"]["name"], "나눈 시험")
+            reader.close()
+        self.assertEqual(Path(w._trial_record_path).name, "나눈 시험 (2).nomad")
 
     def test_invalid_freshness_spectator_and_replay_do_not_start_recording(self):
         w = self.window()

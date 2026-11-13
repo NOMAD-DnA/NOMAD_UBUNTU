@@ -30,6 +30,7 @@ class RecordingMixin:
         self._record_started = 0.
         self._auto_trial_recording = False
         self._trial_record_path = None
+        self._trial_record_paths = []
         self._trial_notes_dialog = None
         self._trial_notes_required = False
         self._trial_record_closed = False
@@ -299,12 +300,24 @@ class RecordingMixin:
 
     def save_trial_notes(self, name, description):
         from session_recording import save_trial_summary
+        from recording_names import rename_trial_recording
         if not self._trial_record_closed:
             raise RuntimeError("기록 파일을 마무리 중입니다. 잠시 후 다시 저장해 주세요.")
         if not self._trial_record_path:
             raise RuntimeError("기록 파일을 만들지 못했습니다. 저장 위치와 디스크 여유를 확인해 주세요.")
-        self._trial_summary = save_trial_summary(self._trial_record_path, name, description,
-                                                self.trial_stop_result, self._trial_stop_requested_at)
+        if self._trial_record_path not in self._trial_record_paths:
+            self._trial_record_paths.append(self._trial_record_path)
+        for index, path in enumerate(self._trial_record_paths):
+            summary = save_trial_summary(path, name, description,
+                                         self.trial_stop_result, self._trial_stop_requested_at)
+            destination = rename_trial_recording(path, name)
+            # Update immediately so a later failure/retry uses the renamed file.
+            self._trial_record_paths[index] = destination
+            if self._trial_record_path == path:
+                self._trial_record_path = destination
+            if self.recording_result and self.recording_result.get("path") == path:
+                self.recording_result["path"] = destination
+        self._trial_summary = summary
         self._trial_notes_required = False
         self._trial_notes_copy_path = None
         self.update_recording_bar()
@@ -376,6 +389,9 @@ class RecordingMixin:
             return
         self.record_view()
         self.recording_result = self.recorder.close(duration_s=max(0., time.monotonic() - self._record_started))
+        path = self.recording_result["path"]
+        if path not in self._trial_record_paths:
+            self._trial_record_paths.append(path)
         self.recorder = None
         self.record_button.setText("기록 시작")
         self.update_recording_bar()
