@@ -7,6 +7,7 @@
 #include "nomad_control_cpp/planning_supervisor.hpp"
 #include "nomad_control_cpp/planning_speed_feedback.hpp"
 #include "nomad_control_cpp/control_limits.hpp"
+#include "nomad_thermal/thermal_guard.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
 #include <nomad_interfaces/msg/vehicle_state.hpp>
@@ -362,6 +363,12 @@ private:
         logPlanningWait(reason,steady,ros);
     }
     void tickPlanning(double steady,double ros) {
+        // ESC over-temperature: release autonomous output; resume path re-arms below 70 C.
+        if(thermal_.stopped()&&supervisor_.active()){
+            if(planning_headless_&&planning_resume_after_stop_)pausePlanning("ESC over-temperature (>=80 C); resumes below 70 C",steady,ros);
+            else stopAndRelease("ESC over-temperature (>=80 C); reset required");
+            return;
+        }
         if(planning_headless_ && planning_resume_after_stop_ && !supervisor_.blocked()){
             const bool driver_ready=exclusiveDriverReady(false);
             if(activeState()==TrialState::Fault || graph_competing_publishers_){
@@ -385,7 +392,7 @@ private:
                 releaseMotor();logPlanningWait(planning_wait_reason_,steady,ros);
             }else if(supervisor_.resumePending()&&!planning_guard_->target(ros,steady)){
                 pausePlanning("planning input expired; waiting for fresh command",steady,ros);
-            }else if(supervisor_.resumePending()&&planningReady(steady,ros)&&stabilityReady()){
+            }else if(supervisor_.resumePending()&&planningReady(steady,ros)&&stabilityReady()&&!thermal_.stopped()){
                 if(planning_measured_speed_control_){
                     const auto next=planning_guard_->target(ros,steady);
                     if(next&&raw_controller_->resumePlanning(next->erpm,next->servo,steady,ros,driver_ready)){
@@ -400,7 +407,7 @@ private:
         }
         if(planning_headless_&&!supervisor_.blocked()&&!supervisor_.active()&&
            activeState()==TrialState::Idle&&planningReady(steady,ros)&&
-           (planning_measured_speed_control_||planning_start_gate_->ready(steady))&&stabilityReady()){
+           (planning_measured_speed_control_||planning_start_gate_->ready(steady))&&stabilityReady()&&!thermal_.stopped()){
             if(raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),0,
                                       steady,ros,exclusiveDriverReady())){
                 supervisor_.activate();commissioning_axis_=4;resetPlanningSpeedFeedback();
@@ -829,6 +836,13 @@ private:
         last_voltage_ = s.voltage_input;
         last_current_ = s.current_motor;
         last_fault_ = s.fault_code;
+        if (thermal_.update({s.ntc_temp_mos1, s.ntc_temp_mos2, s.ntc_temp_mos3}))
+            RCLCPP_WARN(get_logger(), thermal_.stopped() ? "[ESC_TEMP] STOP %.1f C >= 80 C; autonomous output paused until below 70 C"
+                                                           : "[ESC_TEMP] resume allowed: %.1f C below 70 C", thermal_.temp_c());
+        if (thermal_.warning() && steadySeconds() - last_thermal_warn_ >= 10.) {
+            last_thermal_warn_ = steadySeconds();
+            RCLCPP_WARN(get_logger(), "[ESC_TEMP] %s %.1f C (warn 65, stop 80, resume below 70)", thermal_.state().c_str(), thermal_.temp_c());
+        }
         logRawTransition();
         // Fault, or a non-critical stop such as a current spike: release now, not on the next tick.
         if (activeState() == TrialState::Fault || (was_running && activeState() != TrialState::Running))
@@ -1017,13 +1031,16 @@ private:
         data["planning_minimum_start_erpm"]=planning_measured_speed_control_?0:planning_min_start_erpm_;
         data["planning_minimum_start_mps"]=!planning_measured_speed_control_&&planning_calibration_.erpm_per_mps>0?planning_min_start_erpm_/planning_calibration_.erpm_per_mps:0;
         data["planning_feedback_limit_erpm"]=planning_feedback_limit_erpm_;
+        data["esc_temp_c"]=thermal_.valid()?nlohmann::json(thermal_.temp_c()):nlohmann::json(nullptr);
+        data["esc_temp_state"]=thermal_.state();
         if(commissioning_){
             const auto requested=planning_guard_->target(ros_now,steady_now);
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
             RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
-                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f start_gate=%s reset_required=%d",
+                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s start_gate=%s reset_required=%d",
                 supervisor_.active()?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
+                thermal_.temp_c(),thermal_.state().c_str(),
                 planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()));
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
@@ -1079,6 +1096,8 @@ private:
     size_t graph_speed_publishers_=0,graph_current_publishers_=0,graph_servo_publishers_=0,graph_other_publishers_=0;
     bool graph_competing_publishers_=false;
     string planning_wait_reason_="LPP pause; waiting for fresh command";
+    // 2026-11-12: ESC MOSFET temperature guard (warn 65, stop 80, resume below 70 C).
+    nomad_thermal::ThermalGuard thermal_;double last_thermal_warn_=0;
     rclcpp::Subscription<VescState>::SharedPtr telemetry_sub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_, status_json_pub_;
     rclcpp::Service<Manual>::SharedPtr manual_service_;
