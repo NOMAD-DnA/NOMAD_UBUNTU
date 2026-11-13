@@ -34,7 +34,8 @@ public:
     // Throws std::invalid_argument for unsafe or inconsistent parameters, before any output exists.
     static std::shared_ptr<ControllerNode> create(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
 
-    // Call before rclcpp::shutdown on a normal Ctrl+C/SIGTERM so the owned output gets 0A.
+    // Call before rclcpp::shutdown on a normal Ctrl+C/SIGTERM so the owned output gets the stop output
+    // (0A, or VESC brake/handbrake when configured).
     virtual void prepareShutdown() noexcept = 0;
 
 protected:

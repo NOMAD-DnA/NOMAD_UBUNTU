@@ -52,14 +52,14 @@
 <p id="lowSpeedWarning" class="notice" role="status" hidden>이 범위는 멈추거나 끊겨 회전할 수 있습니다.</p>
 <div class="control"><div class="row"><label id="steeringLabel" for="steering">조향 · 0~1</label><input id="steeringNumber" aria-label="조향 숫자" type="number" required min="0" max="1" step="0.001" value="0.5" disabled></div><input id="steering" aria-label="조향" type="range" min="0" max="1" step="0.001" value="0.5" disabled><div class="range-labels"><span id="steeringMin">0.000</span><span id="degrees">서보 0.500</span><span id="steeringMax">1.000</span></div><div id="steeringPresets" class="presets" hidden><button type="button" class="secondary" id="servoLow" disabled>− 방향</button><button type="button" class="secondary" id="servoCenter" disabled>0.5</button><button type="button" class="secondary" id="servoHigh" disabled>+ 방향</button></div></div>
 <div id="durationRow" class="row"><label for="duration">1회 시험 시간</label><div><input id="duration" type="number" required min="0.5" max="5" step="0.5" value="2"> <span class="small">초 / 최대 5초</span></div></div>
-<div class="actions"><button class="secondary" id="zero">모터 해제 · 속도 0</button><button class="secondary" id="reset" disabled>정지 확인 후 재준비</button></div>
+<div class="actions"><button class="secondary" id="zero">속도 0</button><button class="secondary" id="reset" disabled>정지 확인 후 재준비</button></div>
 <div id="message" role="status" aria-live="polite"></div>
 <details><summary>조작 안내</summary><div id="rawGuide" class="guide" hidden><ol><li>수동 제어 시작을 누르면 속도 0으로 시작합니다.</li><li>속도와 조향 슬라이더로 조종합니다.</li><li>끝낼 때 STOP. 연결 복구 후에도 직접 다시 시작합니다.</li></ol></div><p id="motorControlHelp" class="small" hidden></p><p id="observedStartHelp" class="small" hidden></p><p id="speedReferenceNote" class="small" hidden>영상 기준: 반지름 5.5cm, 한쪽 바퀴 18.03초에 14회전, 목표 1000 ERPM 가정. 다른 ERPM은 비례 추정이며 저속에서는 오차가 큽니다. 실제 차량 이동 속도 보정은 미완료입니다.</p><p id="steeringHelp" class="small"></p></details>
 </section>
 <section class="card"><h2><span class="number-tag">02</span>차량 상태 <span class="badge" id="state">—</span></h2>
 <div class="metrics"><div class="metric"><span>현재 VESC 회전수 · ERPM</span><strong id="erpm">—</strong></div><div class="metric"><span id="speedMetricLabel">제어기 속도 명령 · ERPM</span><strong id="measuredSpeed">—</strong></div><div class="metric"><span>입력 전압 · V</span><strong id="voltage">—</strong></div><div class="metric"><span>모터 전류 · A</span><strong id="current">—</strong></div></div>
 <div class="row small" style="margin-top:20px"><span id="remainingLabel">수동 제어 상태</span><span id="remaining">대기</span></div><progress id="progress" max="5" value="0"></progress>
-<button class="stop" id="stop">STOP · 구동 해제</button><p class="small" id="stopHelp">STOP은 모터 출력 해제입니다. 능동 제동이 아닙니다.</p>
+<button class="stop" id="stop">STOP · 구동 해제</button><p class="small" id="stopHelp">STOP은 구동 해제입니다. 정지 브레이크·유지는 제어기 설정을 따릅니다.</p>
 <details><summary>연결 및 제어 설정</summary><p id="stabilityHelp" class="small"></p><div class="checks" id="checks">telemetry 대기 중</div><p class="reason" id="reason">제어기를 기다리고 있습니다.</p><p id="networkProfileHelp" class="notice" hidden></p><div class="metrics"><div class="metric" id="servoTargetMetric" hidden><span>조향 목표</span><strong id="servoTarget">—</strong></div><div class="metric" id="servoCommandMetric" hidden><span>조향 출력 명령</span><strong id="servoCommand">—</strong></div></div><p id="servoCommandHelp" class="small" hidden></p><p id="notice" class="small">보정 상태 확인 중</p><p id="measurementNote" class="small"></p></details>
 </section></div>
 <div class="footer-note"><b>NOMAD GUI 시작</b>으로 연결 · Esc / Space로 출력 해제</div>
@@ -480,7 +480,14 @@ function render(data){
   setText('remainingLabel',raw?'수동 제어 상태':'전체 시험 잔여 시간');setText('remaining',raw?(session?.phase==='active'?'조종 중':'대기'):number(connected?data.remaining_s:0)+' s');$('progress').value=connected?data.remaining_s||0:0;
   if(calibrationMode){setText('remainingLabel','조향 전용 시험');setText('remaining',session?number(data.remaining_s,1)+' s / 최대 3초':'기록 대기');}
   setText('reason',data.reason||'waiting for controller');$('reset').disabled=!connected||!data.stationary||['RUNNING','MONITOR'].includes(data.state);
-  setText('stopHelp','STOP: 모터 출력 해제 · 조향 유지 · 브레이크 없음');
+  // 정지 출력은 제어기가 보고한 값만 표시합니다(필드가 없으면 단정하지 않음).
+  const stopKnown=typeof data.stop_brake_current_a==='number'&&typeof data.stop_handbrake_current_a==='number';
+  const stopBrakeA=stopKnown?data.stop_brake_current_a:0,stopHoldA=stopKnown?data.stop_handbrake_current_a:0;
+  const aboveText=stopBrakeA>0?`브레이크 ${number(stopBrakeA,1)} A`:'0A 관성';
+  setText('stopHelp',!stopKnown?'STOP은 구동 해제입니다. 정지 브레이크·유지는 제어기 설정을 따릅니다.'
+    :stopHoldA>0?`STOP·속도 0: 구동 해제 · 조향 유지 · ${aboveText} → 거의 멈추면 핸드브레이크 ${number(stopHoldA,1)} A로 정지 유지(경사 정차 보장 아님) · 제어기 종료 0.3초 뒤 풀림`
+    :stopBrakeA>0?`STOP·속도 0: 구동 해제 · 조향 유지 · 브레이크 ${number(stopBrakeA,1)} A (감속만, 정지 유지 아님)`
+    :'STOP: 모터 출력 해제 · 조향 유지 · 브레이크 없음');
   setText('measurementNote','탭 숨김·연결 단절 시 제어 해제. 복구 후 직접 시작.');
   refreshControls();
 }

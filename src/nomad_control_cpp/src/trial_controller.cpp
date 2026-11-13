@@ -2,14 +2,15 @@
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
+using namespace std;
 
 namespace nomad {
 namespace {
-bool positive(double value) { return std::isfinite(value) && value > 0.0; }
+bool positive(double value) { return isfinite(value) && value > 0.0; }
 
 // 목표를 향한 변화량을 제한합니다. 비상 정지는 이 함수를 거치지 않습니다.
 double approach(double previous, double target, double rate, double dt) {
-    return previous + std::clamp(target - previous, -rate * dt, rate * dt);
+    return previous + clamp(target - previous, -rate * dt, rate * dt);
 }
 } // namespace
 
@@ -18,7 +19,7 @@ TrialController::TrialController(Calibration calibration, TrialOptions options)
       state_(options.actuation_enabled ? TrialState::Idle : TrialState::Monitor) {
     if (validateCalibration(calibration_) != Error::None ||
         !convertTarget(options_.target_speed_mps, options_.target_steering_rad, calibration_).value)
-        throw std::invalid_argument("invalid calibration or trial target");
+        throw invalid_argument("invalid calibration or trial target");
     if (!positive(options_.duration_s) || options_.duration_s > 5.0 ||
         !positive(options_.telemetry_timeout_s) || options_.telemetry_timeout_s > 0.5 ||
         !positive(options_.max_tick_gap_s) || options_.max_tick_gap_s > 0.25 ||
@@ -27,12 +28,12 @@ TrialController::TrialController(Calibration calibration, TrialOptions options)
         !positive(options_.current_limit_a) || !positive(options_.acceleration_mps2) ||
         !positive(options_.steering_rate_radps) || !positive(options_.steering_settle_s) ||
         !positive(options_.manual_timeout_s) || options_.manual_timeout_s > 0.5)
-        throw std::invalid_argument("invalid trial timing or limits");
+        throw invalid_argument("invalid trial timing or limits");
 }
 
 // ROS 시계 역행은 기존 패킷을 다시 최신으로 만들 수 있으므로 현재 시험을 중단합니다.
 bool TrialController::checkClock(double steady_now, double ros_now) {
-    const bool valid = std::isfinite(steady_now) && std::isfinite(ros_now) && ros_now > 0.0 &&
+    const bool valid = isfinite(steady_now) && isfinite(ros_now) && ros_now > 0.0 &&
         (!last_steady_now_ || steady_now >= *last_steady_now_) &&
         (!last_ros_now_ || ros_now >= *last_ros_now_ - 0.05);
     if (!valid) {
@@ -44,7 +45,7 @@ bool TrialController::checkClock(double steady_now, double ros_now) {
     return true;
 }
 
-void TrialController::invalidateTelemetry(const std::string& reason) {
+void TrialController::invalidateTelemetry(const string& reason) {
     telemetry_ok_ = false;
     stationary_since_.reset();
     reason_ = reason;
@@ -55,12 +56,12 @@ void TrialController::invalidateTelemetry(const std::string& reason) {
 void TrialController::observe(const TelemetrySample& s, double steady_now, double ros_now) {
     if (!checkClock(steady_now, ros_now)) return;
     const double age = ros_now - s.stamp_s;
-    if (!std::isfinite(s.stamp_s) || s.stamp_s <= 0.0 ||
+    if (!isfinite(s.stamp_s) || s.stamp_s <= 0.0 ||
         age < -0.05 || age > options_.telemetry_timeout_s ||
-        !std::isfinite(s.raw_erpm) || !std::isfinite(s.current_motor_a) ||
-        !std::isfinite(s.current_input_a) || !positive(s.voltage_v) || s.fault_code != 0 ||
-        std::abs(s.current_motor_a) > options_.current_limit_a ||
-        std::abs(s.current_input_a) > options_.current_limit_a) {
+        !isfinite(s.raw_erpm) || !isfinite(s.current_motor_a) ||
+        !isfinite(s.current_input_a) || !positive(s.voltage_v) || s.fault_code != 0 ||
+        abs(s.current_motor_a) > options_.current_limit_a ||
+        abs(s.current_input_a) > options_.current_limit_a) {
         invalidateTelemetry("invalid/stale telemetry, VESC fault or current limit");
         return;
     }
@@ -76,8 +77,8 @@ void TrialController::observe(const TelemetrySample& s, double steady_now, doubl
     measured_speed_ = *speed.value;
     received_at_ = steady_now;
     telemetry_ok_ = true;
-    if (std::abs(s.raw_erpm) <= options_.stationary_erpm &&
-        std::abs(*speed.value) <= options_.stationary_speed_mps) {
+    if (abs(s.raw_erpm) <= options_.stationary_erpm &&
+        abs(*speed.value) <= options_.stationary_speed_mps) {
         if (!stationary_since_) stationary_since_ = steady_now;
     } else {
         stationary_since_.reset();
@@ -87,7 +88,7 @@ void TrialController::observe(const TelemetrySample& s, double steady_now, doubl
 }
 
 bool TrialController::healthy(double steady_now, double ros_now) const {
-    if (!telemetry_ok_ || !sample_ || !std::isfinite(steady_now) || !std::isfinite(ros_now)) return false;
+    if (!telemetry_ok_ || !sample_ || !isfinite(steady_now) || !isfinite(ros_now)) return false;
     const double receipt_age = steady_now - received_at_;
     const double stamp_age = ros_now - sample_->stamp_s;
     return receipt_age >= 0.0 && receipt_age <= options_.telemetry_timeout_s &&
@@ -161,11 +162,12 @@ bool TrialController::updateManual(double speed, double steering, double steady_
 }
 
 double TrialController::remaining(double steady_now) const {
-    return state_ == TrialState::Running ? std::max(0.0, options_.duration_s - (steady_now - started_at_)) : 0.0;
+    return state_ == TrialState::Running ? max(0.0, options_.duration_s - (steady_now - started_at_)) : 0.0;
 }
 
-// 중단 뒤에는 자동 재시작하지 않습니다. Release는 0A 구동 해제이며 능동 제동이 아닙니다.
-void TrialController::stop(const std::string& reason, bool fault) {
+// 중단 뒤에는 자동 재시작하지 않습니다. Release는 0A 구동 해제이며, 정지 브레이크/핸드브레이크를 설정하면
+// 제어기 노드가 그 출력으로 바꿔 보냅니다(stop_brake_current_a, stop_handbrake_current_a).
+void TrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor) return;
     if (state_ == TrialState::Fault && !fault) return;
     state_ = fault ? TrialState::Fault : TrialState::Stopped;
@@ -179,7 +181,7 @@ bool TrialController::reset(double steady_now, double ros_now) {
         state_ == TrialState::Running || !stationary(steady_now, ros_now)) return false;
     state_ = TrialState::Idle;
     reason_ = "reset; waiting for explicit start";
-    return true; // 이미 취득한 출력권은 유지하며 정지 중에는 0A를 계속 보냅니다.
+    return true; // 이미 취득한 출력권은 유지하며 정지 중에는 정지 출력(0A 또는 브레이크/핸드브레이크)을 계속 보냅니다.
 }
 
 TrialOutput TrialController::restingOutput() const {
@@ -203,14 +205,14 @@ TrialOutput TrialController::tick(double steady_now, double ros_now, bool exclus
     last_tick_ = steady_now;
     commanded_steering_ = approach(commanded_steering_, options_.target_steering_rad,
                                    options_.steering_rate_radps, dt);
-    if (std::abs(commanded_steering_ - options_.target_steering_rad) < 1e-9 && !steering_reached_at_)
+    if (abs(commanded_steering_ - options_.target_steering_rad) < 1e-9 && !steering_reached_at_)
         steering_reached_at_ = steady_now;
     const bool steering_wait_done = steering_reached_at_ &&
         steady_now - *steering_reached_at_ >= options_.steering_settle_s;
     if (steering_wait_done)
         commanded_speed_ = approach(commanded_speed_,
-                                     std::clamp(options_.target_speed_mps, -stability_speed_cap_, stability_speed_cap_),
-                                     std::min(options_.acceleration_mps2, stability_accel_cap_), dt);
+                                     clamp(options_.target_speed_mps, -stability_speed_cap_, stability_speed_cap_),
+                                     min(options_.acceleration_mps2, stability_accel_cap_), dt);
     const auto output = convertTarget(commanded_speed_, commanded_steering_, calibration_);
     if (!output.value) {
         stop(errorMessage(output.error), true);

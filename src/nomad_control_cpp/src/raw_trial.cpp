@@ -230,7 +230,7 @@ bool RawTrialController::start(RawAxis axis, double erpm, double servo, double d
     output_owned_ = true;
     reason_ = continuous ? "raw MANUAL continuous control; heartbeat required; angle unmeasured"
                          : axis == RawAxis::Motor ? "raw MOTOR trial; no servo output; calibration unverified"
-                                                : "raw STEERING trial; motor released; angle unmeasured";
+                                                : "raw STEERING trial; motor released (0A or stop brake/hold); angle unmeasured";
     return true;
 }
 
@@ -282,7 +282,7 @@ bool RawTrialController::pausePlanning(const string& reason, double steady_now, 
     return true;
 }
 
-// A short planner pause may coast while fresh telemetry still reports rotation.
+// A short planner pause may still be rolling (coast or brake) while fresh telemetry reports rotation.
 // This is not a manual START/reset bypass: its caller owns soft-pause permission.
 bool RawTrialController::resumePlanning(double erpm, double servo, double steady_now, double ros_now,
                                         bool exclusive_driver_ready) {
@@ -310,7 +310,8 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
     return true;
 }
 
-// Release는 모터 0A 해제입니다. 정지 시 서보를 중앙으로 돌리거나 새 값을 송신하지 않습니다.
+// Release는 모터 구동 해제입니다(0A, 또는 설정 시 노드가 브레이크/핸드브레이크로 보냄). 정지 시 서보를 중앙으로
+// 돌리거나 새 값을 송신하지 않습니다.
 void RawTrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor || (state_ == TrialState::Fault && !fault)) return;
     planning_wait_ = false;

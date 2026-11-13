@@ -14,7 +14,7 @@ void signalHandler(int) { interrupted = 1; }
 } // namespace
 
 int main(int argc, char* argv[]) {
-    // Own signal handling: on Ctrl+C/SIGTERM send 0A before ROS shuts down.
+    // Own signal handling: on Ctrl+C/SIGTERM send the stop output (0A or brake/handbrake) before ROS shuts down.
     rclcpp::init(argc, argv, rclcpp::InitOptions(), rclcpp::SignalHandlerOptions::None);
     signal(SIGINT, signalHandler);
     signal(SIGTERM, signalHandler);

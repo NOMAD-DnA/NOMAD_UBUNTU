@@ -49,6 +49,10 @@ public:
         }
         subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/servo/position", 10,
             [this](nomad::Scalar::ConstSharedPtr) { ++servo_messages_; }));
+        subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/brake", 10,
+            [this](nomad::Scalar::ConstSharedPtr msg) { ++brake_messages_; last_brake_ = msg->data; }));
+        subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/handbrake", 10,
+            [this](nomad::Scalar::ConstSharedPtr msg) { ++handbrake_messages_; last_handbrake_ = msg->data; }));
         rclcpp::NodeOptions options;
         options.arguments({"--ros-args", "-r", "__ns:=" + prefix_,
             "-r","/nomad/planning/drive_command:="+prefix_+"/planning",
@@ -76,6 +80,7 @@ public:
             {"servo_topic", prefix_ + "/commands/servo/position"},
             {"motor_duty_topic", prefix_ + "/commands/motor/duty_cycle"},
             {"motor_brake_topic", prefix_ + "/commands/motor/brake"},
+            {"motor_handbrake_topic", prefix_ + "/commands/motor/handbrake"},
             {"motor_position_topic", prefix_ + "/commands/motor/position"}});
         auto overrides = options.parameter_overrides();
         overrides.emplace_back("stability.imu_topic", prefix_+"/imu_body");
@@ -756,6 +761,49 @@ public:
         expect(speed_messages_ == 0 && servo_messages_ == 0 && release_messages_ == 0, "monitor emits no actuator data");
     }
 
+    // 2026-11-12: stop_brake_current_a > 0 -> releases are brake current, never 0A coast.
+    void runBenchBrake(double amps) {
+        pump(1.0);
+        expect(brake_messages_ == 0 && release_messages_ == 0, "brake bench boot sends nothing");
+        expect(call("start_test"), "brake bench start succeeds (own brake publisher is not a competitor)");
+        pump(1.2);
+        expect(moving_messages_ > 0, "brake bench drives");
+        const int brakes = brake_messages_;
+        pump(0.2);
+        expect(brake_messages_ > brakes && last_brake_ == amps, "deadline release is brake current");
+        pump(0.2);
+        expect(brake_messages_ > brakes + 3, "brake is repeated while stopped (VESC command timeout)");
+        expect(release_messages_ == 0, "no 0A coast when stop braking is enabled");
+        expect(call("reset") && call("start_test"), "brake bench reset then start");
+        pump(0.3);
+        const int before_stop = brake_messages_;
+        expect(call("stop"), "brake bench stop");
+        pump(0.1);
+        expect(brake_messages_ > before_stop && last_brake_ == amps && release_messages_ == 0, "operator stop brakes");
+    }
+
+    // 2026-11-12: standstill (fake telemetry 0 ERPM) -> handbrake hold, not brake current or 0A.
+    void runBenchHandbrake(double hold) {
+        pump(1.0);
+        expect(handbrake_messages_ == 0, "handbrake bench boot sends nothing");
+        expect(call("start_test"), "handbrake bench start succeeds (own handbrake publisher is not a competitor)");
+        pump(1.2);
+        expect(moving_messages_ > 0, "handbrake bench drives");
+        const int holds = handbrake_messages_;
+        pump(0.3);
+        expect(handbrake_messages_ > holds + 3 && last_handbrake_ == hold, "stopped at standstill repeats handbrake hold");
+        expect(release_messages_ == 0 && brake_messages_ == 0, "standstill release is handbrake only");
+        const int moves_before_restart = moving_messages_;
+        expect(call("reset") && call("start_test"), "handbrake bench reset then start");
+        pump(0.3);
+        expect(moving_messages_ > moves_before_restart, "handbrake bench drives after hold");
+        const int before_stop = handbrake_messages_;
+        expect(call("stop"), "handbrake bench stop");
+        pump(0.1);
+        expect(handbrake_messages_ > before_stop && last_handbrake_ == hold && release_messages_ == 0 && brake_messages_ == 0,
+               "operator stop at standstill holds with the handbrake");
+    }
+
     void runBench() {
         pump(1.0);
         expect(!commission(1, 1, string(32, '7')), "calibrated bench rejects raw start service");
@@ -886,6 +934,8 @@ private:
     double telemetry_erpm_ = 0.0;
     int telemetry_fault_ = 0;
     int speed_messages_ = 0, moving_messages_ = 0, servo_messages_ = 0, release_messages_ = 0;
+    int brake_messages_ = 0, handbrake_messages_ = 0;
+    double last_brake_ = -1.0, last_handbrake_ = -1.0;
     vector<double> observed_motor_erpm_;
 };
 
@@ -925,7 +975,9 @@ void testRawMetadataConfiguration() {
         {"steering_input_limit_rad", 0.0}, {"steering_input_limit_rad", -0.01},
         {"steering_input_limit_rad", 0.5501}, {"steering_input_limit_rad", nan},
         {"steering_input_limit_rad", infinity}, {"observed_smooth_start_erpm", -1.0},
-        {"observed_smooth_start_erpm", nan}, {"observed_smooth_start_erpm", infinity}};
+        {"observed_smooth_start_erpm", nan}, {"observed_smooth_start_erpm", infinity},
+        {"stop_brake_current_a", -1.0}, {"stop_brake_current_a", 30.5}, {"stop_brake_current_a", nan},
+        {"stop_handbrake_current_a", -1.0}, {"stop_handbrake_current_a", 30.5}, {"stop_handbrake_below_erpm", 2500.0}};
     for (const auto& parameter : invalid) {
         rclcpp::NodeOptions options;
         options.parameter_overrides({{"mode", "commission"}, parameter});
@@ -1012,6 +1064,9 @@ int main(int argc, char* argv[]) {
             {"planning.steering_servos",vector<double>{.55,.5,.45}}});table.runPlanning(); }
 #endif
         { RosRig bench(true); bench.runBench(); }
+        { RosRig braked(true, false, true, true, false, {{"stop_brake_current_a", 8.0}}); braked.runBenchBrake(8.0); }
+        { RosRig held(true, false, true, true, false, {{"stop_brake_current_a", 8.0}, {"stop_handbrake_current_a", 12.0}});
+          held.runBenchHandbrake(12.0); }
         { RosRig manual(true); manual.runManual(); }
         { RosRig gui(true); gui.runGuiBridge(); }
         { RosRig raw(true, true); raw.runCommission(); }

@@ -82,7 +82,22 @@ public:
         options_.steering_rate_radps = parameter<double>("steering_rate_radps", 0.30);
         options_.steering_settle_s = parameter<double>("steering_settle_s", 0.30);
         options_.manual_timeout_s = parameter<double>("manual_timeout_s", 0.35);
-        // 현재 정지는 0A coast이므로 이 노드는 지상/경사 주행 모드를 지원하지 않습니다.
+        // 2026-11-12: stop/pause/fault release uses VESC brake current instead of 0A coast. Brake current is
+        // speed-dependent damping: it slows a rolling motor but does not hold at standstill (see the handbrake
+        // below). 0 keeps the previous 0A coast release.
+        stop_brake_current_a_ = parameter<double>("stop_brake_current_a", 0.0);
+        if (!isfinite(stop_brake_current_a_) || stop_brake_current_a_ < 0.0 || stop_brake_current_a_ > 30.0)
+            throw invalid_argument("stop_brake_current_a must be within 0..30 A");
+        // 2026-11-12: brake current only slows a rolling motor; near standstill the release holds the
+        // rotor with the VESC handbrake instead (slope roll-back). 0 disables the handbrake.
+        stop_handbrake_current_a_ = parameter<double>("stop_handbrake_current_a", 0.0);
+        stop_handbrake_below_erpm_ = parameter<double>("stop_handbrake_below_erpm", 200.0);
+        if (!isfinite(stop_handbrake_current_a_) || stop_handbrake_current_a_ < 0.0 || stop_handbrake_current_a_ > 30.0)
+            throw invalid_argument("stop_handbrake_current_a must be within 0..30 A");
+        if (!isfinite(stop_handbrake_below_erpm_) || stop_handbrake_below_erpm_ < 0.0 || stop_handbrake_below_erpm_ > 2000.0)
+            throw invalid_argument("stop_handbrake_below_erpm must be within 0..2000 ERPM");
+        // 정지 유지(브레이크·핸드브레이크)는 후보 설정입니다. 핸드브레이크 중에는 VESC ERPM이 0으로 고정돼
+        // 미끄러짐을 볼 수 없고 내리막 정지는 시험하지 않았으므로 지상/경사 주행 모드는 계속 막습니다.
         const auto environment = parameter<string>("operation_environment", "raised_bench");
         if (environment != "raised_bench")
             throw invalid_argument("ground driving unavailable: downhill braking/hold and stability not validated");
@@ -101,14 +116,25 @@ public:
         const auto speed_topic = parameter<string>("motor_speed_topic", "/commands/motor/speed");
         const auto current_topic = parameter<string>("motor_current_topic", "/commands/motor/current");
         const auto servo_topic = parameter<string>("servo_topic", "/commands/servo/position");
-        const vector<string> other_topics = {
+        const auto brake_topic = parameter<string>("motor_brake_topic", "/commands/motor/brake");
+        vector<string> other_topics = {
             parameter<string>("motor_duty_topic", "/commands/motor/duty_cycle"),
-            parameter<string>("motor_brake_topic", "/commands/motor/brake"),
             parameter<string>("motor_position_topic", "/commands/motor/position")};
+        // Brake topic: our own output when stop braking is enabled, otherwise a competing topic.
+        if (stop_brake_current_a_ <= 0.0) other_topics.push_back(brake_topic);
         set<string> distinct;
         for (const auto& topic : {telemetry_topic, speed_topic, current_topic, servo_topic})
             if (!distinct.insert(get_node_topics_interface()->resolve_topic_name(topic)).second)
                 throw invalid_argument("topics must be distinct");
+        if (stop_brake_current_a_ > 0.0 &&
+            !distinct.insert(get_node_topics_interface()->resolve_topic_name(brake_topic)).second)
+            throw invalid_argument("topics must be distinct");
+        const auto handbrake_topic = parameter<string>("motor_handbrake_topic", "/commands/motor/handbrake");
+        if (!distinct.insert(get_node_topics_interface()->resolve_topic_name(handbrake_topic)).second)
+            throw invalid_argument("topics must be distinct");
+        // Without our own handbrake output, any other handbrake publisher competes for the motor.
+        if (stop_handbrake_current_a_ <= 0.0)
+            other_command_topics_.push_back(get_node_topics_interface()->resolve_topic_name(handbrake_topic));
         for (const auto& topic : other_topics) {
             const auto resolved = get_node_topics_interface()->resolve_topic_name(topic);
             if (!distinct.insert(resolved).second) throw invalid_argument("topics must be distinct");
@@ -120,6 +146,8 @@ public:
             speed_pub_ = create_publisher<Scalar>(speed_topic, command_qos);
             current_pub_ = create_publisher<Scalar>(current_topic, command_qos);
             servo_pub_ = create_publisher<Scalar>(servo_topic, command_qos);
+            if (stop_brake_current_a_ > 0.0) brake_pub_ = create_publisher<Scalar>(brake_topic, command_qos);
+            if (stop_handbrake_current_a_ > 0.0) handbrake_pub_ = create_publisher<Scalar>(handbrake_topic, command_qos);
         }
         telemetry_sub_ = create_subscription<VescState>(telemetry_topic,
             rclcpp::QoS(1).best_effort().durability_volatile(),
@@ -161,7 +189,7 @@ public:
                 stopAndRelease("operator stop");
                 response->success = true;
                 response->message = options_.actuation_enabled
-                    ? "Trial stopped; owned output released with 0A, physical stop must be observed"
+                    ? "Trial stopped; owned output released (0A, or VESC brake/handbrake when configured), physical stop must be observed"
                     : "Monitor mode: no actuator output was created or sent";
             });
         reset_service_ = create_service<Trigger>("~/reset",
@@ -180,10 +208,20 @@ public:
         else
             RCLCPP_INFO(get_logger(), "mode=%s; start is manual; duration=%.2fs (hard maximum 5s)",
                         mode.c_str(), options_.duration_s);
-        RCLCPP_WARN(get_logger(), "0A release is coast, not active braking. SIGKILL/power loss require verified VESC timeout.");
+        if (handbrake_pub_ && brake_pub_)
+            RCLCPP_WARN(get_logger(), "stop release = VESC brake %.1f A while |erpm| > %.0f, VESC handbrake hold %.1f A at or below. SIGKILL/power loss require verified VESC timeout.",
+                        stop_brake_current_a_, stop_handbrake_below_erpm_, stop_handbrake_current_a_);
+        else if (handbrake_pub_)
+            RCLCPP_WARN(get_logger(), "stop release = 0A coast while |erpm| > %.0f, VESC handbrake hold %.1f A at or below. SIGKILL/power loss require verified VESC timeout.",
+                        stop_handbrake_below_erpm_, stop_handbrake_current_a_);
+        else if (brake_pub_)
+            RCLCPP_WARN(get_logger(), "stop release = VESC brake current %.1f A (not a parking hold). SIGKILL/power loss require verified VESC timeout.", stop_brake_current_a_);
+        else
+            RCLCPP_WARN(get_logger(), "0A release is coast, not active braking. SIGKILL/power loss require verified VESC timeout.");
     }
 
-    // 기본 ROS signal shutdown보다 먼저 호출해 정상 Ctrl+C/SIGTERM 시 0A 전송 기회를 확보합니다.
+    // 기본 ROS signal shutdown보다 먼저 호출해 정상 Ctrl+C/SIGTERM 시 정지 출력(0A 또는 브레이크/핸드브레이크)
+    // 전송 기회를 확보합니다. 이후 VESC는 timeout_msec(300 ms) 뒤 timeout_brake_current로 풀립니다.
     void prepareShutdown() noexcept override {
         if (!controller_ && !raw_controller_) return;
         activeStop("node shutting down");
@@ -608,7 +646,7 @@ private:
                         RCLCPP_INFO(get_logger(), "raw START accepted axis=MOTOR erpm=%.1f duration=%.2fs; no servo output",
                                     request.motor_erpm, request.duration_s);
                     else if (axis == RawAxis::Steering)
-                        RCLCPP_INFO(get_logger(), "raw START accepted axis=STEERING servo=%.4f duration=%.2fs; motor=0A, angle unmeasured",
+                        RCLCPP_INFO(get_logger(), "raw START accepted axis=STEERING servo=%.4f duration=%.2fs; motor released (0A or stop brake/hold), angle unmeasured",
                                     request.servo_position, request.duration_s);
                     else
                         RCLCPP_INFO(get_logger(), "raw START accepted axis=MANUAL servo=%.4f; continuous heartbeat control; motor starts at 0 ERPM",
@@ -655,7 +693,7 @@ private:
                 stopAndRelease("GUI session stopped");
             }
             response.accepted = true;
-            response.reason = "session closed; 0A is coast, observe physical stop";
+            response.reason = "session closed; motor released (0A coast or stop brake/hold), observe physical stop";
             return;
         }
         if (!stabilityReady()) {
@@ -762,7 +800,7 @@ private:
         if (commissioning_) { raw_controller_->stop(reason); logRawTransition(); }
         else controller_->stop(reason);
     }
-    // The one full stop path: end autonomy/trial, close the GUI session, release the motor with 0A.
+    // The one full stop path: end autonomy/trial, close the GUI session, release the motor (releaseMotor).
     // Takes the reason by value because callers may pass activeReason(), which activeStop overwrites.
     void stopAndRelease(string reason) {
         activeStop(reason);
@@ -819,7 +857,18 @@ private:
         for(const auto& topic:other_command_topics_)graph_other_publishers_+=count_publishers(topic);
         graph_competing_publishers_=graph_telemetry_publishers_>1||graph_speed_publishers_>1||
             graph_current_publishers_>1||graph_servo_publishers_>1||graph_other_publishers_>0;
-        cached_driver_ready_=!graph_competing_publishers_&&graph_telemetry_publishers_==1&&
+        bool brake_ready=true;
+        if(brake_pub_){
+            const auto brake_publishers=count_publishers(brake_pub_->get_topic_name());
+            if(brake_publishers>1)graph_competing_publishers_=true;
+            brake_ready=brake_publishers==1&&brake_pub_->get_subscription_count()>0;
+        }
+        if(handbrake_pub_){
+            const auto handbrake_publishers=count_publishers(handbrake_pub_->get_topic_name());
+            if(handbrake_publishers>1)graph_competing_publishers_=true;
+            brake_ready=brake_ready&&handbrake_publishers==1&&handbrake_pub_->get_subscription_count()>0;
+        }
+        cached_driver_ready_=brake_ready&&!graph_competing_publishers_&&graph_telemetry_publishers_==1&&
             graph_speed_subscribers_>0&&graph_current_subscribers_>0&&graph_servo_subscribers_>0&&
             graph_speed_publishers_==1&&graph_current_publishers_==1&&graph_servo_publishers_==1;
         return cached_driver_ready_;
@@ -856,8 +905,16 @@ private:
     }
 
     // 자신이 시작한 시험에 대해서만 출력합니다. 정지 시 서보를 갑자기 중앙으로 돌리지 않습니다.
+    // 2026-11-12: release = VESC handbrake when enabled and |ERPM| <= stop_handbrake_below_erpm, otherwise the
+    // VESC brake current when enabled, otherwise 0A coast. Repeated every tick while stopped and owned. While
+    // the handbrake is engaged the VESC reports ERPM 0 even if the rotor slips, so ERPM-based checks (and this
+    // choice) cannot see roll-back.
     void releaseMotor() {
-        if (current_pub_ && activeOwnsOutput()) publishScalar(current_pub_, 0.0);
+        if (!current_pub_ || !activeOwnsOutput()) return;
+        if (handbrake_pub_ && abs(last_raw_erpm_) <= stop_handbrake_below_erpm_)
+            publishScalar(handbrake_pub_, stop_handbrake_current_a_);
+        else if (brake_pub_) publishScalar(brake_pub_, stop_brake_current_a_);
+        else publishScalar(current_pub_, 0.0);
     }
 
     // raw 모터 시험의 optional 서보가 비어 있으면 서보 토픽에는 아무것도 보내지 않습니다.
@@ -1009,6 +1066,13 @@ private:
             data["steering_max"] = calibration_.steering_max_rad;
         }
         data["autonomous_active"]=supervisor_.active();
+        data["esc_temp_c"]=thermal_.valid()?nlohmann::json(thermal_.temp_c()):nlohmann::json(nullptr);
+        data["esc_temp_state"]=thermal_.state();
+        // Stop output actually configured on this node (0 = not used). Above stop_handbrake_below_erpm the
+        // release is the brake current (0A coast if it is 0); at or below it the handbrake hold. Both 0 = 0A.
+        data["stop_brake_current_a"]=brake_pub_?stop_brake_current_a_:0.0;
+        data["stop_handbrake_current_a"]=handbrake_pub_?stop_handbrake_current_a_:0.0;
+        data["stop_handbrake_below_erpm"]=stop_handbrake_below_erpm_;
 #ifdef NOMAD_ENABLE_PLANNING
         data["planning_supported"]=true;
         data["planning_calibration_verified"]=planning_calibration_.verified;
@@ -1031,8 +1095,6 @@ private:
         data["planning_minimum_start_erpm"]=planning_measured_speed_control_?0:planning_min_start_erpm_;
         data["planning_minimum_start_mps"]=!planning_measured_speed_control_&&planning_calibration_.erpm_per_mps>0?planning_min_start_erpm_/planning_calibration_.erpm_per_mps:0;
         data["planning_feedback_limit_erpm"]=planning_feedback_limit_erpm_;
-        data["esc_temp_c"]=thermal_.valid()?nlohmann::json(thermal_.temp_c()):nlohmann::json(nullptr);
-        data["esc_temp_state"]=thermal_.state();
         if(commissioning_){
             const auto requested=planning_guard_->target(ros_now,steady_now);
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
@@ -1091,7 +1153,8 @@ private:
     TrialOptions options_;
     Calibration calibration_{};
     unique_ptr<TrialController> controller_;
-    rclcpp::Publisher<Scalar>::SharedPtr speed_pub_, current_pub_, servo_pub_;
+    rclcpp::Publisher<Scalar>::SharedPtr speed_pub_, current_pub_, servo_pub_, brake_pub_, handbrake_pub_;
+    double stop_brake_current_a_{0.0}, stop_handbrake_current_a_{0.0}, stop_handbrake_below_erpm_{200.0};
     size_t graph_telemetry_publishers_=0,graph_speed_subscribers_=0,graph_current_subscribers_=0,graph_servo_subscribers_=0;
     size_t graph_speed_publishers_=0,graph_current_publishers_=0,graph_servo_publishers_=0,graph_other_publishers_=0;
     bool graph_competing_publishers_=false;
