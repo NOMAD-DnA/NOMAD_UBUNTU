@@ -41,6 +41,10 @@ if(BUILD_TESTING)
   target_include_directories(thermal_guard_tests PRIVATE include)
   target_compile_features(thermal_guard_tests PRIVATE cxx_std_17)
   add_test(NAME esc_thermal_guard COMMAND thermal_guard_tests)
+  add_executable(stop_output_tests test/test_stop_output.cpp)
+  target_include_directories(stop_output_tests PRIVATE include)
+  target_compile_features(stop_output_tests PRIVATE cxx_std_17)
+  add_test(NAME stop_output_policy COMMAND stop_output_tests)
   add_executable(planning_start_gate_tests test/test_planning_start_gate.cpp)
   target_link_libraries(planning_start_gate_tests PRIVATE nomad_mapping)
   add_test(NAME planning_start_stability COMMAND planning_start_gate_tests)
@@ -140,8 +144,10 @@ if(NOMAD_BUILD_ROS2)
       ament_target_dependencies(controller_ros_tests nomad_interfaces)
     endif()
     add_test(NAME controller_ros_integration COMMAND controller_ros_tests)
-    # The full suite runs about 62 s on a desktop PC; leave margin for slower machines.
-    set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150)
+    # The full suite runs about 75-80 s on a desktop PC; leave margin for slower machines.
+    # Own DDS domain so a sourced team environment (e.g. domain 42) never sees the test graph.
+    set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150
+      ENVIRONMENT "ROS_DOMAIN_ID=226;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     if(NOMAD_ENABLE_PLANNING)
       # Device-free contract: launch the already built production node once.
       add_executable(test_module_pause_contract test/test_module_pause_contract.cpp)
@@ -179,7 +185,7 @@ if(NOMAD_BUILD_ROS2)
   install(FILES AUTONOMY_GUIDE.ko.txt DESTINATION share/${PROJECT_NAME})
 endif()
 
-foreach(target nomad_raw_trial raw_trial_tests nomad_mapping nomad_trial nomad_convert mapping_tests trial_tests nomad_controller_core controller_node controller_ros_tests gui_server nomad_gui_preview gui_http_tests)
+foreach(target nomad_raw_trial raw_trial_tests nomad_mapping nomad_trial nomad_convert mapping_tests trial_tests nomad_controller_core controller_node controller_ros_tests gui_server nomad_gui_preview gui_http_tests thermal_guard_tests stop_output_tests)
   if(TARGET ${target})
     if(MSVC)
       target_compile_options(${target} PRIVATE /W4 /utf-8)

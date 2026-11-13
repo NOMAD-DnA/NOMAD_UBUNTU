@@ -12,9 +12,9 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 | VESC → 제어기 | `/nomad_bench/sensors/core` | `vesc_msgs/msg/VescStateStamped`: ERPM, A, V, 오류 |
 | 제어기 → VESC | `/nomad_bench/commands/motor/speed` | `std_msgs/msg/Float64`, ERPM |
 | 제어기 → VESC | `/nomad_bench/commands/servo/position` | `std_msgs/msg/Float64`, 0~1 |
-| 제어기 → VESC | `/nomad_bench/commands/motor/current` | `std_msgs/msg/Float64`, 정지 시 0 A(정지 브레이크·유지를 끈 경우) |
-| 제어기 → VESC | `/nomad_bench/commands/motor/brake` | `std_msgs/msg/Float64`, A. 정지 중 \|ERPM\| > `stop_handbrake_below_erpm` |
-| 제어기 → VESC | `/nomad_bench/commands/motor/handbrake` | `std_msgs/msg/Float64`, A. 정지 중 그 이하. **패치한 VESC 드라이버 필요** |
+| 제어기 → VESC | `/nomad_bench/commands/motor/current` | `std_msgs/msg/Float64`, 정지 시 0 A(정지 브레이크·유지를 끈 경우, 또는 VESC 고장 코드로 잠긴 경우) |
+| 제어기 → VESC | `/nomad_bench/commands/motor/brake` | `std_msgs/msg/Float64`, A. 정지 중 핸드브레이크를 걸지 않은 동안(\|ERPM\| > `stop_handbrake_below_erpm`, 상태값 끊김, 유지 포기) |
+| 제어기 → VESC | `/nomad_bench/commands/motor/handbrake` | `std_msgs/msg/Float64`, A. 정지 중 정상 상태값이 그 이하일 때 걸고 다음 구동 명령까지 유지. **패치한 VESC 드라이버 필요** |
 | 제어기 → LPP | `/nomad/control/vehicle_state` | `nomad_interfaces/msg/VehicleState` |
 | 제어기 → GUI·로그 | `/nomad_vesc_trial/status_json` | `std_msgs/msg/String`, JSON 상태 |
 
@@ -29,7 +29,7 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 - 조향 입력 ±0.6108652382 rad(±35°) → 서보 0~1, 중앙 0.5. 실제 바퀴 각도 피드백은 없습니다.
 - VESC 내부 속도 PID를 사용합니다. C++은 ERPM 목표와 과속 감시를 담당합니다. 과속 감시 기준은 1200 ERPM이며 50 ERPM 여유를 넘는 초과분에 따라 목표를 낮춥니다.
 - 전류 기준(`commissioning.yaml`): **모터 전류 55 A**(`motor_current_limit_a`), **배터리 입력 전류 30 A**(`current_limit_a`), 즉시 잠금 60 A(`overcurrent_hard_a`), 지속 0.3초(`overcurrent_sustain_s`), 반복 10초에 3회(`overcurrent_spike_limit`, `overcurrent_spike_window_s`). 저속 출발은 모터 전류만 크고(30~35 A) 입력 전류는 2~3 A라 두 기준을 나눴습니다.
-- 정지 출력은 VESC 브레이크 20 A → 거의 멈추면 핸드브레이크 15 A 유지입니다(2026-11-12, 후보값). 경사 정차가 보장되지는 않습니다. 아래 '정지 출력'을 보세요.
+- 정지 출력은 VESC 브레이크 20 A → 거의 멈추면 핸드브레이크 15 A 유지입니다(2026-11-12, 후보값). VESC가 고장 코드를 보내 잠기면 0 A로 풉니다(11-13). 경사 정차가 보장되지는 않습니다. 아래 '정지 출력'을 보세요.
 - ESC MOSFET 온도 보호: 65 ℃ 경고, 80 ℃ 이상이면 자율주행 출력 정지, 70 ℃ 미만에서 재출발 허용. 아래 'ESC 온도 보호'를 보세요.
 - `VehicleState.speed_valid`와 `steering_valid`는 현재 false입니다. 값 0을 실측 정지·직진으로 해석하지 마세요. ERPM·전류·전압·오류는 별도로 제공합니다. IMU 경사·전복 보호는 현재 활성화하지 않습니다.
 
@@ -37,11 +37,12 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 
 | 구분 | 경우 | 동작 |
 |---|---|---|
-| 치명 | VESC 고장 코드, 전압 0 V 이하, 과속 2500 ERPM 초과, 바퀴 걸림(명령 중 50 ERPM 미만 2초), 다른 프로그램의 VESC 명령 토픽 발행, 운영자 STOP, 과전류(모터 55 A·입력 30 A 초과가 0.3초 지속 / 60 A 1회 / 10초에 3회), 시작 전 Idle에서 본 치명 고장 | 정지 출력 후 **잠김**. RESET(차가 0.5초 이상 정지) 필요. 핸드브레이크 중에는 ERPM이 0으로 고정돼 미끄러져도 이 조건을 통과하므로 복구 전 눈으로 정지를 확인 |
+| 치명 | VESC 고장 코드, 전압 0 V 이하, 과속 2500 ERPM 초과, 바퀴 걸림(명령 중 50 ERPM 미만 2초), 다른 프로그램의 VESC 명령 토픽 발행, 운영자 STOP, 과전류(모터 55 A·입력 30 A 초과가 0.3초 지속 / 60 A 1회 / 10초에 3회), 시작 전 Idle에서 본 치명 고장 | 정지 출력 후 **잠김**(VESC 고장 코드로 잠기면 0 A). RESET(차가 0.5초 이상 정지) 필요. 핸드브레이크 중에는 ERPM이 0으로 고정돼 미끄러져도 이 조건을 통과하므로 복구 전 눈으로 정지를 확인 |
 | 비치명 | 짧은 전류 피크, 제어 주기 0.2초 이상 지연, ROS 시계 역행(기준 재설정), 값이 숫자가 아닌 상태값 1회, LPP 명령 끊김·만료·STOP, 모터 상태 끊김, 드라이버 일시 사라짐, ESC 80 ℃ 이상(70 ℃ 미만까지) | 정지 출력 후 **대기**. 새 유효 입력이 오면 RESET 없이 재출발 |
 
 - 수동 GUI 세션은 예전처럼 모두 잠급니다.
 - 잠금·대기 사유는 하나로 묶지 않고 값과 함께 나옵니다. 예: `raw current spike: motor 33.0 A (limit 55), input 2.1 A (limit 30); output released`, `raw overspeed: 2600 ERPM > 2500 ERPM`, `raw VESC fault code 7`.
+- 지금 정지 출력 상태: `status_json`의 `stop_output`(`none` 주행 중이거나 아직 없음 · `coast` 0 A · `brake` · `hold` 핸드브레이크), `stop_output_a`(보내는 전류), `stop_hold_s`(유지 시간), `erpm_valid`(핸드브레이크 중 false: 이때 ERPM 0은 측정값이 아님), `vesc_fault`(VESC 고장 코드로 잠긴 상태, 출력권이 있으면 0 A로 풂. 0 A 해제가 시작될 때 `[STOP_OUTPUT]` 경고가 한 번 나옴), `stop_holds_abandoned`(노드 시작 뒤 유지를 포기한 누적 횟수), `planning_wait_reason`(SOFT_STOPPED·RESUME_PENDING일 때 대기 사유, 그 밖에는 빈 문자열). `control_trace` 로그 줄에는 `stop=`, `erpm_valid=`, `[PLANNING_WAIT]`에는 `brake_pub_sub=`, `handbrake_pub_sub=`(발행자,구독자)가 있습니다.
 - `status_json`에 `planning_supervisor_state`(IDLE·ACTIVE·SOFT_STOPPED·RESUME_PENDING·BLOCKED)와 `motor_current_limit_a`, `input_current_limit_a`, `overcurrent_hard_a`, `esc_temp_c`, `esc_temp_state`, `stop_brake_current_a`, `stop_handbrake_current_a`, `stop_handbrake_below_erpm`가 있습니다(정지 전류는 실제로 켜진 값, 꺼져 있으면 0).
 - 통합 GUI 플래닝 개발 창의 **'제어기 복구'** 버튼(`feat/gui`)이 Pi4 제어기의 `~/reset`만 부릅니다(구동 명령 없음). 출력 허용 상태면 복구 직후 다시 출발합니다. 핸드브레이크 중에는 차가 미끄러져도 정지로 보이므로 누르기 전에 눈으로 확인하세요.
 
@@ -56,17 +57,19 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 | `stop_handbrake_below_erpm` | 200.0 | 브레이크 → 핸드브레이크 전환 기준(0~2000 ERPM) |
 | `motor_handbrake_topic` | `/nomad_bench/commands/motor/handbrake` | 핸드브레이크 토픽 |
 
-- 정지 출력은 LPP STOP·명령 만료·속도 0, 운영자 STOP, 치명 잠금, 종료를 포함한 모든 해제에 쓰이고, 출력권을 가진 동안 20 ms마다 다시 보냅니다. 두 값이 0이면 예전처럼 0 A입니다. 브레이크만 0이면 기준 위에서는 0 A, 핸드브레이크만 0이면 항상 브레이크입니다. 핸드브레이크가 걸린 뒤에는 ERPM이 0으로 고정돼 미끄러져도 브레이크로 돌아가지 않습니다.
-- 브레이크나 핸드브레이크를 켜면 그 토픽의 발행자가 제어기 하나뿐이고 구독자(드라이버)가 있어야 출발합니다. 패치 안 한 드라이버에서는 출발하지 않습니다. 이때 사유는 처음 출발 때 `raw start refused: need exclusive driver ...`, 재출발 대기 중에는 `driver endpoints unavailable; waiting`으로만 나오므로 `ros2 topic info -v /nomad_bench/commands/motor/handbrake`로 구독자를 확인하세요. 드라이버 패치·설정: [`vesc_config_20261112/driver/README.md`](vesc_config_20261112/driver/README.md).
+- 정지 출력은 LPP STOP·명령 만료·속도 0, 운영자 STOP, 치명 잠금, 종료를 포함한 모든 해제에 쓰이고, 출력권을 가진 동안 20 ms마다 다시 보냅니다. 두 값이 0이면 예전처럼 0 A입니다. 브레이크만 0이면 핸드브레이크를 걸지 않은 동안 0 A, 핸드브레이크만 0이면 항상 브레이크입니다. 어느 설정이든 VESC 고장 코드로 잠기면 0 A입니다. 무엇을 낼지는 `include/nomad_control_cpp/stop_output.hpp`(ROS 없는 정책, 단위시험 `stop_output_policy`)가 정합니다.
+- **핸드브레이크 진입과 유지(11-13):** 새로 받은 정상 상태값이 200 ERPM 이하이고 드라이버가 핸드브레이크 토픽을 구독할 때만 겁니다. 상태값이 끊기거나 오래되면 걸지 않고 브레이크를 보냅니다. 한 번 걸리면 다음 구동 명령(0이 아닌 속도)까지 유지합니다. 다만 건 지 0.1초가 지난 뒤 최근에 받은 상태값(검사에서 거부된 값 포함)이 400 ERPM(진입 기준의 2배와 기준+200 중 큰 값)을 넘거나 핸드브레이크 구독자가 사라지면, 유지가 실제로 안 되고 있는 것이므로 브레이크로 돌아갑니다(진짜 유지 중에는 0으로 읽힘). 그 뒤 구독자가 있고 정상 상태값이 다시 200 ERPM 이하이면 다시 겁니다.
+- **VESC 고장 코드(11-13):** VESC가 고장 코드를 보내 잠기면 브레이크·핸드브레이크 대신 0 A로 풉니다(고장을 보고한 VESC에 전류를 다시 걸지 않기 위해, 대신 경사에서는 굴러갈 수 있음). 멈춘 상태에서 출력권을 가진 채 고장이 와도 잠깁니다. 과전류·과속·바퀴 걸림·전압 이상·운영자 STOP 같은 다른 치명 잠금은 브레이크·유지를 계속합니다. RESET이 받아들여지면 해제됩니다.
+- 브레이크나 핸드브레이크를 켜면 그 토픽의 발행자가 제어기 하나뿐이고 구독자(드라이버)가 있어야 출발합니다. 패치 안 한 드라이버에서는 출발하지 않습니다. 이때 사유는 처음 출발 때 `raw start refused: need exclusive driver ...`, 재출발 대기 중에는 `VESC handbrake topic has no subscriber (patched vesc_driver required); waiting`(드라이버의 상태값·속도·전류 토픽은 보일 때. 브레이크 토픽만 구독자가 없으면 `VESC brake topic has no subscriber; waiting`, 드라이버가 안 보이는 등 그 밖의 경우는 `driver endpoints unavailable; waiting`)으로 나옵니다. 처음 출발 실패는 핸드브레이크를 직접 가리키지 않으므로 `ros2 topic info -v /nomad_bench/commands/motor/handbrake`로 구독자를 확인하세요. 드라이버 패치·설정: [`vesc_config_20261112/driver/README.md`](vesc_config_20261112/driver/README.md).
 - 11-12 저녁 Pi4 시험: 브레이크만 걸었을 때 10 A(21:15)는 정지 중 최대 −1239 ERPM, 20 A(21:23)는 최대 −1792 ERPM으로 뒤로 밀렸습니다. 21:10 시험은 드라이버 `brake_max`가 0이라 브레이크가 0 A로 잘려 사실상 관성 정지였습니다(−1405 ERPM). 핸드브레이크 15 A를 더한 21:42 시험(VIO 위치)에서는 13번 정지 중 33.8 A로 오르던 중 멈춘 1번은 약 15 cm 밀렸고, 나머지 12번은 정지~재출발 사이 순변위가 약 4 cm 이내(대부분 1 cm 이내)였습니다(953 ERPM에서 멈춘 1번은 약 5 cm 앞으로 갔다가 되돌아옴). 다시 출발할 때 뒤로 밀리지는 않았지만, 전류가 오르는 1~2초 동안 거의 움직이지 않았습니다.
 
 **한계 (다음 경사 시험 전에 개선 예정)**
 - 핸드브레이크 중에는 VESC가 보고하는 ERPM·타코가 0으로 고정됩니다(펌웨어 5.03이 위상을 0으로 고정). 미끄러져도 ERPM이 0이라 과속 잠금(2500 ERPM), RESET·'제어기 복구'의 정지 확인, 재출발 전 역방향 확인이 모두 정지로 판단합니다. 21:42 시험에서 33.8 A로 오르던 중 정지한 한 번은 ERPM 0으로 기록됐지만 VIO로 약 10~15 cm 밀렸습니다. 15 A 최대 유지력은 바퀴에서 약 6.7 N이고, 11-12 오르막 주행 전류 약 16~34 A는 약 7~15 N입니다(환산 계수 3721.88 ERPM/(m/s) 미검증 기준).
 - 브레이크 전류는 속도에 비례하는 감쇠라 경사에서 차를 세우지 못하고, 뒤로 밀리는 속도가 수백~1800 ERPM에서 더 커지지 않을 뿐입니다. 이미 뒤로 밀리거나 내리막에서 정지하면 200 ERPM 아래로 내려오지 않아 핸드브레이크가 걸리지 않을 수 있습니다(내리막 정지 미시험).
 - 출발은 VESC 속도 PID(kp·ki 0.004)가 처음 약 12 A에서 1초에 약 12 A씩 올리므로, 30 A 이상이 필요한 경사에서는 출발이 늦고 2초 바퀴 걸림 잠금에 걸릴 수 있습니다.
-- 치명 잠금(VESC 고장 코드·과전류 포함) 중에도 정지 출력을 계속 보냅니다. VESC는 고장 후 0.5초가 지나면 명령을 다시 받습니다.
+- VESC 고장 코드로 잠기면 0 A라서 경사에서는 굴러갈 수 있습니다. 다른 치명 잠금 중에는 정지 출력을 계속 보냅니다.
 - 제어기·드라이버가 꺼지면 VESC는 300 ms 뒤 `timeout_brake_current`(0 = 관성)로 풀립니다.
-- `mode=bench` ROS 시험만 브레이크·핸드브레이크를 켜고 돌립니다. `mode=commission`(자율주행·수동 GUI) 경로의 ROS 시험은 아직 0 A 설정입니다.
+- ROS 시험: `mode=commission` headless 자율주행 경로는 실제 설정(20 A / 15 A / 200 ERPM)으로 돌립니다(STOP 유지, 움직이는 중 STOP의 브레이크 → 유지, 유지 고정과 포기, 과속 잠금 중 브레이크, VESC 고장 0 A와 RESET 뒤 유지 복귀, 상태값 끊김 때 브레이크, 핸드브레이크 구독자 없음과 복귀). `mode=bench`는 브레이크 8 A·핸드브레이크 12 A로 브레이크 반복, 정지 유지, 멈춘 시험 중 VESC 고장 0 A와 RESET 뒤 유지 복귀를 봅니다. 수동 GUI 경로의 ROS 시험은 아직 0 A 설정입니다.
 - `operation_environment`는 계속 `raised_bench`만 허용합니다.
 
 ### ESC 온도 보호 (2026-11-12)
@@ -94,6 +97,7 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 - `include/nomad_control_cpp/control_limits.hpp`: 명령 신선도, 미래 stamp 허용, LPP lease, 1850 ERPM 상한 등 공용 안전 상수.
 - `include/nomad_control_cpp/planning_command.hpp`: LPP 명령 검사. ERPM 상한은 `commissioning.motor_max_erpm`을 따릅니다.
 - `include/nomad_thermal/thermal_guard.hpp`: ESC 온도 보호(헤더만, 단위시험 `test/thermal_guard_test.cpp`).
+- `include/nomad_control_cpp/stop_output.hpp`: 정지 출력 정책(0 A·브레이크·핸드브레이크 선택, 유지 고정·포기, VESC 고장 0 A; 단위시험 `test/test_stop_output.cpp`).
 - `planning.headless=true`는 `mode=commission`에서만 허용합니다(다른 모드는 시작 거부).
 
 ## ROS 빌드와 자율주행 실행
@@ -147,11 +151,11 @@ python3 src/nomad_control_cpp/scripts/test_record_control_trials.py
 
 이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다.
 
-ROS 환경에서는 `colcon test`로 17개 시험이 돕니다(ROS 통합시험은 약 67초, 제한 150초). 알려진 실패: `rpm_running_floor_ros`의 100 ERPM 경계 기대값 2건은 의도적으로 예전 값을 유지해 실패하고, `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관).
+ROS 환경에서는 `colcon test`로 18개 시험이 돕니다(ROS 통합시험은 약 75~80초, 제한 150초, 자체 DDS domain 226). 알려진 실패: `rpm_running_floor_ros`의 100 ERPM 경계 기대값 2건은 의도적으로 예전 값을 유지해 실패하고, `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관).
 
 ## 작업 내역 (2026-11-11 ~ 11-13, BAE)
 
-e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실행 파일 sha256 `f03e70a3…`). 그 뒤 Pi4에서 직접 온도 보호(11-12 야지 시험 전)와 정지 출력(11-12 저녁)을 넣어 21:33에 빌드했고(sha256 `c4a86cf9…`, 백업 `log/stop_brake_20261112`, `log/handbrake_20261112`), 그 소스를 아래 11-13 커밋으로 옮겼습니다. 동작은 같고 문구·`status_json` 정지 필드·스타일만 다르며, 다음 Pi4 빌드 때 반영됩니다.
+e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실행 파일 sha256 `f03e70a3…`). 그 뒤 Pi4에서 직접 온도 보호(11-12 야지 시험 전)와 정지 출력(11-12 저녁)을 넣어 21:33에 빌드했고(sha256 `c4a86cf9…`, 백업 `log/stop_brake_20261112`, `log/handbrake_20261112`), 그 소스를 아래 11-13 커밋으로 옮겼습니다. 07668df까지는 Pi4 설치본과 동작이 같고 문구·`status_json` 정지 필드·스타일만 다릅니다. 그 뒤 정지 출력 1단계(유지 고정·포기, VESC 고장 0 A, 대기 사유)는 Pi4 설치본과 동작이 다르며, 다음 Pi4 빌드 때 반영됩니다.
 
 | 커밋 | 내용 |
 |---|---|
@@ -169,7 +173,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 8d5a409 | VESC HFI 설정 파일과 정리 문서 |
 | 2da7b01 | (11-13) ESC MOSFET 온도 보호(65 경고 / 80 정지 / 70 미만 재출발) |
 | 07668df | (11-13) 정지 출력: 브레이크 20 A → 200 ERPM 이하 핸드브레이크 15 A, `status_json` 정지 필드, 웹 GUI 안내 |
-| (이 커밋) | (11-13) 문서·안내서 갱신, VESC 드라이버 패치·설정 기록 |
+| 74059b1 | (11-13) 문서·안내서 갱신, VESC 드라이버 패치·설정 기록 |
+| (이 커밋) | (11-13) 정지 출력 1단계: `StopOutput` 정책(단위시험), 핸드브레이크 유지 고정·포기 조건, VESC 고장 코드 0 A, 정지 상태 표시(`stop_output`·`erpm_valid` 등), 핸드브레이크 구독자 없음 대기 사유, 실제 설정 자율주행 ROS 시험 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
@@ -180,5 +185,5 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 3. 리뷰에서 나온 개선 후보(미수정): 전류 피크 직후 재출발 대기 없음, RESET 때 과전류 기록 미초기화, 과속 감속 명령이 VESC PID 최소값 아래로 내려감, 운영자 STOP 후 복구하면 곧바로 출발.
 4. 플래너 쪽 합의: 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복.
 5. HFI 적용 후 통합시험(ERPM 모드)에서 턱 넘기·바퀴 걸림 감시·모터 발열 확인. VIO duty 모드는 계속 사용 금지(Pi4의 `nomad_vio_duty_control`에도 11-12에 같은 정지 출력과 온도 보호가 들어갔지만 실차 미시험, 이 저장소 밖).
-6. 정지 출력 개선(다음 경사 시험 전, 받침대 시험 필요): 핸드브레이크 상태 고정과 표시, 그동안 ERPM 0을 정지로 믿지 않기(RESET·재출발), VIO로 미끄러짐 감지, 밀리는 중·내리막 정지 때 작은 속도 명령으로 능동 정지 후 유지, 유지 전류 25~30 A 시험, 전기 고장 때는 0 A로 푸는 정책, 실제 설정(20/15/200)으로 자율주행 경로 ROS 시험, 대기 사유에 브레이크·핸드브레이크 토픽 상태 표시.
+6. 정지 출력 개선(다음 경사 시험 전): 1단계(유지 고정·표시, VESC 고장 0 A, 실제 설정 ROS 시험, 대기 사유)는 11-13에 완료. 남은 것: 2단계 언덕 출발 보조, 3단계 유지 전류 자동 조정(25~30 A 시험), 4단계 VIO로 미끄러짐 감지(그때 유지 중 RESET·재출발이 ERPM 0을 정지로 믿지 않게), 5단계 밀리는 중·내리막 정지 때 능동 정지 후 유지.
 7. 데스크톱 Qt GUI 도움말(`desktop/main.cpp`)의 '실제 차량에서는 브레이크가 아닙니다' 문구는 Qt6 빌드 확인 뒤 고칩니다. 웹 GUI는 실제 정지 설정을 표시합니다.

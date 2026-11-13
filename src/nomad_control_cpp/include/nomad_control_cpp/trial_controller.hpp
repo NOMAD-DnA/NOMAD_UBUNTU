@@ -61,6 +61,9 @@ public:
     bool stationary(double steady_now, double ros_now) const;
     TrialState state() const { return state_; }
     const std::string& reason() const { return reason_; }
+    // A latched fault reported by the VESC itself (nonzero fault code). The node then releases with
+    // 0A instead of brake/hold. Cleared by an accepted reset().
+    bool vescFault() const { return vesc_fault_; }
     std::optional<double> measuredSpeed() const { return measured_speed_; }
     bool ownsOutput() const { return output_owned_; }
     bool manualActive() const { return manual_active_; }
@@ -76,7 +79,7 @@ public:
 
 private:
     bool checkClock(double steady_now, double ros_now);
-    void invalidateTelemetry(const std::string& reason);
+    void invalidateTelemetry(const std::string& reason, bool vesc_fault = false);
     TrialOutput restingOutput() const;
     Calibration calibration_;
     TrialOptions options_;
@@ -84,6 +87,7 @@ private:
     std::string reason_ = "waiting for telemetry";
     bool output_owned_ = false;
     bool telemetry_ok_ = false;
+    bool vesc_fault_ = false;
     std::optional<TelemetrySample> sample_;
     std::optional<double> measured_speed_;
     std::optional<double> last_ros_now_;

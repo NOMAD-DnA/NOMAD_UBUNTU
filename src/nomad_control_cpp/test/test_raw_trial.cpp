@@ -6,12 +6,13 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+using namespace std;
 
 namespace {
 int checks = 0, failures = 0;
 void expect(bool ok, const char* name) {
     ++checks;
-    if (!ok) { ++failures; std::cerr << "FAIL: " << name << '\n'; }
+    if (!ok) { ++failures; cerr << "FAIL: " << name << '\n'; }
 }
 
 nomad::RawOptions enabled() {
@@ -84,10 +85,10 @@ void testMotorAxisAndRamp() {
                output.motor_erpm - previous <= 60.0 + 1e-8, "ERPM increase respects ramp and cap");
         previous = output.motor_erpm;
     }
-    expect(std::abs(previous - 1850) < 1e-8, "motor ramp eventually reaches requested ERPM");
+    expect(abs(previous - 1850) < 1e-8, "motor ramp eventually reaches requested ERPM");
     r.feed(); r.update(nomad::RawAxis::Motor, 1000, 0.5);
     const auto reduced = r.tick();
-    expect(std::abs(previous - reduced.motor_erpm - 120.0) < 1e-8,
+    expect(abs(previous - reduced.motor_erpm - 120.0) < 1e-8,
            "positive lower target uses separate faster deceleration ramp");
     r.feed(); r.update(nomad::RawAxis::Motor, 0, 0.5);
     expect(r.tick().motor_erpm == 0.0 && r.controller.targetMotorErpm() == 0.0,
@@ -117,7 +118,7 @@ void testSteeringAxisAndContinuity() {
             previous = *output.servo_position;
         }
     }
-    expect(std::abs(previous - 0.51) < 1e-9, "steering target reached as command, not measured angle");
+    expect(abs(previous - 0.51) < 1e-9, "steering target reached as command, not measured angle");
     r.controller.stop("released hold");
     expect(!r.tick().servo_position, "release does not move servo back to center");
     expect(r.controller.reset(r.steady, r.ros), "stationary steering trial may reset");
@@ -131,7 +132,7 @@ void testSteeringAxisAndContinuity() {
     expect(r.start(nomad::RawAxis::Steering, 0, 0.49), "opposite steering trial after explicit reset");
     r.feed();
     const auto next = r.tick();
-    expect(next.servo_position && std::abs(*next.servo_position - 0.509) < 1e-9,
+    expect(next.servo_position && abs(*next.servo_position - 0.509) < 1e-9,
            "new steering trial slews from last command, not assumed center");
 }
 
@@ -156,15 +157,15 @@ void testExpandedSteeringEnvelope() {
             if (output.servo_position) {
                 const double position = *output.servo_position;
                 bounded = bounded && position >= 0.45 && position <= 0.55 &&
-                    std::abs(position - previous) <= 0.001 + 1e-9;
+                    abs(position - previous) <= 0.001 + 1e-9;
                 previous = position;
             }
             if (i == 39)
-                expect(std::abs(previous - target) > 0.009,
+                expect(abs(previous - target) > 0.009,
                        "expanded endpoint cannot be reached in two seconds at unchanged slew");
         }
         expect(bounded, "expanded steering preserves slew, configured range and motor isolation");
-        expect(std::abs(previous - target) < 1e-9,
+        expect(abs(previous - target) < 1e-9,
                "expanded endpoint reached as a command within three seconds");
         for (int i = 0; i < 9; ++i) {
             r.feed();
@@ -218,20 +219,20 @@ void testExplicitOuterSteeringEnvelope() {
             if (output.servo_position) {
                 const double position = *output.servo_position;
                 bounded = bounded && position >= 0.40 && position <= 0.60 &&
-                    std::abs(position - previous) <= 0.002 + 1e-9 &&
-                    std::abs(target - position) <= std::abs(target - previous) + 1e-9;
+                    abs(position - previous) <= 0.002 + 1e-9 &&
+                    abs(target - position) <= abs(target - previous) + 1e-9;
                 previous = position;
             }
             if (i == 20)
-                expect(std::abs(std::abs(previous - 0.50) - 0.04) < 1e-9 &&
-                       std::abs(previous - target) > 0.059,
+                expect(abs(abs(previous - 0.50) - 0.04) < 1e-9 &&
+                       abs(previous - target) > 0.059,
                        "one second moves at most .04 and does not reach outer endpoint");
             if (i == 49)
-                expect(std::abs(previous - target) > 0.0019,
+                expect(abs(previous - target) > 0.0019,
                        "outer endpoint is not reached before 2.5 seconds");
         }
         expect(bounded, "outer steering preserves motor zero, configured range and slew on every tick");
-        expect(std::abs(previous - target) < 1e-9,
+        expect(abs(previous - target) < 1e-9,
                "outer endpoint reached as command at 2.5 seconds, not measured angle");
         for (int i = 0; i < 11; ++i) {
             r.feed();
@@ -312,7 +313,7 @@ void testAxisAndInvalidTargets() {
     expect(!switched.update(nomad::RawAxis::Steering, 0, 0.5), "axis switch during run refused");
     expect(switched.controller.state() == nomad::TrialState::Fault && !switched.tick().servo_position,
            "axis switch faults without touching servo");
-    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double nan = numeric_limits<double>::quiet_NaN();
     for (int kind = 0; kind < 7; ++kind) {
         Rig r; r.prime(); r.start();
         const double erpm = kind == 0 ? -1 : kind == 1 ? 1850.1 : kind == 2 ? nan : 1000;
@@ -336,7 +337,7 @@ void testTelemetryAndClockFaults() {
         if (kind == 3) sample.current_input_a = -30.01;
         if (kind == 4) sample.voltage_v = 0;
         if (kind == 5) sample.fault_code = 1;
-        if (kind == 6) sample.raw_erpm = std::numeric_limits<double>::infinity();
+        if (kind == 6) sample.raw_erpm = numeric_limits<double>::infinity();
         if (kind == 7) sample.stamp_s -= 0.31;
         if (kind == 8) sample.stamp_s += 0.1;
         r.controller.observe(sample, r.steady, r.ros);
@@ -354,7 +355,7 @@ void testTelemetryAndClockFaults() {
         Rig r; r.prime(); r.start();
         if (kind == 0) r.steady -= 0.01;
         if (kind == 1) r.ros -= 0.01;
-        if (kind == 2) r.steady = std::numeric_limits<double>::quiet_NaN();
+        if (kind == 2) r.steady = numeric_limits<double>::quiet_NaN();
         expect(r.tick().kind == nomad::OutputKind::Release && r.controller.state() == nomad::TrialState::Fault,
                "invalid or reversed clock stops");
     }
@@ -390,7 +391,7 @@ void testStationaryAndReplays() {
 }
 
 void testOptionBounds() {
-    const std::vector<std::function<void(nomad::RawOptions&)>> invalid = {
+    const vector<function<void(nomad::RawOptions&)>> invalid = {
         [](auto& o) { o.motor_max_erpm = 1851; }, [](auto& o) { o.motor_max_erpm = 0; },
         [](auto& o) { o.overspeed_erpm = 2501; }, [](auto& o) { o.overspeed_erpm = o.motor_max_erpm; },
         [](auto& o) { o.servo_min = -0.001; }, [](auto& o) { o.servo_max = 1.001; },
@@ -406,11 +407,11 @@ void testOptionBounds() {
         [](auto& o) { o.stall_command_erpm = 101; },
         [](auto& o) { o.stall_feedback_erpm = o.stall_command_erpm + 1.0; },
         [](auto& o) { o.manual_servo_rate_s = 0.4001; }, [](auto& o) { o.manual_servo_rate_s = 0.0; },
-        [](auto& o) { o.servo_center = std::numeric_limits<double>::quiet_NaN(); }
+        [](auto& o) { o.servo_center = numeric_limits<double>::quiet_NaN(); }
     };
     for (const auto& change : invalid) {
         auto options = enabled(); change(options); bool rejected = false;
-        try { Rig invalid_rig(options); } catch (const std::invalid_argument&) { rejected = true; }
+        try { Rig invalid_rig(options); } catch (const invalid_argument&) { rejected = true; }
         expect(rejected, "unsafe or nonsensical commissioning option refused");
     }
     Rig r; r.prime();
@@ -424,7 +425,7 @@ void testContinuousManual() {
     Rig r(options); r.prime();
     expect(!r.start(nomad::RawAxis::Manual, 1, 0.5, 0), "continuous START must start at zero ERPM");
     expect(!r.start(nomad::RawAxis::Manual, 0, 0.5, 1), "continuous START must explicitly select duration zero");
-    expect(!r.start(nomad::RawAxis::Manual, 0, 0.5, std::numeric_limits<double>::quiet_NaN()),
+    expect(!r.start(nomad::RawAxis::Manual, 0, 0.5, numeric_limits<double>::quiet_NaN()),
            "continuous duration cannot be nonfinite");
     expect(!r.controller.ownsOutput(), "invalid continuous starts do not acquire output");
     expect(r.start(nomad::RawAxis::Manual, 0, 0.5, 0), "explicit continuous START accepted");
@@ -440,12 +441,12 @@ void testContinuousManual() {
         const auto output = r.tick();
         valid = valid && output.kind == nomad::OutputKind::Drive && output.servo_position &&
             output.motor_erpm >= 0 && output.motor_erpm <= 600 &&
-            (erpm == 0 ? output.motor_erpm == 0.0 : std::abs(output.motor_erpm - previous_erpm) <= 60.0 + 1e-8);
+            (erpm == 0 ? output.motor_erpm == 0.0 : abs(output.motor_erpm - previous_erpm) <= 60.0 + 1e-8);
         if (output.servo_position) {
             valid = valid && *output.servo_position >= 0.40 && *output.servo_position <= 0.60 &&
-                std::abs(*output.servo_position - previous_servo) <= 0.020 + 1e-9;
+                abs(*output.servo_position - previous_servo) <= 0.020 + 1e-9;
             if (output.motor_erpm > 0 && *output.servo_position > 0.5) simultaneous = true;
-            if (i == 59) responsive = std::abs(*output.servo_position - 0.40) < 1e-9;
+            if (i == 59) responsive = abs(*output.servo_position - 0.40) < 1e-9;
             previous_servo = *output.servo_position;
         }
         previous_erpm = output.motor_erpm;
@@ -455,7 +456,7 @@ void testContinuousManual() {
     expect(r.controller.continuousManualActive() && r.controller.remaining(r.steady) == 0,
            "fresh continuous control stays RUNNING past the three-second trial limit");
     expect(r.controller.commandedMotorErpm() == 0 &&
-           std::abs(r.controller.commandedServoPosition() - 0.4) < 1e-9,
+           abs(r.controller.commandedServoPosition() - 0.4) < 1e-9,
            "reported commands match final outputs without claiming physical feedback");
     r.controller.stop("operator STOP");
     const auto stopped = r.tick();
@@ -508,7 +509,7 @@ void testHalfRadianCandidateEnvelope() {
             bounded = bounded && output.servo_position && *output.servo_position >= 0.375 &&
                 *output.servo_position <= 0.625 && output.motor_erpm == 0.0;
         }
-        expect(bounded && std::abs(r.controller.commandedServoPosition() - target) < 1e-9,
+        expect(bounded && abs(r.controller.commandedServoPosition() - target) < 1e-9,
                "expanded endpoint is reachable with bounded slew and motor released");
     }
     r.feed();
@@ -531,11 +532,11 @@ void testNextCandidateEnvelope() {
             bounded = bounded && output.servo_position && *output.servo_position >= 0.3625 &&
                 *output.servo_position <= 0.6375 && output.motor_erpm == 0.0;
             if (output.servo_position) {
-                bounded = bounded && std::abs(*output.servo_position - previous) <= 0.008 + 1e-9;
+                bounded = bounded && abs(*output.servo_position - previous) <= 0.008 + 1e-9;
                 previous = *output.servo_position;
             }
         }
-        expect(bounded && std::abs(r.controller.commandedServoPosition() - target) < 1e-9,
+        expect(bounded && abs(r.controller.commandedServoPosition() - target) < 1e-9,
                "new candidate endpoint reaches exactly with unchanged slew limit and zero motor");
     }
     for (const double invalid_target : {0.3624, 0.6376}) {
@@ -560,7 +561,7 @@ void testStallWatchdog() {
     expect(active, "watchdog excludes initial acceleration below 100 ERPM from two-second stall budget");
     for (int i = 0; i < 5; ++i) { r.feed(); r.update(nomad::RawAxis::Manual, 200, 0.5); r.tick(); }
     expect(r.controller.state() == nomad::TrialState::Fault &&
-           r.controller.reason().find("stalled") != std::string::npos,
+           r.controller.reason().find("stalled") != string::npos,
            "two seconds of commanded rotation without feedback faults");
     expect(r.tick().kind == nomad::OutputKind::Release && !r.tick().servo_position &&
            !r.update(nomad::RawAxis::Manual, 0, 0.5), "stalled motor releases both channels and cannot be renewed");
@@ -591,7 +592,7 @@ void testStallWatchdog() {
         low.feed(); low.update(nomad::RawAxis::Manual, 50, 0.5); low.tick();
     }
     expect(low.controller.state() == nomad::TrialState::Fault &&
-           low.controller.reason().find("stalled") != std::string::npos,
+           low.controller.reason().find("stalled") != string::npos,
            "default watchdog covers the lowest 50 ERPM GUI command without observed rotation");
 }
 
@@ -620,8 +621,8 @@ void testWifiIssuedTimeLease() {
     for (int i = 0; i < 42; ++i) { delayed_start.feed(0.02); delayed_start.tick(); }
     expect(!delayed_start.controller.manualActive(), "delayed START receives only the unexpired lease remainder");
 
-    for (const double age : {1.50001, -0.05001, std::numeric_limits<double>::infinity(),
-                             std::numeric_limits<double>::quiet_NaN()}) {
+    for (const double age : {1.50001, -0.05001, numeric_limits<double>::infinity(),
+                             numeric_limits<double>::quiet_NaN()}) {
         Rig invalid(options); invalid.prime();
         expect(!invalid.controller.start(nomad::RawAxis::Manual, 0, 0.5, 0,
                    invalid.steady, invalid.ros, true, age), "out-of-policy command ages cannot START");
@@ -666,7 +667,7 @@ void testAdjustableSteeringRange() {
     expect(r.controller.setSteeringTestSpan(.5,r.steady,r.ros),"stationary operator may extend steering-only range to protocol bounds");
     expect(r.controller.steeringTestMin()==0&&r.controller.steeringTestMax()==1&&r.controller.commandedServoPosition()==before&&
         r.tick().kind==nomad::OutputKind::None,"changing range sends no output and never changes current command");
-    for(double bad:{0.0,.501,std::numeric_limits<double>::quiet_NaN()})
+    for(double bad:{0.0,.501,numeric_limits<double>::quiet_NaN()})
         expect(!r.controller.setSteeringTestSpan(bad,r.steady,r.ros),"invalid span rejected");
     expect(!r.start(nomad::RawAxis::Manual,0,.8,0),"wide limit does not widen ordinary manual controls");
     expect(!r.start(nomad::RawAxis::Steering,1,.8,3),"wide steering trial still rejects nonzero motor");
@@ -707,8 +708,8 @@ void testPlanningContinuation() {
            "first continuation tick adds no invented elapsed ramp or servo jump");
     r.feed(.05, 620); r.update(nomad::RawAxis::Manual, 930, .49);
     const auto next = r.tick();
-    expect(std::abs(next.motor_erpm - 660) < 1e-8 && next.servo_position &&
-           std::abs(*next.servo_position-servo_before) <= .020000001,
+    expect(abs(next.motor_erpm - 660) < 1e-8 && next.servo_position &&
+           abs(*next.servo_position-servo_before) <= .020000001,
            "continued command retains original motor and manual servo slew bounds");
     r.controller.stop("LPP pause"); r.feed(.05, 1200);
     expect(r.controller.resumePlanning(500, .5, r.steady, r.ros, true) &&
@@ -755,9 +756,9 @@ void testPlanningContinuationGates() {
     Rig r; r.prime(); r.controller.stop("LPP pause"); r.feed(.05, 400);
     expect(!r.controller.resumePlanning(930, .5, r.steady, r.ros, false),
            "continuation still requires exclusive driver");
-    for (const auto& target : std::vector<std::pair<double,double>>{{-1.,.5},{1850.1,.5},
-              {930.,.489},{930.,.511},{std::numeric_limits<double>::quiet_NaN(),.5},
-              {930.,std::numeric_limits<double>::infinity()}}) {
+    for (const auto& target : vector<pair<double,double>>{{-1.,.5},{1850.1,.5},
+              {930.,.489},{930.,.511},{numeric_limits<double>::quiet_NaN(),.5},
+              {930.,numeric_limits<double>::infinity()}}) {
         expect(!r.controller.resumePlanning(target.first, target.second, r.steady, r.ros, true) &&
                r.controller.state() == nomad::TrialState::Stopped && !r.controller.ownsOutput(),
                "invalid continuation targets never gain output ownership");
@@ -791,7 +792,7 @@ void testPlanningMinimumDriveOutput() {
     Rig manual; manual.prime();
     expect(manual.start(nomad::RawAxis::Manual,0,.5,0), "legacy manual floor fixture starts");
     manual.feed(); manual.update(nomad::RawAxis::Manual,550,.5);
-    expect(std::abs(manual.tick().motor_erpm-60.)<1e-8,
+    expect(abs(manual.tick().motor_erpm-60.)<1e-8,
            "original three-argument tick preserves manual low-RPM ramp");
 
     Rig r; r.prime();
@@ -815,10 +816,10 @@ void testPlanningMinimumDriveOutput() {
                "above-floor acceleration retains original rise-rate bound");
         previous=output.motor_erpm;
     }
-    expect(std::abs(previous-700)<1e-8,"higher 700 ERPM request remains 700 rather than being pinned to floor");
+    expect(abs(previous-700)<1e-8,"higher 700 ERPM request remains 700 rather than being pinned to floor");
 
     r.feed(); r.update(nomad::RawAxis::Manual,650,.5);
-    expect(std::abs(r.controller.tick(r.steady,r.ros,true,550).motor_erpm-650)<1e-8,
+    expect(abs(r.controller.tick(r.steady,r.ros,true,550).motor_erpm-650)<1e-8,
            "650 ERPM startup-assist request remains available above floor");
     r.feed(); r.update(nomad::RawAxis::Manual,550,.5);
     expect(r.controller.tick(r.steady,r.ros,true,550).motor_erpm==550,
@@ -828,7 +829,7 @@ void testPlanningMinimumDriveOutput() {
         r.feed(); r.update(nomad::RawAxis::Manual,200,.5);
         output=r.controller.tick(r.steady,r.ros,true,0);
     }
-    expect(std::abs(output.motor_erpm-200)<1e-8 && r.controller.commandedMotorErpm()<550,
+    expect(abs(output.motor_erpm-200)<1e-8 && r.controller.commandedMotorErpm()<550,
            "explicit zero floor preserves overspeed reduction below 550 ERPM");
     r.feed(); r.update(nomad::RawAxis::Manual,550,.5);
     expect(r.controller.tick(r.steady,r.ros,true,550).motor_erpm==550,
@@ -853,8 +854,8 @@ void testPlanningMinimumDriveOutput() {
            ownership.controller.state()==nomad::TrialState::Fault,
            "driver ownership loss faults and releases even with positive floor");
 
-    for(double floor : {-1.,1850.1,std::numeric_limits<double>::quiet_NaN(),
-                        std::numeric_limits<double>::infinity()}) {
+    for(double floor : {-1.,1850.1,numeric_limits<double>::quiet_NaN(),
+                        numeric_limits<double>::infinity()}) {
         Rig invalid; invalid.prime(); invalid.start(nomad::RawAxis::Manual,0,.5,0);
         invalid.feed(); invalid.update(nomad::RawAxis::Manual,550,.5);
         output=invalid.controller.tick(invalid.steady,invalid.ros,true,floor);
@@ -917,7 +918,7 @@ void testCriticalAndNonCriticalSplit() {
     {   Rig r = running(); send(r, 2600, 0, 0, 16.3, 0);
         expect(r.controller.state() == TrialState::Fault && r.controller.reason().rfind("raw overspeed: 2600 ERPM", 0) == 0,
                "overspeed latches with the measured ERPM"); }
-    {   Rig r = running(); send(r, 0, std::numeric_limits<double>::quiet_NaN(), 0, 16.3, 0);
+    {   Rig r = running(); send(r, 0, numeric_limits<double>::quiet_NaN(), 0, 16.3, 0);
         expect(r.controller.state() == TrialState::Stopped && r.controller.planningWaitActive() &&
                r.controller.reason() == "raw telemetry value not finite", "non-finite sample only pauses"); }
     {   // Short spike: release, wait, resume on the next normal sample without RESET.
@@ -945,7 +946,7 @@ void testCriticalAndNonCriticalSplit() {
         Rig hard = running(options); send(hard, 300, 61.0, 3.0, 16.3, 0);
         expect(hard.controller.state() == TrialState::Fault, "motor current above the hard limit latches");
         auto bad = enabled(); bad.motor_current_limit_a = 55.0; bad.overcurrent_hard_a = 50.0;
-        bool refused = false; try { nomad::RawTrialController c(bad); } catch (const std::invalid_argument&) { refused = true; }
+        bool refused = false; try { nomad::RawTrialController c(bad); } catch (const invalid_argument&) { refused = true; }
         expect(refused, "hard limit must stay above the motor limit"); }
     {   Rig r = running(); send(r, 900, 46.0, 0, 16.3, 0);
         expect(r.controller.state() == TrialState::Fault && r.controller.reason().rfind("raw overcurrent: motor 46.0 A", 0) == 0,
@@ -996,7 +997,7 @@ void testCriticalAndNonCriticalSplit() {
         expect(r.controller.healthy(r.steady, r.ros), "telemetry stamped on the new clock is accepted");
         expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "backwards clock recovers without reset");
         Rig bad = running();
-        expect(bad.controller.tick(std::numeric_limits<double>::quiet_NaN(), bad.ros, true).kind == nomad::OutputKind::Release &&
+        expect(bad.controller.tick(numeric_limits<double>::quiet_NaN(), bad.ros, true).kind == nomad::OutputKind::Release &&
                bad.controller.state() == TrialState::Fault, "invalid clock value still latches"); }
     {   // Review fix: a backwards step first seen by pausePlanning pauses instead of failing.
         Rig r = running(); r.steady += .02; r.ros -= 2.0;
@@ -1021,6 +1022,42 @@ void testCriticalAndNonCriticalSplit() {
 }
 } // namespace
 
+// 2026-11-13: only a VESC fault code is a "VESC fault" (the node releases with 0A); it also latches
+// a stopped session that still owns the output, and an accepted RESET clears it.
+void testVescFaultClassification() {
+    using nomad::TrialState;
+    auto send = [](Rig& r, double erpm, double motor_a, double volt, int code, double dt = .02) {
+        r.steady += dt; r.ros += dt;
+        r.controller.observe({r.ros, erpm, motor_a, 0.0, volt, code}, r.steady, r.ros);
+    };
+    {   Rig r; r.prime();
+        send(r, 0, 0, 16.3, 7);
+        expect(r.controller.state() == TrialState::Idle && !r.controller.vescFault(),
+               "VESC fault before any output only reports (nothing owned)"); }
+    {   Rig r; r.prime(); r.start(); r.tick(); r.controller.stop("operator stop");
+        expect(r.controller.state() == TrialState::Stopped && r.controller.ownsOutput(), "stopped session still owns output");
+        send(r, 0, 0, 16.3, 7);
+        expect(r.controller.state() == TrialState::Fault && r.controller.vescFault() &&
+               r.controller.reason() == "raw VESC fault code 7",
+               "VESC fault on a stopped owned session latches as a VESC fault (no planning recovery)");
+        for (int i = 0; i < 13; ++i) r.feed();
+        expect(r.controller.reset(r.steady, r.ros) && !r.controller.vescFault() && r.controller.state() == TrialState::Idle,
+               "accepted RESET clears the VESC fault"); }
+    {   Rig r; r.prime(); r.start(); r.tick();
+        send(r, 0, 70.0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Fault && !r.controller.vescFault(),
+               "software overcurrent latch is not a VESC fault (keeps brake/hold)"); }
+    {   Rig r; r.prime(); r.start(); r.tick();
+        send(r, 0, 0, 0.0, 0);
+        expect(r.controller.state() == TrialState::Fault && !r.controller.vescFault(),
+               "invalid voltage latch is not a VESC fault"); }
+    {   Rig r; r.prime(); r.controller.setPlanningRecovery(true); r.start(); r.tick();
+        send(r, 2600, 0, 16.3, 0);
+        expect(r.controller.state() == TrialState::Fault && !r.controller.vescFault(), "overspeed latch is not a VESC fault");
+        send(r, 0, 0, 16.3, 7);
+        expect(r.controller.vescFault(), "a VESC fault arriving during another latch is recorded"); }
+}
+
 int main() {
     testPlanningTransientRecovery();
     testStartupAndGates();
@@ -1044,6 +1081,7 @@ int main() {
     testPlanningContinuationGates();
     testPlanningMinimumDriveOutput();
     testCriticalAndNonCriticalSplit();
-    std::cout << checks << " raw commissioning checks, " << failures << " failures\n";
+    testVescFaultClassification();
+    cout << checks << " raw commissioning checks, " << failures << " failures\n";
     return failures == 0 ? 0 : 1;
 }

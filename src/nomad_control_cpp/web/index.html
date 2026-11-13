@@ -485,8 +485,8 @@ function render(data){
   const stopBrakeA=stopKnown?data.stop_brake_current_a:0,stopHoldA=stopKnown?data.stop_handbrake_current_a:0;
   const aboveText=stopBrakeA>0?`브레이크 ${number(stopBrakeA,1)} A`:'0A 관성';
   setText('stopHelp',!stopKnown?'STOP은 구동 해제입니다. 정지 브레이크·유지는 제어기 설정을 따릅니다.'
-    :stopHoldA>0?`STOP·속도 0: 구동 해제 · 조향 유지 · ${aboveText} → 거의 멈추면 핸드브레이크 ${number(stopHoldA,1)} A로 정지 유지(경사 정차 보장 아님) · 제어기 종료 0.3초 뒤 풀림`
-    :stopBrakeA>0?`STOP·속도 0: 구동 해제 · 조향 유지 · 브레이크 ${number(stopBrakeA,1)} A (감속만, 정지 유지 아님)`
+    :stopHoldA>0?`STOP·속도 0: 구동 해제 · 조향 유지 · ${aboveText} → 거의 멈추면 핸드브레이크 ${number(stopHoldA,1)} A로 정지 유지(경사 정차 보장 아님) · VESC 고장 시 0A · 제어기 종료 0.3초 뒤 풀림`
+    :stopBrakeA>0?`STOP·속도 0: 구동 해제 · 조향 유지 · 브레이크 ${number(stopBrakeA,1)} A (감속만, 정지 유지 아님) · VESC 고장 시 0A`
     :'STOP: 모터 출력 해제 · 조향 유지 · 브레이크 없음');
   setText('measurementNote','탭 숨김·연결 단절 시 제어 해제. 복구 후 직접 시작.');
   refreshControls();

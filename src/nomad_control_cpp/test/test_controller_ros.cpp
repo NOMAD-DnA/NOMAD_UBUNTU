@@ -51,8 +51,7 @@ public:
             [this](nomad::Scalar::ConstSharedPtr) { ++servo_messages_; }));
         subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/brake", 10,
             [this](nomad::Scalar::ConstSharedPtr msg) { ++brake_messages_; last_brake_ = msg->data; }));
-        subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/handbrake", 10,
-            [this](nomad::Scalar::ConstSharedPtr msg) { ++handbrake_messages_; last_handbrake_ = msg->data; }));
+        subscribeHandbrake();
         rclcpp::NodeOptions options;
         options.arguments({"--ros-args", "-r", "__ns:=" + prefix_,
             "-r","/nomad/planning/drive_command:="+prefix_+"/planning",
@@ -95,6 +94,12 @@ public:
 
     ~RosRig() { controller_->prepareShutdown(); }
 
+    // The patched vesc_driver subscribes to the handbrake topic; tests drop and restore it.
+    void subscribeHandbrake() {
+        handbrake_sub_ = fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/handbrake", 10,
+            [this](nomad::Scalar::ConstSharedPtr msg) { ++handbrake_messages_; last_handbrake_ = msg->data; });
+    }
+
     void pump(double seconds) {
         const auto end = steadySeconds() + seconds;
         while (steadySeconds() < end) {
@@ -117,17 +122,27 @@ public:
                 }
                 last_sent_ = steadySeconds();
 #ifdef NOMAD_ENABLE_PLANNING
-                if(planning_pub_&&send_planning_){
-                    nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();cmd.header.frame_id="base_link";
-                    cmd.target_speed=planner_speed_;cmd.target_steering_angle=.01;cmd.valid_for.nanosec=300000000;
-                    planning_pub_->publish(cmd);
-                }
+                if(planning_pub_&&send_planning_)publishPlanning();
 #endif
             }
+#ifdef NOMAD_ENABLE_PLANNING
+            // Keeps the LPP stream alive while telemetry is withheld (telemetry-loss tests).
+            else if(planning_without_telemetry_&&planning_pub_&&send_planning_&&steadySeconds()-last_sent_>0.025){
+                publishPlanning();last_sent_=steadySeconds();
+            }
+#endif
             executor_.spin_some();
             this_thread::sleep_for(chrono::milliseconds(3));
         }
     }
+
+#ifdef NOMAD_ENABLE_PLANNING
+    void publishPlanning() {
+        nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();cmd.header.frame_id="base_link";
+        cmd.target_speed=planner_speed_;cmd.target_steering_angle=.01;cmd.valid_for.nanosec=300000000;
+        planning_pub_->publish(cmd);
+    }
+#endif
 
     bool call(const string& action) {
         auto client = fake_->create_client<nomad::Trigger>(prefix_ + "/nomad_vesc_trial/" + action);
@@ -382,6 +397,112 @@ public:
                "planner pause cannot undo operator STOP");
         expect(!status_.value("planning_calibration_verified",true),"pause resume never fakes physical calibration");
     }
+    // 2026-11-13: deployed stop profile (brake 20 A, handbrake 15 A at or below 200 ERPM) on the
+    // headless planning path. Counts are taken right before each step so a check cannot pass on
+    // output from an earlier step (the start tick itself may publish one hold before the first speed).
+    void runPlanningStopOutput() {
+        planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
+        send_planning_=false;pump(.6);
+        const auto stop=[&]{
+            nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();
+            cmd.header.frame_id="base_link";cmd.valid_for.nanosec=300000000;cmd.stop_requested=true;
+            planning_pub_->publish(cmd);pump(.13);
+        };
+        const auto stop_output=[&]{return status_.value("stop_output",string());};
+        stop();
+        expect(handbrake_messages_==0&&brake_messages_==0&&release_messages_==0,
+               "stop profile: STOP before any drive sends no stop output");
+        expect(stop_output()=="none"&&status_.value("erpm_valid",false)&&!status_.value("planning_reset_required",true),
+               "stop profile: no stop output and still ready before ownership");
+        int moves=moving_messages_;
+        send_planning_=true;pump(.4);
+        expect(moving_messages_>moves,"stop profile: LPP drive starts");
+        // STOP at standstill: handbrake hold, never 0A.
+        int holds=handbrake_messages_;
+        send_planning_=false;telemetry_erpm_=0.0;stop();pump(.1);
+        expect(handbrake_messages_>holds+3&&last_handbrake_==15.0&&release_messages_==0,
+               "stop profile: LPP STOP at standstill holds with the 15 A handbrake");
+        expect(stop_output()=="hold"&&!status_.value("erpm_valid",true)&&status_.value("stop_output_a",0.0)==15.0,
+               "stop profile: status reports the hold and frozen ERPM");
+        // Resume ends the hold.
+        moves=moving_messages_;
+        send_planning_=true;pump(.5);
+        expect(moving_messages_>moves&&stop_output()=="none"&&status_.value("erpm_valid",false),
+               "stop profile: resume ends the hold and ERPM is valid again");
+        // STOP while still turning: brake first, hold once slow.
+        telemetry_erpm_=600.0;pump(.1); // the stop must see a fresh sample above the threshold
+        holds=handbrake_messages_;int brakes=brake_messages_;
+        send_planning_=false;stop();pump(.15);
+        expect(brake_messages_>brakes&&last_brake_==20.0&&handbrake_messages_==holds,
+               "stop profile: stop above 200 ERPM brakes with 20 A, no hold");
+        expect(stop_output()=="brake"&&status_.value("erpm_valid",false),"stop profile: status reports braking with valid ERPM");
+        telemetry_erpm_=0.0;pump(.2);
+        expect(handbrake_messages_>holds,"stop profile: hold starts once telemetry is at or below 200 ERPM");
+        // Latched up to the release threshold (400), given up above it.
+        brakes=brake_messages_;
+        telemetry_erpm_=300.0;pump(.25);
+        expect(brake_messages_==brakes&&stop_output()=="hold","stop profile: the hold stays latched up to 400 ERPM");
+        telemetry_erpm_=600.0;pump(.25);
+        expect(brake_messages_>brakes&&stop_output()=="brake"&&status_.value("stop_holds_abandoned",0)>=1,
+               "stop profile: a fresh reading above 400 ERPM means the hold is not working; brake instead");
+        // Overspeed (not a VESC fault) latches but keeps braking, never 0A.
+        int releases=release_messages_;brakes=brake_messages_;
+        telemetry_erpm_=1600.0;pump(.3);
+        expect(status_.value("planning_reset_required",false)&&brake_messages_>brakes&&release_messages_==releases&&
+               !status_.value("vesc_fault",true)&&stop_output()=="brake",
+               "stop profile: overspeed latch brakes instead of releasing with 0A");
+        telemetry_erpm_=0.0;pump(.3);
+        expect(stop_output()=="hold"&&release_messages_==releases,"stop profile: latched overspeed holds once slow");
+        // VESC fault code: 0A, no brake or hold.
+        releases=release_messages_;
+        telemetry_fault_=7;pump(.3);
+        expect(release_messages_>releases&&status_.value("vesc_fault",false)&&stop_output()=="coast",
+               "stop profile: VESC fault code releases with 0A");
+        holds=handbrake_messages_;brakes=brake_messages_;pump(.2);
+        expect(handbrake_messages_==holds&&brake_messages_==brakes,"stop profile: no brake or hold to a faulted VESC");
+        telemetry_fault_=0;pump(.4);
+        expect(call("reset"),"stop profile: RESET accepted after the fault clears");
+        holds=handbrake_messages_;pump(.3);
+        expect(handbrake_messages_>holds&&!status_.value("vesc_fault",true)&&stop_output()=="hold",
+               "stop profile: hold returns after RESET");
+        // RESET cleared the VESC fault: a later non-VESC latch brakes again instead of 0A.
+        releases=release_messages_;brakes=brake_messages_;
+        telemetry_erpm_=1600.0;pump(.3);
+        expect(brake_messages_>brakes&&release_messages_==releases&&!status_.value("vesc_fault",true),
+               "stop profile: after RESET an overspeed latch brakes, the old VESC fault is gone");
+        telemetry_erpm_=0.0;pump(.4);
+        expect(call("reset"),"stop profile: RESET after the overspeed latch");
+        // Telemetry loss with a stale 0 ERPM sample brakes and never enters the hold.
+        moves=moving_messages_;
+        send_planning_=true;pump(.6);
+        expect(moving_messages_>moves,"stop profile: drive again after RESET");
+        holds=handbrake_messages_;brakes=brake_messages_;
+        planning_without_telemetry_=true;send_telemetry_=false;pump(.5);
+        expect(brake_messages_>brakes&&handbrake_messages_==holds&&stop_output()=="brake",
+               "stop profile: telemetry loss brakes and never holds on a stale sample");
+        planning_without_telemetry_=false;send_telemetry_=true;send_planning_=false;pump(.2);
+    }
+
+    // Without a handbrake subscriber (unpatched vesc_driver) the node names it, does not claim a
+    // hold it cannot deliver, and resumes once the subscriber is back.
+    void runStopOutputDriverMissing() {
+        planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
+        send_planning_=false;pump(.6);
+        send_planning_=true;pump(.4);
+        expect(moving_messages_>0,"driver missing: drive starts while the handbrake subscriber exists");
+        const int brakes=brake_messages_;
+        handbrake_sub_.reset();pump(.8);
+        const int moves=moving_messages_;pump(.3);
+        expect(moving_messages_==moves,"driver missing: no drive output without a handbrake subscriber");
+        expect(status_.value("planning_wait_reason",string()).find("handbrake topic has no subscriber")!=string::npos,
+               "driver missing: wait reason names the missing handbrake subscriber");
+        expect(brake_messages_>brakes&&status_.value("stop_output",string())=="brake",
+               "driver missing: stop output falls back to the brake instead of an undelivered hold");
+        subscribeHandbrake();pump(1.0);
+        expect(moving_messages_>moves&&!status_.value("planning_reset_required",true),
+               "driver missing: drive resumes without RESET once the handbrake subscriber is back");
+    }
+
     void runHeadless() {
         pump(.6);expect(moving_messages_==0,"headless waits for planner");
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
@@ -804,6 +925,24 @@ public:
                "operator stop at standstill holds with the handbrake");
     }
 
+    // A VESC fault while a stopped bench trial holds: 0A, latched until RESET, then hold again.
+    void runBenchHandbrakeFault(double hold) {
+        pump(1.0);
+        expect(call("start_test"),"bench fault: start");
+        pump(1.4);
+        expect(status_.value("stop_output",string())=="hold"&&last_handbrake_==hold,"bench fault: stopped trial holds");
+        const int releases=release_messages_;
+        telemetry_fault_=7;pump(.3);
+        expect(release_messages_>releases&&status_.value("vesc_fault",false)&&status_.value("state",string())=="FAULT",
+               "bench fault: VESC fault on a stopped trial latches and releases with 0A");
+        const int holds=handbrake_messages_;pump(.2);
+        expect(handbrake_messages_==holds,"bench fault: no hold to a faulted VESC");
+        telemetry_fault_=0;pump(.5);
+        expect(call("reset"),"bench fault: RESET after the fault clears");
+        pump(.3);
+        expect(handbrake_messages_>holds&&!status_.value("vesc_fault",true),"bench fault: hold returns after RESET");
+    }
+
     void runBench() {
         pump(1.0);
         expect(!commission(1, 1, string(32, '7')), "calibrated bench rejects raw start service");
@@ -914,7 +1053,7 @@ public:
 private:
 #ifdef NOMAD_ENABLE_PLANNING
     rclcpp::Publisher<nomad_interfaces::msg::DriveCommand>::SharedPtr planning_pub_;
-    bool send_planning_=true;
+    bool send_planning_=true,planning_without_telemetry_=false;
     double planner_speed_=.2;
 #endif
     rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
@@ -928,6 +1067,7 @@ private:
     rclcpp::Subscription<std_msgs::msg::String>::SharedPtr status_sub_;
     nomad::Json status_ = nomad::Json::object();
     vector<rclcpp::Subscription<nomad::Scalar>::SharedPtr> subs_;
+    rclcpp::Subscription<nomad::Scalar>::SharedPtr handbrake_sub_;
     rclcpp::executors::SingleThreadedExecutor executor_;
     bool send_telemetry_ = true;
     double last_sent_ = 0.0;
@@ -940,6 +1080,16 @@ private:
 };
 
 #ifdef NOMAD_ENABLE_PLANNING
+void testPlanningStopOutput() {
+    const vector<rclcpp::Parameter> parameters={
+        {"planning.headless",true},{"planning.allow_estimated_calibration",true},
+        {"planning.resume_after_stop",true},{"planning.erpm_per_mps",1000.0},
+        {"planning.servo_per_rad",.5},{"planning.max_mps",.25},{"planning.max_rad",.3},
+        {"stop_brake_current_a",20.0},{"stop_handbrake_current_a",15.0},{"stop_handbrake_below_erpm",200.0}};
+    {RosRig stop_output(true,true,true,true,false,parameters);stop_output.runPlanningStopOutput();}
+    {RosRig missing(true,true,true,true,false,parameters);missing.runStopOutputDriverMissing();}
+}
+
 void testMinimumRunningFloor() {
     const vector<rclcpp::Parameter> parameters={
         {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
@@ -1003,6 +1153,11 @@ int main(int argc, char* argv[]) {
             cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }
+        if(argc>1&&string(argv[1])=="--stop-output-only"){
+            testPlanningStopOutput();
+            cout<<checks<<" checks, "<<failures<<" failures\n";
+            rclcpp::shutdown();return failures?1:0;
+        }
         if(argc>1&&string(argv[1])=="--headless-resume-only"){
             {
             RosRig resume(true,true,true,true,false,{
@@ -1044,6 +1199,7 @@ int main(int argc, char* argv[]) {
         { RosRig monitor(false); monitor.runMonitor(); }
 #ifdef NOMAD_ENABLE_PLANNING
         testMeasuredSpeedControl();
+        testPlanningStopOutput();
         { RosRig stable(true,true,true,true,false,{
             {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
             {"planning.start_hold_s",.2},{"planning.restart_cooldown_s",.3},{"planning.minimum_start_erpm",550.0},
@@ -1067,6 +1223,8 @@ int main(int argc, char* argv[]) {
         { RosRig braked(true, false, true, true, false, {{"stop_brake_current_a", 8.0}}); braked.runBenchBrake(8.0); }
         { RosRig held(true, false, true, true, false, {{"stop_brake_current_a", 8.0}, {"stop_handbrake_current_a", 12.0}});
           held.runBenchHandbrake(12.0); }
+        { RosRig faulted(true, false, true, true, false, {{"stop_brake_current_a", 8.0}, {"stop_handbrake_current_a", 12.0}});
+          faulted.runBenchHandbrakeFault(12.0); }
         { RosRig manual(true); manual.runManual(); }
         { RosRig gui(true); gui.runGuiBridge(); }
         { RosRig raw(true, true); raw.runCommission(); }

@@ -45,11 +45,14 @@ bool TrialController::checkClock(double steady_now, double ros_now) {
     return true;
 }
 
-void TrialController::invalidateTelemetry(const string& reason) {
+void TrialController::invalidateTelemetry(const string& reason, bool vesc_fault) {
     telemetry_ok_ = false;
     stationary_since_.reset();
     reason_ = reason;
-    if (state_ == TrialState::Running) stop(reason, true);
+    // A VESC fault also latches a stopped trial that still owns the output (it may be holding).
+    if (state_ == TrialState::Running || (vesc_fault && output_owned_ &&
+        (state_ == TrialState::Stopped || state_ == TrialState::Idle))) stop(reason, true);
+    if (vesc_fault && state_ == TrialState::Fault) vesc_fault_ = true;
 }
 
 // 같은 stamp 재전송은 수신 시각이나 정지 유지 시간을 갱신하지 않습니다.
@@ -62,7 +65,7 @@ void TrialController::observe(const TelemetrySample& s, double steady_now, doubl
         !isfinite(s.current_input_a) || !positive(s.voltage_v) || s.fault_code != 0 ||
         abs(s.current_motor_a) > options_.current_limit_a ||
         abs(s.current_input_a) > options_.current_limit_a) {
-        invalidateTelemetry("invalid/stale telemetry, VESC fault or current limit");
+        invalidateTelemetry("invalid/stale telemetry, VESC fault or current limit", /*vesc_fault=*/s.fault_code != 0);
         return;
     }
     if (sample_ && s.stamp_s <= sample_->stamp_s) return;
@@ -166,7 +169,8 @@ double TrialController::remaining(double steady_now) const {
 }
 
 // 중단 뒤에는 자동 재시작하지 않습니다. Release는 0A 구동 해제이며, 정지 브레이크/핸드브레이크를 설정하면
-// 제어기 노드가 그 출력으로 바꿔 보냅니다(stop_brake_current_a, stop_handbrake_current_a).
+// 제어기 노드가 그 출력으로 바꿔 보냅니다(stop_brake_current_a, stop_handbrake_current_a). VESC 고장 코드로
+// 잠기면 0A 그대로입니다.
 void TrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor) return;
     if (state_ == TrialState::Fault && !fault) return;
@@ -180,6 +184,7 @@ bool TrialController::reset(double steady_now, double ros_now) {
     if (!checkClock(steady_now, ros_now) || !options_.actuation_enabled ||
         state_ == TrialState::Running || !stationary(steady_now, ros_now)) return false;
     state_ = TrialState::Idle;
+    vesc_fault_ = false;
     reason_ = "reset; waiting for explicit start";
     return true; // 이미 취득한 출력권은 유지하며 정지 중에는 정지 출력(0A 또는 브레이크/핸드브레이크)을 계속 보냅니다.
 }

@@ -86,6 +86,9 @@ public:
     bool healthy(double steady_now, double ros_now) const;
     bool stationary(double steady_now, double ros_now) const;
     TrialState state() const { return state_; }
+    // A latched fault reported by the VESC itself (nonzero fault code). The node then releases with
+    // 0A instead of brake/hold. Cleared by an accepted reset().
+    bool vescFault() const { return vesc_fault_; }
     const std::string& reason() const { return reason_; }
     bool ownsOutput() const { return output_owned_; }
     bool manualActive() const { return state_ == TrialState::Running; }
@@ -106,7 +109,8 @@ private:
     bool checkMotorProgress(double steady_now);
     // Returns true when the sample is within the current limit.
     bool checkCurrent(const TelemetrySample& sample, double steady_now);
-    void invalidateTelemetry(const std::string& reason, bool recoverable = false);
+    // recoverable: a planning pause may resume without RESET. vesc_fault: the VESC reported a fault code.
+    void invalidateTelemetry(const std::string& reason, bool recoverable = false, bool vesc_fault = false);
     RawOutput restingOutput() const;
 
     RawOptions options_;
@@ -133,6 +137,7 @@ private:
     // 사용자가 정지 중 설정하는 조향 전용 시험 한계. 일반 주행 한계와 분리하며 재시작 시 초기화합니다.
     double steering_test_min_, steering_test_max_;
     bool planning_recovery_ = false, planning_wait_ = false;
+    bool vesc_fault_ = false;
     std::string telemetry_issue_ = "NO_TELEMETRY";
 };
 

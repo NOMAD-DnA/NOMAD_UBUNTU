@@ -118,7 +118,7 @@ bool RawTrialController::checkClock(double steady_now, double ros_now) {
     return true;
 }
 
-void RawTrialController::invalidateTelemetry(const string& reason, bool recoverable) {
+void RawTrialController::invalidateTelemetry(const string& reason, bool recoverable, bool vesc_fault) {
     telemetry_ok_ = false;
     stationary_since_.reset();
     telemetry_issue_ = reason;
@@ -131,7 +131,12 @@ void RawTrialController::invalidateTelemetry(const string& reason, bool recovera
         // Physical faults during a pause, or before headless planning auto-starts, must
         // still latch so a clean sample cannot start the motor without RESET.
         stop(reason, true);
+    } else if (vesc_fault && output_owned_ && (state_ == TrialState::Stopped || state_ == TrialState::Idle)) {
+        // A VESC fault while we still own the output (e.g. a stopped GUI session holding the brake)
+        // latches too, so the node releases with 0A and RESET is required.
+        stop(reason, true);
     } else if (state_ == TrialState::Monitor || state_ == TrialState::Idle) reason_ = reason;
+    if (vesc_fault && state_ == TrialState::Fault) vesc_fault_ = true;
 }
 
 // ERPM과 전류를 원 단위로만 검사합니다. 중복·역순 stamp는 수신 시각을 갱신하지 않습니다.
@@ -141,7 +146,7 @@ void RawTrialController::observe(const TelemetrySample& sample, double steady_no
     // Each physical check reports its own reason. Fault code, voltage and overspeed latch;
     // a non-finite sample or a short current spike only releases output.
     if (sample.fault_code != 0) {
-        invalidateTelemetry(format("raw VESC fault code %d", sample.fault_code)); return;
+        invalidateTelemetry(format("raw VESC fault code %d", sample.fault_code), /*recoverable=*/false, /*vesc_fault=*/true); return;
     }
     if (!isfinite(sample.raw_erpm) || !isfinite(sample.current_motor_a) ||
         !isfinite(sample.current_input_a) || !isfinite(sample.voltage_v)) {
@@ -310,7 +315,7 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
     return true;
 }
 
-// Release는 모터 구동 해제입니다(0A, 또는 설정 시 노드가 브레이크/핸드브레이크로 보냄). 정지 시 서보를 중앙으로
+// Release는 모터 구동 해제입니다(0A, 또는 설정 시 노드가 브레이크/핸드브레이크로 보냄. VESC 고장 코드 잠금 중에는 0A). 정지 시 서보를 중앙으로
 // 돌리거나 새 값을 송신하지 않습니다.
 void RawTrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor || (state_ == TrialState::Fault && !fault)) return;
@@ -327,6 +332,7 @@ bool RawTrialController::reset(double steady_now, double ros_now) {
         state_ == TrialState::Running || !stationary(steady_now, ros_now)) return false;
     state_ = TrialState::Idle;
     planning_wait_ = false;
+    vesc_fault_ = false;
     reason_ = "raw reset; waiting for explicit axis start; calibration unverified";
     return true;
 }

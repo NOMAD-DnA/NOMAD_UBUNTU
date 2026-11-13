@@ -7,6 +7,7 @@
 #include "nomad_control_cpp/planning_supervisor.hpp"
 #include "nomad_control_cpp/planning_speed_feedback.hpp"
 #include "nomad_control_cpp/control_limits.hpp"
+#include "nomad_control_cpp/stop_output.hpp"
 #include "nomad_thermal/thermal_guard.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
@@ -82,20 +83,13 @@ public:
         options_.steering_rate_radps = parameter<double>("steering_rate_radps", 0.30);
         options_.steering_settle_s = parameter<double>("steering_settle_s", 0.30);
         options_.manual_timeout_s = parameter<double>("manual_timeout_s", 0.35);
-        // 2026-11-12: stop/pause/fault release uses VESC brake current instead of 0A coast. Brake current is
-        // speed-dependent damping: it slows a rolling motor but does not hold at standstill (see the handbrake
-        // below). 0 keeps the previous 0A coast release.
-        stop_brake_current_a_ = parameter<double>("stop_brake_current_a", 0.0);
-        if (!isfinite(stop_brake_current_a_) || stop_brake_current_a_ < 0.0 || stop_brake_current_a_ > 30.0)
-            throw invalid_argument("stop_brake_current_a must be within 0..30 A");
-        // 2026-11-12: brake current only slows a rolling motor; near standstill the release holds the
-        // rotor with the VESC handbrake instead (slope roll-back). 0 disables the handbrake.
-        stop_handbrake_current_a_ = parameter<double>("stop_handbrake_current_a", 0.0);
-        stop_handbrake_below_erpm_ = parameter<double>("stop_handbrake_below_erpm", 200.0);
-        if (!isfinite(stop_handbrake_current_a_) || stop_handbrake_current_a_ < 0.0 || stop_handbrake_current_a_ > 30.0)
-            throw invalid_argument("stop_handbrake_current_a must be within 0..30 A");
-        if (!isfinite(stop_handbrake_below_erpm_) || stop_handbrake_below_erpm_ < 0.0 || stop_handbrake_below_erpm_ > 2000.0)
-            throw invalid_argument("stop_handbrake_below_erpm must be within 0..2000 ERPM");
+        // 2026-11-12/13: stop/pause/fault release. Brake current is speed-dependent damping (slows a rolling
+        // motor, does not hold); near standstill the VESC handbrake holds the rotor (slope roll-back). 0 disables
+        // either; both 0 = the old 0A coast. Selection, hold latch/fallback and the 0A release on a VESC fault
+        // code live in StopOutput (stop_output.hpp), which also validates the ranges (0..30 A, 0..2000 ERPM).
+        stop_output_ = StopOutput({parameter<double>("stop_brake_current_a", 0.0),
+                                   parameter<double>("stop_handbrake_current_a", 0.0),
+                                   parameter<double>("stop_handbrake_below_erpm", 200.0)});
         // 정지 유지(브레이크·핸드브레이크)는 후보 설정입니다. 핸드브레이크 중에는 VESC ERPM이 0으로 고정돼
         // 미끄러짐을 볼 수 없고 내리막 정지는 시험하지 않았으므로 지상/경사 주행 모드는 계속 막습니다.
         const auto environment = parameter<string>("operation_environment", "raised_bench");
@@ -121,19 +115,19 @@ public:
             parameter<string>("motor_duty_topic", "/commands/motor/duty_cycle"),
             parameter<string>("motor_position_topic", "/commands/motor/position")};
         // Brake topic: our own output when stop braking is enabled, otherwise a competing topic.
-        if (stop_brake_current_a_ <= 0.0) other_topics.push_back(brake_topic);
+        if (!stop_output_.brakeEnabled()) other_topics.push_back(brake_topic);
         set<string> distinct;
         for (const auto& topic : {telemetry_topic, speed_topic, current_topic, servo_topic})
             if (!distinct.insert(get_node_topics_interface()->resolve_topic_name(topic)).second)
                 throw invalid_argument("topics must be distinct");
-        if (stop_brake_current_a_ > 0.0 &&
+        if (stop_output_.brakeEnabled() &&
             !distinct.insert(get_node_topics_interface()->resolve_topic_name(brake_topic)).second)
             throw invalid_argument("topics must be distinct");
         const auto handbrake_topic = parameter<string>("motor_handbrake_topic", "/commands/motor/handbrake");
         if (!distinct.insert(get_node_topics_interface()->resolve_topic_name(handbrake_topic)).second)
             throw invalid_argument("topics must be distinct");
         // Without our own handbrake output, any other handbrake publisher competes for the motor.
-        if (stop_handbrake_current_a_ <= 0.0)
+        if (!stop_output_.holdEnabled())
             other_command_topics_.push_back(get_node_topics_interface()->resolve_topic_name(handbrake_topic));
         for (const auto& topic : other_topics) {
             const auto resolved = get_node_topics_interface()->resolve_topic_name(topic);
@@ -146,8 +140,8 @@ public:
             speed_pub_ = create_publisher<Scalar>(speed_topic, command_qos);
             current_pub_ = create_publisher<Scalar>(current_topic, command_qos);
             servo_pub_ = create_publisher<Scalar>(servo_topic, command_qos);
-            if (stop_brake_current_a_ > 0.0) brake_pub_ = create_publisher<Scalar>(brake_topic, command_qos);
-            if (stop_handbrake_current_a_ > 0.0) handbrake_pub_ = create_publisher<Scalar>(handbrake_topic, command_qos);
+            if (stop_output_.brakeEnabled()) brake_pub_ = create_publisher<Scalar>(brake_topic, command_qos);
+            if (stop_output_.holdEnabled()) handbrake_pub_ = create_publisher<Scalar>(handbrake_topic, command_qos);
         }
         telemetry_sub_ = create_subscription<VescState>(telemetry_topic,
             rclcpp::QoS(1).best_effort().durability_volatile(),
@@ -209,13 +203,13 @@ public:
             RCLCPP_INFO(get_logger(), "mode=%s; start is manual; duration=%.2fs (hard maximum 5s)",
                         mode.c_str(), options_.duration_s);
         if (handbrake_pub_ && brake_pub_)
-            RCLCPP_WARN(get_logger(), "stop release = VESC brake %.1f A while |erpm| > %.0f, VESC handbrake hold %.1f A at or below. SIGKILL/power loss require verified VESC timeout.",
-                        stop_brake_current_a_, stop_handbrake_below_erpm_, stop_handbrake_current_a_);
+            RCLCPP_WARN(get_logger(), "stop release = VESC brake %.1f A while |erpm| > %.0f, VESC handbrake hold %.1f A at or below (latched until the next drive command); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.",
+                        stop_output_.config().brake_current_a, stop_output_.config().hold_below_erpm, stop_output_.config().hold_current_a);
         else if (handbrake_pub_)
-            RCLCPP_WARN(get_logger(), "stop release = 0A coast while |erpm| > %.0f, VESC handbrake hold %.1f A at or below. SIGKILL/power loss require verified VESC timeout.",
-                        stop_handbrake_below_erpm_, stop_handbrake_current_a_);
+            RCLCPP_WARN(get_logger(), "stop release = 0A coast while |erpm| > %.0f, VESC handbrake hold %.1f A at or below (latched until the next drive command); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.",
+                        stop_output_.config().hold_below_erpm, stop_output_.config().hold_current_a);
         else if (brake_pub_)
-            RCLCPP_WARN(get_logger(), "stop release = VESC brake current %.1f A (not a parking hold). SIGKILL/power loss require verified VESC timeout.", stop_brake_current_a_);
+            RCLCPP_WARN(get_logger(), "stop release = VESC brake current %.1f A (not a parking hold); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.", stop_output_.config().brake_current_a);
         else
             RCLCPP_WARN(get_logger(), "0A release is coast, not active braking. SIGKILL/power loss require verified VESC timeout.");
     }
@@ -368,15 +362,26 @@ private:
         if(planning_feedback_reducing_)return "measured overspeed; reducing speed command";
         return supervisor_.active()?"measured speed tracking":"waiting for fresh command and measured speed";
     }
+    // The stop output needs the patched vesc_driver (handbrake topic); name that case explicitly.
+    // Only when the rest of the driver is visible: a stopped driver drops every subscription at once.
+    string driverWaitReason() const {
+        const bool driver_seen=graph_telemetry_publishers_>0&&graph_speed_subscribers_>0&&graph_current_subscribers_>0;
+        if(driver_seen&&handbrake_pub_&&graph_handbrake_subscribers_==0)
+            return "VESC handbrake topic has no subscriber (patched vesc_driver required); waiting";
+        if(driver_seen&&brake_pub_&&graph_brake_subscribers_==0)return "VESC brake topic has no subscriber; waiting";
+        return "driver endpoints unavailable; waiting";
+    }
     void logPlanningWait(const string& reason,double steady,double ros) {
         RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),1000,
             "[PLANNING_WAIT] reason=%s state=%s telemetry=%s receive_age=%.3f source_age=%.3f "
             "telemetry_publishers=%zu speed_subscribers=%zu current_subscribers=%zu servo_subscribers=%zu "
-            "command_publishers=%zu,%zu,%zu other_publishers=%zu fault_code=%d motor_current=%.2f voltage=%.2f reset_required=%d",
+            "command_publishers=%zu,%zu,%zu other_publishers=%zu brake_pub_sub=%zu,%zu handbrake_pub_sub=%zu,%zu "
+            "fault_code=%d motor_current=%.2f voltage=%.2f reset_required=%d",
             reason.c_str(),trialStateName(activeState()),raw_controller_->telemetryIssue().c_str(),
             raw_controller_->telemetryReceiveAge(steady),raw_controller_->telemetryStampAge(ros),
             graph_telemetry_publishers_,graph_speed_subscribers_,graph_current_subscribers_,graph_servo_subscribers_,
             graph_speed_publishers_,graph_current_publishers_,graph_servo_publishers_,graph_other_publishers_,
+            graph_brake_publishers_,graph_brake_subscribers_,graph_handbrake_publishers_,graph_handbrake_subscribers_,
             static_cast<int>(last_fault_),last_current_,last_voltage_,static_cast<int>(supervisor_.blocked()));
     }
     // A missing module/endpoint/telemetry sample releases output and waits. Actual
@@ -415,7 +420,7 @@ private:
             }
             if(supervisor_.active() && (raw_controller_->planningWaitActive() || !activeHealthy(steady,ros) || !driver_ready)){
                 const string reason=raw_controller_->planningWaitActive()?raw_controller_->reason():
-                    !driver_ready?"driver endpoints unavailable; waiting":"telemetry unavailable; waiting";
+                    !driver_ready?driverWaitReason():"telemetry unavailable; waiting";
                 pausePlanning(reason,steady,ros);return;
             }
         }
@@ -425,7 +430,7 @@ private:
                 stopAndRelease("unexpected raw state during planning wait; reset required");
             }else if(!activeHealthy(steady,ros)||!driver_ready){
                 const string issue=raw_controller_->telemetryIssue();
-                planning_wait_reason_=!driver_ready?"driver endpoints unavailable; waiting":
+                planning_wait_reason_=!driver_ready?driverWaitReason():
                     issue!="READY"&&issue!="NO_TELEMETRY"?issue:"telemetry unavailable; waiting";
                 releaseMotor();logPlanningWait(planning_wait_reason_,steady,ros);
             }else if(supervisor_.resumePending()&&!planning_guard_->target(ros,steady)){
@@ -769,6 +774,11 @@ private:
     const string& activeReason() const { return commissioning_ ? raw_controller_->reason() : controller_->reason(); }
     bool activeManual() const { return commissioning_ ? raw_controller_->manualActive() : controller_->manualActive(); }
     bool activeOwnsOutput() const { return commissioning_ ? raw_controller_->ownsOutput() : controller_->ownsOutput(); }
+    // Latched fault reported by the VESC itself (fault code): release with 0A, never brake/hold.
+    bool activeVescFault() const {
+        return activeState() == TrialState::Fault &&
+            (commissioning_ ? raw_controller_->vescFault() : controller_->vescFault());
+    }
     bool activeHealthy(double steady, double ros) const {
         return commissioning_ ? raw_controller_->healthy(steady, ros) : controller_->healthy(steady, ros);
     }
@@ -859,14 +869,16 @@ private:
             graph_current_publishers_>1||graph_servo_publishers_>1||graph_other_publishers_>0;
         bool brake_ready=true;
         if(brake_pub_){
-            const auto brake_publishers=count_publishers(brake_pub_->get_topic_name());
-            if(brake_publishers>1)graph_competing_publishers_=true;
-            brake_ready=brake_publishers==1&&brake_pub_->get_subscription_count()>0;
+            graph_brake_publishers_=count_publishers(brake_pub_->get_topic_name());
+            graph_brake_subscribers_=brake_pub_->get_subscription_count();
+            if(graph_brake_publishers_>1)graph_competing_publishers_=true;
+            brake_ready=graph_brake_publishers_==1&&graph_brake_subscribers_>0;
         }
         if(handbrake_pub_){
-            const auto handbrake_publishers=count_publishers(handbrake_pub_->get_topic_name());
-            if(handbrake_publishers>1)graph_competing_publishers_=true;
-            brake_ready=brake_ready&&handbrake_publishers==1&&handbrake_pub_->get_subscription_count()>0;
+            graph_handbrake_publishers_=count_publishers(handbrake_pub_->get_topic_name());
+            graph_handbrake_subscribers_=handbrake_pub_->get_subscription_count();
+            if(graph_handbrake_publishers_>1)graph_competing_publishers_=true;
+            brake_ready=brake_ready&&graph_handbrake_publishers_==1&&graph_handbrake_subscribers_>0;
         }
         cached_driver_ready_=brake_ready&&!graph_competing_publishers_&&graph_telemetry_publishers_==1&&
             graph_speed_subscribers_>0&&graph_current_subscribers_>0&&graph_servo_subscribers_>0&&
@@ -882,6 +894,7 @@ private:
         if (commissioning_) raw_controller_->observe(sample, steadySeconds(), now().seconds());
         else controller_->observe(sample, steadySeconds(), now().seconds());
         last_raw_erpm_ = s.speed;
+        last_telemetry_rx_ = steadySeconds();
         last_voltage_ = s.voltage_input;
         last_current_ = s.current_motor;
         last_fault_ = s.fault_code;
@@ -905,15 +918,33 @@ private:
     }
 
     // 자신이 시작한 시험에 대해서만 출력합니다. 정지 시 서보를 갑자기 중앙으로 돌리지 않습니다.
-    // 2026-11-12: release = VESC handbrake when enabled and |ERPM| <= stop_handbrake_below_erpm, otherwise the
-    // VESC brake current when enabled, otherwise 0A coast. Repeated every tick while stopped and owned. While
-    // the handbrake is engaged the VESC reports ERPM 0 even if the rotor slips, so ERPM-based checks (and this
-    // choice) cannot see roll-back.
+    // 2026-11-13: release = StopOutput::decide (stop_output.hpp): 0A on a latched VESC fault code; otherwise
+    // the VESC handbrake once fresh telemetry is at or below stop_handbrake_below_erpm and the driver
+    // subscribes to the handbrake topic (then latched until the next nonzero drive command, ERPM reported
+    // invalid; given up when a sample received within the telemetry timeout, accepted or rejected, reads above
+    // StopOutput::holdReleaseErpm() = max(2x, +200) ERPM at least 0.1 s after the hold began, or the handbrake
+    // subscriber disappears), else the brake
+    // current, else 0A. Repeated every tick while stopped and owned.
     void releaseMotor() {
         if (!current_pub_ || !activeOwnsOutput()) return;
-        if (handbrake_pub_ && abs(last_raw_erpm_) <= stop_handbrake_below_erpm_)
-            publishScalar(handbrake_pub_, stop_handbrake_current_a_);
-        else if (brake_pub_) publishScalar(brake_pub_, stop_brake_current_a_);
+        const double steady = steadySeconds(), ros = now().seconds();
+        const bool vesc_fault = activeVescFault();
+        if (vesc_fault && !vesc_fault_release_logged_)
+            RCLCPP_WARN(get_logger(), "[STOP_OUTPUT] VESC fault code %d latched: releasing with 0A (no brake/hold) until RESET",
+                        static_cast<int>(last_fault_));
+        vesc_fault_release_logged_ = vesc_fault;
+        StopOutputInput input;
+        input.steady_now = steady;
+        input.telemetry_healthy = activeHealthy(steady, ros);
+        // Any sample (also one the checks rejected, e.g. overspeed) received within the active telemetry timeout.
+        const double telemetry_timeout = commissioning_ ? raw_options_.telemetry_timeout_s : options_.telemetry_timeout_s;
+        input.erpm_recent = last_telemetry_rx_ && steady - *last_telemetry_rx_ <= telemetry_timeout;
+        input.erpm = last_raw_erpm_;
+        input.vesc_fault = vesc_fault;
+        input.hold_available = graph_handbrake_subscribers_ > 0;
+        const auto command = stop_output_.decide(input);
+        if (command.kind == StopOutputKind::Hold && handbrake_pub_) publishScalar(handbrake_pub_, command.current_a);
+        else if (command.kind == StopOutputKind::Brake && brake_pub_) publishScalar(brake_pub_, command.current_a);
         else publishScalar(current_pub_, 0.0);
     }
 
@@ -923,7 +954,7 @@ private:
         else if (kind == OutputKind::Drive) {
             if (servo) publishScalar(servo_pub_, *servo);
             if (erpm == 0.0) releaseMotor();
-            else publishScalar(speed_pub_, erpm);
+            else { stop_output_.onDrive(); publishScalar(speed_pub_, erpm); }
         }
     }
 
@@ -1068,11 +1099,18 @@ private:
         data["autonomous_active"]=supervisor_.active();
         data["esc_temp_c"]=thermal_.valid()?nlohmann::json(thermal_.temp_c()):nlohmann::json(nullptr);
         data["esc_temp_state"]=thermal_.state();
-        // Stop output actually configured on this node (0 = not used). Above stop_handbrake_below_erpm the
-        // release is the brake current (0A coast if it is 0); at or below it the handbrake hold. Both 0 = 0A.
-        data["stop_brake_current_a"]=brake_pub_?stop_brake_current_a_:0.0;
-        data["stop_handbrake_current_a"]=handbrake_pub_?stop_handbrake_current_a_:0.0;
-        data["stop_handbrake_below_erpm"]=stop_handbrake_below_erpm_;
+        // Stop output configured on this node (0 = not used); see releaseMotor for how it is chosen.
+        data["stop_brake_current_a"]=brake_pub_?stop_output_.config().brake_current_a:0.0;
+        data["stop_handbrake_current_a"]=handbrake_pub_?stop_output_.config().hold_current_a:0.0;
+        data["stop_handbrake_below_erpm"]=stop_output_.config().hold_below_erpm;
+        // What the stop output is doing now: none while driving or before the first stop.
+        data["stop_output"]=stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none";
+        data["stop_output_a"]=stop_output_.last()?stop_output_.last()->current_a:0.0;
+        data["stop_hold_s"]=stop_output_.holdSeconds(steady_now);
+        // false while the handbrake is held: the VESC then reports a frozen ERPM 0, not a measurement.
+        data["erpm_valid"]=stop_output_.erpmValid();
+        data["vesc_fault"]=activeVescFault();
+        data["stop_holds_abandoned"]=stop_output_.holdsAbandoned();
 #ifdef NOMAD_ENABLE_PLANNING
         data["planning_supported"]=true;
         data["planning_calibration_verified"]=planning_calibration_.verified;
@@ -1085,6 +1123,7 @@ private:
         data["planning_ready"]=planningReady(steady_now,ros_now);
         data["planning_reason"]=planning_guard_->targetReason(ros_now,steady_now);
         data["planning_start_reason"]=planningStartReason(steady_now);
+        data["planning_wait_reason"]=supervisor_.softStopped()?planning_wait_reason_:string();
         data["planning_start_ready"]=planning_measured_speed_control_?
             (planningReady(steady_now,ros_now)&&fresh&&!supervisor_.blocked()):planning_start_gate_->ready(steady_now);
         data["planning_measured_speed_control"]=planning_measured_speed_control_;
@@ -1099,10 +1138,11 @@ private:
             const auto requested=planning_guard_->target(ros_now,steady_now);
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
             RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
-                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s start_gate=%s reset_required=%d",
+                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s stop=%s erpm_valid=%d start_gate=%s reset_required=%d",
                 supervisor_.active()?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
                 thermal_.temp_c(),thermal_.state().c_str(),
+                stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none",static_cast<int>(stop_output_.erpmValid()),
                 planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()));
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
@@ -1154,10 +1194,13 @@ private:
     Calibration calibration_{};
     unique_ptr<TrialController> controller_;
     rclcpp::Publisher<Scalar>::SharedPtr speed_pub_, current_pub_, servo_pub_, brake_pub_, handbrake_pub_;
-    double stop_brake_current_a_{0.0}, stop_handbrake_current_a_{0.0}, stop_handbrake_below_erpm_{200.0};
+    StopOutput stop_output_;
+    bool vesc_fault_release_logged_ = false;
+    optional<double> last_telemetry_rx_;
     size_t graph_telemetry_publishers_=0,graph_speed_subscribers_=0,graph_current_subscribers_=0,graph_servo_subscribers_=0;
     size_t graph_speed_publishers_=0,graph_current_publishers_=0,graph_servo_publishers_=0,graph_other_publishers_=0;
     bool graph_competing_publishers_=false;
+    size_t graph_brake_publishers_=0,graph_brake_subscribers_=0,graph_handbrake_publishers_=0,graph_handbrake_subscribers_=0;
     string planning_wait_reason_="LPP pause; waiting for fresh command";
     // 2026-11-12: ESC MOSFET temperature guard (warn 65, stop 80, resume below 70 C).
     nomad_thermal::ThermalGuard thermal_;double last_thermal_warn_=0;
