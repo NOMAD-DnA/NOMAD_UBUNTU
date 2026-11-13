@@ -262,6 +262,14 @@ private:
            (planning_min_running_erpm_>0&&(!planning_headless_||!planning_measured_speed_control_||
              planning_min_running_erpm_>planning_feedback_limit_erpm_)))
             throw invalid_argument("planning running floor requires measured headless mode and bounded ERPM");
+        // 2026-11-13: LPP STOP / lost LPP input ramp the speed down over this many seconds first (0 = stop at once).
+        planning_stop_ramp_s_=parameter<double>("planning.stop_ramp_s",0.0);
+        if(!isfinite(planning_stop_ramp_s_)||planning_stop_ramp_s_<0||planning_stop_ramp_s_>RawTrialController::kMaxStopRampS||
+           (planning_stop_ramp_s_>0&&(!planning_headless_||!planning_resume_after_stop_||!planning_measured_speed_control_)))
+            throw invalid_argument("planning.stop_ramp_s must be within 0..1 s and needs headless measured planning that resumes after a stop");
+        if(planning_stop_ramp_s_>0)
+            RCLCPP_INFO(get_logger(),"[STOP_RAMP] LPP STOP / lost LPP input: speed command ramps to %.0f ERPM over %.2f s and stays there until the measured ERPM is too (at most %.2f s), then the stop output; faults, operator STOP, overspeed and telemetry/driver loss stop at once",
+                        stopRampEndErpm(),planning_stop_ramp_s_,RawTrialController::kStopRampSettleS);
         if(!isfinite(planning_feedback_limit_erpm_)||planning_feedback_limit_erpm_<0||planning_feedback_limit_erpm_>2500)
             throw invalid_argument("invalid autonomous feedback ERPM limit");
         planning_start_gate_=std::make_unique<PlanningStartGate>(planning_start_hold_s_,planning_restart_cooldown_s_,planning_min_start_erpm_);
@@ -318,6 +326,8 @@ private:
                     supervisor_.onFreshCommand();
                 }
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
+                    // The car is already stopping in a stop ramp; an invalid or stale message does not cut it short.
+                    if(raw_controller_->stopRampActive())return;
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
@@ -328,11 +338,47 @@ private:
         vehicle_state_pub_=create_publisher<nomad_interfaces::msg::VehicleState>(
             "/nomad/control/vehicle_state",rclcpp::QoS(1).reliable().durability_volatile());
     }
-    // LPP input went away (STOP, expiry, invalid): headless auto-resume profiles pause and wait for a
-    // fresh command; every other profile latches a stop that needs RESET.
+    // LPP STOP or lost LPP input (expiry, planner gone): headless auto-resume profiles pause and wait for a
+    // fresh command, after a speed ramp when planning.stop_ramp_s > 0; every other profile latches a stop
+    // that needs RESET.
     void onPlanningLost(const string& pause_reason,const string& stop_reason,double steady,double ros) {
-        if(planning_headless_&&planning_resume_after_stop_)pausePlanning(pause_reason,steady,ros);
-        else stopAndRelease(stop_reason);
+        if(!planning_headless_||!planning_resume_after_stop_){stopAndRelease(stop_reason);return;}
+        if(!beginStopRamp(pause_reason,steady,ros))pausePlanning(pause_reason,steady,ros);
+    }
+    // 2026-11-13: LPP pauses stopped the car from ~1000 ERPM within ~50 ms and it lurched. Ramp the speed command
+    // down to the handbrake entry speed over planning.stop_ramp_s and keep it there until the measured speed is
+    // there too (raw_trial beginStopRamp), so the handbrake follows without a brake pulse; the hold current is
+    // still chosen from the drive before the ramp (stop_output beginStopRamp). Faults, operator STOP, overspeed and
+    // telemetry/driver loss keep stopping at once. True while a ramp runs; false = stop at once.
+    bool beginStopRamp(const string& reason,double steady,double ros) {
+        if(raw_controller_->stopRampActive())return true;
+        if(planning_stop_ramp_s_<=0||!supervisor_.active()||thermal_.stopped())return false;
+        const double end=stopRampEndErpm(),from=raw_controller_->commandedMotorErpm();
+        if(!raw_controller_->beginStopRamp(reason,steady,ros,planning_stop_ramp_s_,end))return false;
+        stop_output_.beginStopRamp(steady);
+        planning_guard_->clear();
+        stop_ramp_started_=steady;
+        RCLCPP_INFO(get_logger(),"[STOP_RAMP] begin reason=%s cmd_erpm=%.0f measured_erpm=%.0f ramp_from_erpm=%.0f end_erpm=%.0f ramp_s=%.2f iq_a=%.2f",
+                    reason.c_str(),from,last_raw_erpm_,raw_controller_->commandedMotorErpm(),end,planning_stop_ramp_s_,last_iq_);
+        return true;
+    }
+    // The ramp hands over at the handbrake entry speed (200 ERPM if the handbrake is off).
+    double stopRampEndErpm() const {
+        const double hold_below=stop_output_.config().hold_below_erpm;
+        return hold_below>0?hold_below:200.0;
+    }
+    // One trace line per control tick while a stop ramp runs, then how it ended.
+    void tickStopRampTrace(double steady) {
+        if(!stop_ramp_started_)return;
+        const double t=steady-*stop_ramp_started_;
+        if(raw_controller_->stopRampActive()){
+            RCLCPP_INFO(get_logger(),"[STOP_RAMP] t=%.3f cmd_erpm=%.0f measured_erpm=%.0f iq_a=%.2f",
+                        t,raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_iq_);
+            return;
+        }
+        RCLCPP_INFO(get_logger(),"[STOP_RAMP] end t=%.3f measured_erpm=%.0f state=%s reason=%s",
+                    t,last_raw_erpm_,trialStateName(activeState()),activeReason().c_str());
+        stop_ramp_started_.reset();
     }
     bool planningReady(double steady,double ros) const {
         return commissioning_&&planning_guard_&&planning_sub_&&
@@ -375,6 +421,7 @@ private:
         if(!planning_measured_speed_control_)return planning_start_gate_->reason(steady);
         if(supervisor_.blocked())return activeReason();
         if(supervisor_.softStopped())return planning_wait_reason_;
+        if(raw_controller_&&raw_controller_->stopRampActive())return "speed ramp before stop";
         if(planning_feedback_reducing_)return "measured overspeed; reducing speed command";
         return supervisor_.active()?"measured speed tracking":"waiting for fresh command and measured speed";
     }
@@ -474,6 +521,17 @@ private:
         }
         if(!supervisor_.active())return;
         const auto target=planning_guard_->target(ros,steady);
+        if(raw_controller_->stopRampActive()){
+            // A fresh moving LPP command cancels the ramp and the drive goes on; otherwise the raw tick ramps on.
+            if(!target||target->erpm<=0||!planningReady(steady,ros))return;
+            RCLCPP_INFO(get_logger(),"[STOP_RAMP] cancelled t=%.3f: fresh LPP command %.0f ERPM at cmd_erpm=%.0f measured_erpm=%.0f",
+                        stop_ramp_started_?steady-*stop_ramp_started_:0.0,target->erpm,
+                        raw_controller_->commandedMotorErpm(),last_raw_erpm_);
+            raw_controller_->cancelStopRamp(steady);
+            stop_output_.cancelStopRamp();
+            stop_ramp_started_.reset();
+            resetPlanningSpeedFeedback();
+        }
         // Legacy mode keeps its original limit. The measured-speed profile reduces
         // the speed request and recovers automatically instead of latching a stop.
         if(!planning_measured_speed_control_&&planning_feedback_limit_erpm_>0&&
@@ -1061,6 +1119,9 @@ private:
             const auto output = raw_controller_->tick(steady_now, ros_now, driver_ready,minimum_drive_erpm);
             publishOutput(output.kind, output.motor_erpm, output.servo_position);
             tickRestartTrace(steady_now, output.motor_erpm);
+#ifdef NOMAD_ENABLE_PLANNING
+            tickStopRampTrace(steady_now);
+#endif
         } else {
             const auto output = controller_->tick(steady_now, ros_now, driver_ready);
             publishOutput(output.kind, output.motor_erpm, output.servo_position);
@@ -1223,6 +1284,8 @@ private:
         data["planning_minimum_start_erpm"]=planning_measured_speed_control_?0:planning_min_start_erpm_;
         data["planning_minimum_start_mps"]=!planning_measured_speed_control_&&planning_calibration_.erpm_per_mps>0?planning_min_start_erpm_/planning_calibration_.erpm_per_mps:0;
         data["planning_feedback_limit_erpm"]=planning_feedback_limit_erpm_;
+        data["planning_stop_ramp_s"]=planning_stop_ramp_s_;
+        data["stop_ramp_active"]=raw_controller_&&raw_controller_->stopRampActive();
         if(commissioning_){
             const auto requested=planning_guard_->target(ros_now,steady_now);
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
@@ -1253,6 +1316,8 @@ private:
     unique_ptr<PlanningSpeedFeedback> planning_speed_feedback_;
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
+    double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
+    optional<double> stop_ramp_started_;     // steady time the running stop ramp began ([STOP_RAMP] trace)
     bool planning_measured_speed_control_=false,planning_feedback_reducing_=false;
     double planning_feedback_target_=0;
     optional<double> planning_feedback_tick_;

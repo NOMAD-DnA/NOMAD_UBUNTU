@@ -149,6 +149,12 @@ if(NOMAD_BUILD_ROS2)
     set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150
       ENVIRONMENT "ROS_DOMAIN_ID=226;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     if(NOMAD_ENABLE_PLANNING)
+      # 2026-11-13 stop ramp (LPP STOP / lost input slow down first): its own test so the full suite keeps its margin.
+      add_test(NAME planning_stop_ramp_ros COMMAND controller_ros_tests --stop-ramp-only)
+      set_tests_properties(planning_stop_ramp_ros PROPERTIES TIMEOUT 90
+        ENVIRONMENT "ROS_DOMAIN_ID=227;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
+    endif()
+    if(NOMAD_ENABLE_PLANNING)
       # Device-free contract: launch the already built production node once.
       add_executable(test_module_pause_contract test/test_module_pause_contract.cpp)
       target_compile_features(test_module_pause_contract PRIVATE cxx_std_17)

@@ -43,6 +43,8 @@ public:
                     if (name == "speed") {
                         ++speed_messages_; if (msg->data != 0.0) ++moving_messages_;
                         observed_motor_erpm_.push_back(msg->data);
+                        speed_log_.emplace_back(steadySeconds(), msg->data);
+                        if (follow_ && msg->data != 0.0) telemetry_erpm_ = min(follow_cap_, msg->data + follow_lag_);
                     }
                     else { ++release_messages_; expect(msg->data == 0.0, "release is zero current"); }
                 }));
@@ -50,7 +52,10 @@ public:
         subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/servo/position", 10,
             [this](nomad::Scalar::ConstSharedPtr) { ++servo_messages_; }));
         subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/brake", 10,
-            [this](nomad::Scalar::ConstSharedPtr msg) { ++brake_messages_; last_brake_ = msg->data; }));
+            [this](nomad::Scalar::ConstSharedPtr msg) {
+                ++brake_messages_; last_brake_ = msg->data; stop_output_times_.push_back(steadySeconds());
+                if (follow_) telemetry_erpm_ = 0.0;
+            }));
         subscribeHandbrake();
         rclcpp::NodeOptions options;
         options.arguments({"--ros-args", "-r", "__ns:=" + prefix_,
@@ -97,7 +102,10 @@ public:
     // The patched vesc_driver subscribes to the handbrake topic; tests drop and restore it.
     void subscribeHandbrake() {
         handbrake_sub_ = fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/handbrake", 10,
-            [this](nomad::Scalar::ConstSharedPtr msg) { ++handbrake_messages_; last_handbrake_ = msg->data; });
+            [this](nomad::Scalar::ConstSharedPtr msg) {
+                ++handbrake_messages_; last_handbrake_ = msg->data; stop_output_times_.push_back(steadySeconds());
+                if (follow_) telemetry_erpm_ = 0.0;
+            });
     }
 
     void pump(double seconds) {
@@ -542,6 +550,140 @@ public:
         expect(basis()=="none"&&status_.contains("stop_hold_load_a")&&status_.at("stop_hold_load_a").is_null(),
                "load hold: driving reports no hold basis");
         send_planning_=false;stop();pump(.2);
+    }
+
+    // 2026-11-13 stop ramp (planning.stop_ramp_s, running floor 1000 ERPM): an LPP STOP or lost LPP input ramps
+    // the speed command down to the handbrake entry speed, keeps it there until the reported speed is there (at most
+    // 0.3 s more), then the stop output; everything else still stops at once. ramp_s is 1.0 in the scenarios that act
+    // during the ramp, so a slow machine still acts while it runs.
+    void runStopRamp(const string& scenario,double ramp_s) {
+        planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
+        const auto lpp=[&](bool stop,double speed){
+            nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();cmd.header.frame_id="base_link";
+            cmd.valid_for.nanosec=300000000;cmd.stop_requested=stop;cmd.target_speed=speed;cmd.target_steering_angle=.01;
+            planning_pub_->publish(cmd);
+        };
+        const string label="stop ramp ("+scenario+"): ";
+        const auto check=[&](bool ok,const string& name){expect(ok,(label+name).c_str());};
+        // status_json comes every 0.10-0.12 s: wait for it instead of reading it once after a fixed time.
+        const auto wait_status=[&](const function<bool()>& ok,double seconds){
+            const double deadline=steadySeconds()+seconds;
+            while(!ok()&&steadySeconds()<deadline)pump(.01);
+            return ok();
+        };
+        const auto ramp_running=[&]{return status_.value("stop_ramp_active",false)&&
+            status_.value("planning_supervisor_state",string())=="ACTIVE"&&
+            status_.value("planning_start_reason",string())=="speed ramp before stop";};
+        const auto held=[&]{return status_.value("stop_output",string())=="hold"&&!status_.value("stop_ramp_active",true);};
+        const bool climb=scenario=="climb hold"||scenario=="cancel then flat";
+        send_planning_=false;pump(.75);
+        follow_=true;telemetry_iq_=climb?16.0:6.0;planner_speed_=.25;send_planning_=true;pump(1.6);
+        check(!observed_motor_erpm_.empty()&&observed_motor_erpm_.back()==1000.0&&telemetry_erpm_==1000.0,
+              "the LPP drive runs at 1000 ERPM");
+        if(scenario=="blocked"){follow_=false;telemetry_erpm_=0.0;pump(.1);}
+        const size_t mark=speed_log_.size(),outputs=stop_output_times_.size();
+        const int brakes=brake_messages_,handbrakes=handbrake_messages_,releases=release_messages_;
+        const double t0=steadySeconds();
+        const auto speeds_after=[&](size_t from){vector<double> v;for(size_t i=from;i<speed_log_.size();++i)v.push_back(speed_log_[i].second);return v;};
+        const auto first_output_after=[&]{return stop_output_times_.size()>outputs?stop_output_times_[outputs]-t0:-1.0;};
+        const auto falling_until_output=[&](size_t from,double low){
+            vector<double> v;
+            for(size_t i=from;i<speed_log_.size();++i)
+                if((first_output_after()<0||speed_log_[i].first<t0+first_output_after())&&speed_log_[i].second<1000.0)
+                    v.push_back(speed_log_[i].second);
+            bool ok=v.size()>=8;
+            for(size_t i=1;i<v.size();++i)ok=ok&&v[i]<=v[i-1]&&v[i]>=low;
+            return ok&&!v.empty()&&v.back()<=200.0+1e-9;
+        };
+        send_planning_=false;
+        if(scenario=="second publisher"){
+            send_planning_=true; // the first planner keeps sending fresh commands
+            auto second=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
+            check(wait_status([&]{return held();},3.0),"a second planning publisher ramps down to the hold");
+            check(falling_until_output(mark,200.0)&&handbrake_messages_>handbrakes,
+                  "fresh commands from the first planner do not cancel the ramp while two publishers exist");
+            check(status_.value("planning_supervisor_state",string())!="ACTIVE"&&!status_.value("planning_reset_required",true),
+                  "it waits without a latch");
+            return;
+        }
+        if(scenario!="expiry")lpp(true,0.0);
+        if(scenario=="climb hold"){telemetry_iq_=8.0;follow_lag_=150.0;}
+        if(scenario=="LPP STOP"||scenario=="expiry"||scenario=="climb hold"){
+            check(wait_status(ramp_running,scenario=="expiry"?.6:.25)&&status_.value("planning_stop_ramp_s",0.0)==ramp_s,
+                  "status reports the running ramp");
+            check(wait_status(held,1.5),"the ramp ends in a hold");
+            pump(.15);
+            const double until=first_output_after(),lead=scenario=="expiry"?.3:0.0;
+            if(scenario=="climb hold"){
+                // The reported speed stays 150 ERPM above the command: 0.3 s at 200 ERPM, then brake, then hold.
+                check(until>=.5&&until<=.95&&brake_messages_>brakes,
+                      "a speed still above 200 after the ramp waits 0.3 s at 200 ERPM, then brakes before the hold");
+            }else{
+                check(falling_until_output(mark,200.0),"the speed command falls step by step from 1000 to 200 ERPM");
+                check(until>=lead+.24&&until<=lead+.55,"the stop output follows about 0.3 s after the stop"+
+                      string(scenario=="expiry"?" (after the 0.3 s command validity)":""));
+                check(brake_messages_==brakes,"a speed that follows the ramp goes straight to the handbrake (no brake pulse)");
+            }
+            check(handbrake_messages_>handbrakes&&status_.value("stop_hold_basis",string())=="load"&&
+                  status_.value("planning_supervisor_state",string())=="SOFT_STOPPED"&&
+                  !status_.value("planning_reset_required",true),"the ramp ends in the load-sized hold and a planning pause");
+            check(last_handbrake_==(climb?1.45*10.0+8.0:12.5),
+                  climb?"a lagging ramp after a climb holds with the climb current (22.5 A)":
+                        "a flat ramp holds with the minimum (12.5 A)");
+            if(!climb)check(status_.value("planning_wait_reason",string()).find(
+                scenario=="expiry"?"expired":"LPP pause")!=string::npos,"the wait reason names the stop");
+            follow_lag_=0.0;telemetry_iq_=6.0;send_planning_=true;pump(.5);
+            check(observed_motor_erpm_.back()==1000.0&&status_.value("planning_supervisor_state",string())=="ACTIVE",
+                  "a fresh command resumes after the ramp stop");
+        }else if(scenario=="cancel"||scenario=="cancel then flat"){
+            pump(.1);
+            send_planning_=true;pump(.4);
+            const auto v=speeds_after(mark);
+            double lowest=1000.0;for(double x:v)lowest=min(lowest,x);
+            check(stop_output_times_.size()==outputs&&lowest<1000.0&&lowest>200.0&&v.back()==1000.0&&
+                  wait_status([&]{return !status_.value("stop_ramp_active",true)&&
+                      status_.value("planning_supervisor_state",string())=="ACTIVE";},.3),
+                  "a fresh command during the ramp cancels it: no brake/hold, back to 1000 ERPM");
+            if(scenario=="cancel then flat"){
+                // The cancelled ramp's record (climb, 10 A load) must not size a later flat stop.
+                telemetry_iq_=6.0;pump(1.5);
+                send_planning_=false;lpp(true,0.0);
+                check(wait_status(held,ramp_s+1.0)&&last_handbrake_==12.5&&status_.value("stop_hold_basis",string())=="load",
+                      "after a cancelled ramp, a later flat stop holds with the minimum (new drive record)");
+            }
+        }else if(scenario=="speed 0"){
+            pump(.06);
+            lpp(false,0.0);
+            const size_t before=speed_log_.size();pump(.12);
+            check(speed_log_.size()>=before+3&&stop_output_times_.size()==outputs&&status_.value("stop_ramp_active",false),
+                  "a speed-0 LPP command during the ramp lets the ramp run on (no brake from cruise speed)");
+            check(wait_status(held,ramp_s+1.0)&&falling_until_output(mark,200.0),"the ramp still ends in the hold");
+        }else if(scenario=="operator STOP"){
+            check(wait_status(ramp_running,.3),"the ramp runs before the operator STOP");
+            check(call("stop"),"operator STOP accepted during the ramp");
+            const size_t after_call=speed_log_.size();pump(.25);
+            check(speed_log_.size()==after_call&&stop_output_times_.size()>outputs&&
+                  status_.value("planning_reset_required",false),"operator STOP during the ramp stops at once and latches");
+        }else if(scenario=="VESC fault"){
+            check(wait_status(ramp_running,.3),"the ramp runs before the VESC fault");
+            telemetry_fault_=1;pump(.06);
+            const size_t after=speed_log_.size();pump(.2);
+            check(speed_log_.size()==after&&release_messages_>releases&&status_.value("planning_reset_required",false),
+                  "a VESC fault during the ramp releases with 0 A at once and latches");
+        }else if(scenario=="blocked"){
+            pump(.3);
+            check(speeds_after(mark).size()<=1&&first_output_after()>=0.0&&first_output_after()<.15,
+                  "a car already at 0 ERPM is not ramped: the stop output comes at once");
+        }else if(scenario=="invalid message"){
+            check(wait_status(ramp_running,.3),"the ramp runs before the invalid message");
+            const size_t before=speed_log_.size();
+            nomad_interfaces::msg::DriveCommand bad;bad.header.stamp=fake_->now();bad.header.frame_id="base_link";
+            bad.valid_for.nanosec=300000000;bad.target_speed=numeric_limits<double>::quiet_NaN();planning_pub_->publish(bad);
+            pump(.12);
+            check(speed_log_.size()>=before+3&&stop_output_times_.size()==outputs,
+                  "an invalid LPP message during the ramp does not cut it short");
+            check(wait_status(held,ramp_s+1.0)&&!status_.value("planning_reset_required",true),"the ramp still ends in the hold");
+        }else throw runtime_error("unknown stop ramp scenario");
     }
 
     // Without a handbrake subscriber (unpatched vesc_driver) the node names it, does not claim a
@@ -1139,6 +1281,12 @@ private:
     int brake_messages_ = 0, handbrake_messages_ = 0;
     double last_brake_ = -1.0, last_handbrake_ = -1.0;
     vector<double> observed_motor_erpm_;
+    // Stop ramp tests: the reported ERPM follows each speed command (trailing by follow_lag_, capped at follow_cap_)
+    // and drops to 0 on a brake/handbrake command. Times of the speed commands and of the brake/handbrake commands.
+    bool follow_ = false;
+    double follow_lag_ = 0.0, follow_cap_ = 1000.0;
+    vector<pair<double, double>> speed_log_;
+    vector<double> stop_output_times_;
 };
 
 #ifdef NOMAD_ENABLE_PLANNING
@@ -1155,6 +1303,43 @@ void testPlanningStopOutput() {
     load.insert(load.end(),{{"stop_handbrake_min_current_a",12.5},{"stop_handbrake_load_gain",1.45},
                               {"stop_handbrake_rolling_current_a",6.0},{"stop_handbrake_margin_a",8.0}});
     {RosRig load_hold(true,true,true,true,false,load);load_hold.runPlanningLoadHold();}
+}
+
+void testStopRamp() {
+    const vector<rclcpp::Parameter> parameters={
+        {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
+        {"planning.measured_speed_control",true},{"planning.minimum_running_erpm",1000.0},{"planning.feedback_limit_erpm",1200.0},
+        {"planning.erpm_per_mps",4000.0},{"planning.servo_per_rad",.5},{"planning.max_mps",.25},{"planning.max_rad",.3},
+        {"planning.stop_ramp_s",.3},{"commissioning.overspeed_erpm",2500.0},
+        {"stop_brake_current_a",20.0},{"stop_handbrake_current_a",30.0},{"stop_handbrake_below_erpm",200.0},
+        {"stop_handbrake_min_current_a",12.5},{"stop_handbrake_load_gain",1.45},
+        {"stop_handbrake_rolling_current_a",6.0},{"stop_handbrake_margin_a",8.0}};
+    for(const string scenario:{"LPP STOP","expiry","climb hold","second publisher","blocked",
+                               "cancel","cancel then flat","speed 0","operator STOP","VESC fault","invalid message"}){
+        // Scenarios that act during the ramp use a 1 s ramp so they still act while it runs on a slow machine.
+        const bool acts_during=scenario=="cancel"||scenario=="cancel then flat"||scenario=="speed 0"||
+                               scenario=="operator STOP"||scenario=="VESC fault"||scenario=="invalid message";
+        auto with_ramp=parameters;
+        for(auto& parameter:with_ramp)
+            if(parameter.get_name()=="planning.stop_ramp_s")parameter=rclcpp::Parameter("planning.stop_ramp_s",acts_during?1.0:.3);
+        RosRig rig(true,true,true,true,false,with_ramp);rig.runStopRamp(scenario,acts_during?1.0:.3);
+    }
+    const vector<rclcpp::Parameter> base={{"mode","commission"},{"planning.headless",true},{"planning.resume_after_stop",true},
+        {"planning.measured_speed_control",true},{"planning.feedback_limit_erpm",1200.0}};
+    const auto refused=[&](const vector<rclcpp::Parameter>& extra){
+        auto all=base;all.insert(all.end(),extra.begin(),extra.end());
+        rclcpp::NodeOptions options;options.parameter_overrides(all);
+        try{auto node=nomad::ControllerNode::create(options);}
+        catch(const invalid_argument& error){return string(error.what()).find("stop_ramp_s")!=string::npos;}
+        return false;
+    };
+    expect(!refused({{"planning.stop_ramp_s",.3}})&&!refused({{"planning.stop_ramp_s",0.0}})&&!refused({{"planning.stop_ramp_s",1.0}}),
+           "stop ramp: 0..1 s accepted with headless measured planning");
+    expect(refused({{"planning.stop_ramp_s",-.1}})&&refused({{"planning.stop_ramp_s",1.01}})&&
+           refused({{"planning.stop_ramp_s",numeric_limits<double>::quiet_NaN()}}),"stop ramp: out-of-range time refused");
+    expect(refused({{"planning.stop_ramp_s",.3},{"planning.resume_after_stop",false}})&&
+           refused({{"planning.stop_ramp_s",.3},{"planning.measured_speed_control",false},{"planning.minimum_running_erpm",0.0}}),
+           "stop ramp: refused without headless measured planning that resumes after a stop");
 }
 
 void testMinimumRunningFloor() {
@@ -1220,6 +1405,11 @@ int main(int argc, char* argv[]) {
             cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }
+        if(argc>1&&string(argv[1])=="--stop-ramp-only"){
+            testStopRamp();
+            cout<<checks<<" checks, "<<failures<<" failures\n";
+            rclcpp::shutdown();return failures?1:0;
+        }
         if(argc>1&&string(argv[1])=="--stop-output-only"){
             testPlanningStopOutput();
             cout<<checks<<" checks, "<<failures<<" failures\n";
@@ -1267,6 +1457,7 @@ int main(int argc, char* argv[]) {
 #ifdef NOMAD_ENABLE_PLANNING
         testMeasuredSpeedControl();
         testPlanningStopOutput();
+        // testStopRamp() runs as its own ctest (planning_stop_ramp_ros, --stop-ramp-only).
         { RosRig stable(true,true,true,true,false,{
             {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
             {"planning.start_hold_s",.2},{"planning.restart_cooldown_s",.3},{"planning.minimum_start_erpm",550.0},

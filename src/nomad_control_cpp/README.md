@@ -24,7 +24,7 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 
 - 설정 순서: `commissioning.yaml` → `planning.yaml` → `planning_headless.yaml` → `nomad_vehicle_ready.yaml`.
 - m/s → ERPM 계수: `3721.882617894008`.
-- 양수 자율주행 목표: `max(1000 ERPM, 환산 요청 ERPM)`. 0/STOP은 감속 없이 정지 출력으로 바뀝니다(아래 '정지 출력'). 과속 감속 중에는 최소 출력 적용을 해제합니다.
+- 양수 자율주행 목표: `max(1000 ERPM, 환산 요청 ERPM)`. LPP STOP·명령 끊김은 0.3초 동안 속도를 200 ERPM까지 줄이고, 측정 속도가 200 이하가 되면 핸드브레이크로 넘어갑니다(11-13, 아래 '감속 정지'). 주행 중 속도 0 명령은 감속 없이 정지 출력입니다(아래 '정지 출력'). 과속 감속 중에는 최소 출력 적용을 해제합니다.
 - LPP 입력 상한은 0.25 m/s입니다. 이 상한의 환산값도 1000보다 낮으므로, 현재 유효한 양수 요청은 정상 상태에서 모두 1000 ERPM으로 올라갑니다. 입력 m/s를 그대로 추종하는 설정은 아닙니다.
 - 조향 입력 ±0.6108652382 rad(±35°) → 서보 0~1, 중앙 0.5. 실제 바퀴 각도 피드백은 없습니다.
 - VESC 내부 속도 PID를 사용합니다. C++은 ERPM 목표와 과속 감시를 담당합니다. 과속 감시 기준은 1200 ERPM이며 50 ERPM 여유를 넘는 초과분에 따라 목표를 낮춥니다.
@@ -38,12 +38,12 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 | 구분 | 경우 | 동작 |
 |---|---|---|
 | 치명 | VESC 고장 코드, 전압 0 V 이하, 과속 2500 ERPM 초과, 바퀴 걸림(명령 중 50 ERPM 미만 2초), 다른 프로그램의 VESC 명령 토픽 발행, 운영자 STOP, 과전류(모터 55 A·입력 30 A 초과가 0.3초 지속 / 60 A 1회 / 10초에 3회), 시작 전 Idle에서 본 치명 고장 | 정지 출력 후 **잠김**(VESC 고장 코드로 잠기면 0 A). RESET(차가 0.5초 이상 정지) 필요. 핸드브레이크 중에는 ERPM이 0으로 고정돼 미끄러져도 이 조건을 통과하므로 복구 전 눈으로 정지를 확인 |
-| 비치명 | 짧은 전류 피크, 제어 주기 0.2초 이상 지연, ROS 시계 역행(기준 재설정), 값이 숫자가 아닌 상태값 1회, LPP 명령 끊김·만료·STOP, 모터 상태 끊김, 드라이버 일시 사라짐, ESC 80 ℃ 이상(70 ℃ 미만까지) | 정지 출력 후 **대기**. 새 유효 입력이 오면 RESET 없이 재출발 |
+| 비치명 | 짧은 전류 피크, 제어 주기 0.2초 이상 지연, ROS 시계 역행(기준 재설정), 값이 숫자가 아닌 상태값 1회, LPP 명령 끊김·만료·STOP, 모터 상태 끊김, 드라이버 일시 사라짐, ESC 80 ℃ 이상(70 ℃ 미만까지) | 정지 출력 후 **대기**. 새 유효 입력이 오면 RESET 없이 재출발. LPP STOP과 명령 끊김·만료(플래너 발행자 1개 아님 포함)만 감속 뒤 정지 출력(아래 '감속 정지'), 나머지는 즉시 |
 
 - 수동 GUI 세션은 예전처럼 모두 잠급니다.
 - 잠금·대기 사유는 하나로 묶지 않고 값과 함께 나옵니다. 예: `raw current spike: motor 33.0 A (limit 55), input 2.1 A (limit 30); output released`, `raw overspeed: 2600 ERPM > 2500 ERPM`, `raw VESC fault code 7`.
 - 지금 정지 출력 상태: `status_json`의 `stop_output`(`none` 주행 중이거나 아직 없음 · `coast` 0 A · `brake` · `hold` 핸드브레이크), `stop_output_a`(보내는 전류), `stop_hold_s`(유지 시간), `erpm_valid`(핸드브레이크 중 false: 이때 ERPM 0은 측정값이 아님), `vesc_fault`(VESC 고장 코드로 잠긴 상태, 출력권이 있으면 0 A로 풂. 0 A 해제가 시작될 때 `[STOP_OUTPUT]` 경고가 한 번 나옴), `stop_holds_abandoned`(노드 시작 뒤 유지를 포기한 누적 횟수), `stop_hold_basis`·`stop_hold_load_a`(유지 전류를 정한 근거와 그때 쓴 구동 부하 전류, 아래 '유지 전류'), `planning_wait_reason`(SOFT_STOPPED·RESUME_PENDING일 때 대기 사유, 그 밖에는 빈 문자열). `control_trace` 로그 줄에는 `stop=`, `stop_a=`, `erpm_valid=`, `[PLANNING_WAIT]`에는 `brake_pub_sub=`, `handbrake_pub_sub=`(발행자,구독자)가 있습니다.
-- `status_json`에 `planning_supervisor_state`(IDLE·ACTIVE·SOFT_STOPPED·RESUME_PENDING·BLOCKED)와 `motor_current_limit_a`, `input_current_limit_a`, `overcurrent_hard_a`, `esc_temp_c`, `esc_temp_state`, `stop_brake_current_a`, `stop_handbrake_current_a`, `stop_handbrake_below_erpm`, `stop_handbrake_min_current_a`, `stop_handbrake_load_gain`, `stop_handbrake_rolling_current_a`, `stop_handbrake_margin_a`가 있습니다(정지 전류는 실제로 켜진 값, 꺼져 있으면 0. 부하 기반 유지를 끄면 `stop_handbrake_min_current_a`가 0).
+- `status_json`에 `planning_supervisor_state`(IDLE·ACTIVE·SOFT_STOPPED·RESUME_PENDING·BLOCKED)와 `motor_current_limit_a`, `input_current_limit_a`, `overcurrent_hard_a`, `esc_temp_c`, `esc_temp_state`, `stop_brake_current_a`, `stop_handbrake_current_a`, `stop_handbrake_below_erpm`, `stop_handbrake_min_current_a`, `stop_handbrake_load_gain`, `stop_handbrake_rolling_current_a`, `stop_handbrake_margin_a`, `planning_stop_ramp_s`, `stop_ramp_active`가 있습니다(정지 전류는 실제로 켜진 값, 꺼져 있으면 0. 부하 기반 유지를 끄면 `stop_handbrake_min_current_a`가 0).
 - 통합 GUI 플래닝 개발 창의 **'제어기 복구'** 버튼(`feat/gui`)이 Pi4 제어기의 `~/reset`만 부릅니다(구동 명령 없음). 출력 허용 상태면 복구 직후 다시 출발합니다. 핸드브레이크 중에는 차가 미끄러져도 정지로 보이므로 누르기 전에 눈으로 확인하세요.
 
 ### 정지 출력 (2026-11-12, 브레이크·핸드브레이크)
@@ -61,7 +61,7 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 | `stop_handbrake_below_erpm` | 200.0 | 브레이크 → 핸드브레이크 전환 기준(0~2000 ERPM) |
 | `motor_handbrake_topic` | `/nomad_bench/commands/motor/handbrake` | 핸드브레이크 토픽 |
 
-- 정지 출력은 LPP STOP·명령 만료·속도 0, 운영자 STOP, 치명 잠금, 종료를 포함한 모든 해제에 쓰이고, 출력권을 가진 동안 20 ms마다 다시 보냅니다. 두 값이 0이면 예전처럼 0 A입니다. 브레이크만 0이면 핸드브레이크를 걸지 않은 동안 0 A, 핸드브레이크만 0이면 항상 브레이크입니다. 어느 설정이든 VESC 고장 코드로 잠기면 0 A입니다. 무엇을 낼지는 `include/nomad_control_cpp/stop_output.hpp`(ROS 없는 정책, 단위시험 `stop_output_policy`)가 정합니다.
+- 정지 출력은 LPP STOP·명령 만료·속도 0, 운영자 STOP, 치명 잠금, 종료를 포함한 모든 해제에 쓰이고(LPP STOP·명령 만료는 아래 '감속 정지' 뒤), 출력권을 가진 동안 20 ms마다 다시 보냅니다. 두 값이 0이면 예전처럼 0 A입니다. 브레이크만 0이면 핸드브레이크를 걸지 않은 동안 0 A, 핸드브레이크만 0이면 항상 브레이크입니다. 어느 설정이든 VESC 고장 코드로 잠기면 0 A입니다. 무엇을 낼지는 `include/nomad_control_cpp/stop_output.hpp`(ROS 없는 정책, 단위시험 `stop_output_policy`)가 정합니다.
 - **핸드브레이크 진입과 유지(11-13):** 새로 받은 정상 상태값이 200 ERPM 이하이고 드라이버가 핸드브레이크 토픽을 구독할 때만 겁니다. 상태값이 끊기거나 오래되면 걸지 않고 브레이크를 보냅니다. 한 번 걸리면 다음 구동 명령(0이 아닌 속도)까지 유지합니다. 다만 건 지 0.1초가 지난 뒤 최근에 받은 상태값(검사에서 거부된 값 포함)이 400 ERPM(진입 기준의 2배와 기준+200 중 큰 값)을 넘거나 핸드브레이크 구독자가 사라지면, 유지가 실제로 안 되고 있는 것이므로 브레이크로 돌아갑니다(진짜 유지 중에는 0으로 읽힘). 그 뒤 구독자가 있고 정상 상태값이 다시 200 ERPM 이하이면 다시 겁니다.
 - **VESC 고장 코드(11-13):** VESC가 고장 코드를 보내 잠기면 브레이크·핸드브레이크 대신 0 A로 풉니다(고장을 보고한 VESC에 전류를 다시 걸지 않기 위해, 대신 경사에서는 굴러갈 수 있음). 멈춘 상태에서 출력권을 가진 채 고장이 와도 잠깁니다. 과전류·과속·바퀴 걸림·전압 이상·운영자 STOP 같은 다른 치명 잠금은 브레이크·유지를 계속합니다. RESET이 받아들여지면 해제됩니다.
 - 브레이크나 핸드브레이크를 켜면 그 토픽의 발행자가 제어기 하나뿐이고 구독자(드라이버)가 있어야 출발합니다. 패치 안 한 드라이버에서는 출발하지 않습니다. 이때 사유는 처음 출발 때 `raw start refused: need exclusive driver ...`, 재출발 대기 중에는 `VESC handbrake topic has no subscriber (patched vesc_driver required); waiting`(드라이버의 상태값·속도·전류 토픽은 보일 때. 브레이크 토픽만 구독자가 없으면 `VESC brake topic has no subscriber; waiting`, 드라이버가 안 보이는 등 그 밖의 경우는 `driver endpoints unavailable; waiting`)으로 나옵니다. 처음 출발 실패는 핸드브레이크를 직접 가리키지 않으므로 `ros2 topic info -v /nomad_bench/commands/motor/handbrake`로 구독자를 확인하세요. 드라이버 패치·설정: [`vesc_config_20261112/driver/README.md`](vesc_config_20261112/driver/README.md).
@@ -86,8 +86,25 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 - 출발: kp·ki 0.004일 때는 처음 약 10 A에서 1초에 약 10 A씩 올라(모터 한계 50 A 기준, 60 A였던 11-12에는 12 A) 30 A 이상이 필요한 경사에서 출발이 늦고 2초 바퀴 걸림 잠금에 걸릴 수 있었습니다. 11-13 `s_pid_ki` 0.04 적용 뒤 VESC Tool 14° 시험에서는 약 0.15초에 전류가 오르기 시작했습니다(제어기 경로 실차 미확인).
 - VESC 고장 코드로 잠기면 0 A라서 경사에서는 굴러갈 수 있습니다. 다른 치명 잠금 중에는 정지 출력을 계속 보냅니다.
 - 제어기·드라이버가 꺼지면 VESC는 300 ms 뒤 `timeout_brake_current`(0 = 관성)로 풀립니다.
-- ROS 시험: `mode=commission` headless 자율주행 경로는 고정 유지 설정(20 A / 15 A / 200 ERPM)으로 돌립니다(STOP 유지, 움직이는 중 STOP의 브레이크 → 유지, 유지 고정과 포기, 과속 잠금 중 브레이크, VESC 고장 0 A와 RESET 뒤 유지 복귀, 상태값 끊김 때 브레이크, 핸드브레이크 구독자 없음과 복귀). 같은 경로를 실제 설정(부하 기반 12.5~30 A)으로도 돌립니다(안정되지 않은 첫 주행 30 A, 오르막·내리막 22.5 A, 평지 12.5 A(재출발 첫 상태값의 직전 유지 전류는 무시), 가파른 오르막 30 A, 제자리 짧은 출발·멈춘 언덕 출발은 직전 값 유지). `mode=bench`는 브레이크 8 A·핸드브레이크 12 A로 브레이크 반복, 정지 유지, 멈춘 시험 중 VESC 고장 0 A와 RESET 뒤 유지 복귀를 봅니다. 수동 GUI 경로의 ROS 시험은 아직 0 A 설정입니다.
+- ROS 시험: `mode=commission` headless 자율주행 경로는 고정 유지 설정(20 A / 15 A / 200 ERPM)으로 돌립니다(STOP 유지, 움직이는 중 STOP의 브레이크 → 유지, 유지 고정과 포기, 과속 잠금 중 브레이크, VESC 고장 0 A와 RESET 뒤 유지 복귀, 상태값 끊김 때 브레이크, 핸드브레이크 구독자 없음과 복귀). 같은 경로를 실제 설정(부하 기반 12.5~30 A)으로도 돌립니다(안정되지 않은 첫 주행 30 A, 오르막·내리막 22.5 A, 평지 12.5 A(재출발 첫 상태값의 직전 유지 전류는 무시), 가파른 오르막 30 A, 제자리 짧은 출발·멈춘 언덕 출발은 직전 값 유지). 감속 정지는 LPP STOP·명령 만료(브레이크 없이 핸드브레이크)·플래너 발행자 2개·막힌 차(감속 없음)·측정 속도가 늦을 때 0.3초 대기 뒤 브레이크·오르막 뒤 유지 전류 22.5 A·감속 중 새 명령(취소)과 그 뒤 평지 정지 12.5 A·감속 중 속도 0·운영자 STOP·VESC 고장·감속 중 잘못된 메시지를 가짜 VESC로 확인합니다(ctest `planning_stop_ramp_ros` = `controller_ros_tests --stop-ramp-only`, 전체 ROS 시험과 따로 돌려 150초 제한 여유를 유지). `mode=bench`는 브레이크 8 A·핸드브레이크 12 A로 브레이크 반복, 정지 유지, 멈춘 시험 중 VESC 고장 0 A와 RESET 뒤 유지 복귀를 봅니다. 수동 GUI 경로의 ROS 시험은 아직 0 A 설정입니다.
 - `operation_environment`는 계속 `raised_bench`만 허용합니다.
+
+### 감속 정지 (2026-11-13 밤)
+
+LPP가 자주 멈췄다 가는데, 멈출 때마다 약 1000 ERPM에서 브레이크 20 A → 핸드브레이크까지 약 50 ms 만에 서서 차가 앞뒤로 흔들렸습니다(11-13 평지 기록 71번 정지 모두 LPP STOP 또는 명령 만료). 그래서 이 두 경우만 속도를 줄인 뒤 멈춥니다.
+
+| 파라미터(`planning_headless.yaml`) | 값 | 의미 |
+|---|---|---|
+| `planning.stop_ramp_s` | 0.3 | 감속 시간(0~1초, 0이면 예전처럼 즉시 정지). headless·실측 속도 제어·자동 재출발 프로필에서만 허용 |
+
+- **적용:** LPP `stop_requested`, LPP 명령 만료(유효시간 0.3초 또는 수신 0.35초 초과), 플래너 발행자가 1개가 아님(사라지거나 2개 이상. 2개면 감속 뒤 RESUME_PENDING으로 기다림).
+- **동작:** 속도 명령을 `min(지금 명령, 측정 ERPM)`에서 `stop_handbrake_below_erpm`(200 ERPM)까지 0.3초 동안 일정하게 줄입니다(1000 ERPM이면 20 ms마다 약 53 ERPM, 1000 ERPM 하한은 적용 안 함). VESC 속도 PID가 명령보다 늦게 따라와 명령이 200에 닿을 때 차는 아직 약 300~500 ERPM이므로(리뷰 모델), 측정 속도가 200 이하가 될 때까지 명령 200을 유지합니다(최대 0.3초 더). 측정 속도가 200 이하가 되는 순간(경사·장애물로 더 빨리 느려지면 그보다 일찍) 핸드브레이크로 바로 넘기고 예전과 같은 대기(SOFT_STOPPED)로 갑니다. 0.3초를 더 기다려도 200 아래로 안 내려오면(예: 내리막) 평소처럼 브레이크 20 A 뒤 200 이하에서 핸드브레이크입니다. 조향은 마지막 LPP 값을 유지합니다.
+- **즉시 정지 그대로:** VESC 고장 코드, 과속, 과전류, 운영자 STOP, 상태값·드라이버 끊김, 제어 주기 지연, ESC 과열. 감속 중에 이런 일이 생겨도 그 순간 바로 멈춥니다. 감속 중이 아닐 때 온 잘못된 LPP 명령(숫자 아님·범위 밖)과 속도 0 명령도 예전처럼 즉시 정지 출력입니다. 이미 200 ERPM 이하(막혀서 밀고 있음·기어감·뒤로 밀림)면 감속 없이 바로 정지 출력입니다.
+- **감속 중 LPP 메시지:** 새 이동 명령(속도 > 0, 플래너 발행자 1개)이면 감속을 취소하고 그대로 주행합니다(멈추지 않음, 1000 ERPM 하한 다시 적용). 속도 0 명령·STOP·잘못되거나 오래된 메시지는 감속을 끊지 않고 끝까지 마칩니다(이미 멈추는 중이라, 바로 세우면 처음의 뒤뚱거림이 다시 생김).
+- **유지 전류:** 감속 시작 순간에 멈춘 것처럼 정합니다(감속 중 떨어지는 속도와 줄어드는 전류는 '안정 아님'이나 경사로 읽지 않음). 감속 시작 0.15초 뒤부터의 샘플은 값을 올리기만 합니다: 감속 중에 경사를 만나 전류가 오르거나, 내리막에서 속도 PID가 속도를 못 줄이고 크게 제동하는 경우(`stop_output.hpp` `beginStopRamp`). 감속 중 간 거리도 '제자리'·'짧게 기어감' 거리에 넣습니다(보수적). **한계:** 감속 마지막 약 0.15초(2~3 cm) 안에 넘은 경사 경계는 전류에 아직 안 보여 평지 값으로 잡힐 수 있습니다(내리막 경계면 앞으로 미끄러짐). 예전 즉시 정지에도 브레이크로 서는 동안·정지 직전에 넘은 경계에 같은 사각지대가 있었고, 리뷰 모의(경계 위치를 바꿔 가며 비교)에서 감속 정지는 이 구간을 옮길 뿐 넓히지 않았습니다(내리막 노출 예전 대비 ±20 % 이내).
+- **플래너 팀 전달:** 1000 ERPM(약 0.27 m/s)에서 멈추는 데 약 0.3~0.45초가 더 걸리고 정지 거리가 약 4~5 cm 늘어납니다(감속과 200 유지 중 약 3.5~4 전기회전 ≈ 6 cm, 예전 브레이크 정지는 약 1~2 cm). 명령 만료로 멈출 때는 마지막 명령 뒤 유효시간 0.3초가 더해집니다.
+- **기록:** `[STOP_RAMP] begin reason= cmd_erpm= measured_erpm= ramp_from_erpm= end_erpm= ramp_s= iq_a=`, 감속 중 매 주기 `[STOP_RAMP] t= cmd_erpm= measured_erpm= iq_a=`, 끝에 `[STOP_RAMP] end t= measured_erpm= state= reason=` 또는 `[STOP_RAMP] cancelled`. 뒤이어 `raw transition=STOPPED_OUTPUT ... raw_erpm=`(넘길 때 측정 속도)와 `[STOP_OUTPUT] handbrake hold`가 나옵니다. `status_json`: `stop_ramp_active`, `planning_stop_ramp_s`, 감속 중 `planning_start_reason` = `speed ramp before stop`.
+- **실차 미확인:** VESC 속도 PID(kp 0.010·ki 0.04)가 감속을 얼마나 따라가는지, 200 ERPM 근처 저속 속도 제어(HFI)가 매끄러운지, 측정 속도가 0.3초 안에 200 이하로 내려와 브레이크 없이 핸드브레이크로 넘어가는지는 실차 로그로 확인해야 합니다. `[STOP_RAMP] end`의 `measured_erpm`이 200 이하면 바로 핸드브레이크, 200보다 크면 0.3초를 기다린 뒤 브레이크를 거친 것입니다. 감속 시간을 늘려도 PID 뒤처짐은 남으므로(0.5초에서도 명령 200일 때 약 260~330 ERPM) 흔들림 해결책이 아닙니다.
 
 ### 재출발과 VESC 속도 PID (2026-11-13)
 
@@ -204,7 +221,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | f6a662b | (11-13) 지금 VESC 설정 `mcconf_20261113_PID.xml` 추가 |
 | 66a4ebb | (11-13) 수동 GUI VESC 점검 기대값을 11-13 VESC 설정에 맞춤, Pi4 배포(`d65b65c9…`) 기록 |
 | b917e79 | (11-13) VESC `s_pid_kp` 0.010과 설정 파일 `mcconf_20261113_PID_kp010.xml`, kp 비교·실차 평지 결과(30 A 유지와 모터 발열) 기록 |
-| (이 커밋) | (11-13) 유지 전류 판정에서 가속 전류 제외: 속도 일정 샘플과 하한 샘플(경사·장애물에 걸려 느려지는 중)만 부하 근거, 끝 0.1초·간격 흔들림 처리, 짧은 기어가기 기준, 끝에서 부하 증가 시 보수적. 실제 평지 71정지 평균 22.8 → 18.1 A |
+| 472ad91 | (11-13) 유지 전류 판정에서 가속 전류 제외: 속도 일정 샘플과 하한 샘플(경사·장애물에 걸려 느려지는 중)만 부하 근거, 끝 0.1초·간격 흔들림 처리, 짧은 기어가기 기준, 끝에서 부하 증가 시 보수적. 실제 평지 71정지 평균 22.8 → 18.1 A |
+| (이 커밋) | (11-13) 감속 정지: LPP STOP·명령 끊김만 0.3초 동안 200 ERPM까지 속도를 줄이고 측정 속도가 200 이하가 되면(최대 0.3초 더) 핸드브레이크(`planning.stop_ramp_s`, `[STOP_RAMP]` 기록), 고장·운영자 STOP·과속은 즉시, 감속 중 새 이동 명령이면 취소, 유지 전류는 감속 시작 기준(감속 중 경사·내리막 신호는 올리기만) |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
@@ -213,7 +231,7 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 1. VESC 전류 한계 정리: 11-13 VESC에 적용(모터 ±50 A, 배터리 30 A, 회생 −30 A, 같은 날 `s_pid_ki` 0.04·`s_pid_kp` 0.010). 정지 브레이크 때문에 `l_current_min`은 −30 A 이하로 둡니다(지금 −50 A). 설정 파일 `vesc_config_20261112/VESC_설정파일/mcconf_20261113_PID_kp010.xml`.
 2. 수동 GUI VESC 점검(`ensure_gui.sh`): 11-13 새 VESC 값으로 맞춤(모터 ≤50 A·하한 −50~−30 A, 배터리 ≤30 A·회생 −30~0 A, PID 최소 50). 자율주행 경로(`run_planning_output.sh`)에는 VESC 설정 점검이 없습니다. Pi4 `~/vesc_ws/inspect_vesc.py --bench-current-a`는 VESC 전류 한계를 써 버리므로(회생 0 A) 쓰지 마세요.
 3. 리뷰에서 나온 개선 후보(미수정): 전류 피크 직후 재출발 대기 없음, RESET 때 과전류 기록 미초기화, 과속 감속 명령이 VESC PID 최소값 아래로 내려감, 운영자 STOP 후 복구하면 곧바로 출발.
-4. 플래너 쪽 합의: 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복.
+4. 플래너 쪽 합의: 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복, LPP STOP 뒤 감속 정지로 정지 시간 약 0.3~0.45초·거리 약 4~5 cm 증가(11-13 감속 정지).
 5. HFI 적용 후 통합시험(ERPM 모드)에서 턱 넘기·바퀴 걸림 감시·모터 발열 확인. VIO duty 모드는 계속 사용 금지(Pi4의 `nomad_vio_duty_control`에도 11-12에 같은 정지 출력과 온도 보호가 들어갔지만 실차 미시험, 이 저장소 밖).
 6. 정지 출력 개선(다음 경사 시험 전): 1단계(유지 고정·표시, VESC 고장 0 A, 실제 설정 ROS 시험, 대기 사유)는 11-13에 완료. 재출발은 VESC 속도 PID 조정(VESC Tool, `vesc_config_20261112` 6절, 11-13 `s_pid_ki` 0.04·`s_pid_kp` 0.010 적용, `mcconf_20261113_PID_kp010.xml`)과 `[RESTART_TRACE]` 기록으로 진행(출발 보조는 넣지 않음). 3단계(부하에 맞춘 유지 전류 12.5~30 A)는 11-13 구현, 실차 확인 남음(`[STOP_OUTPUT] handbrake hold` 로그로 경사별 전류와 미끄러짐을 같이 보고 구름저항 6 A·배율 1.45·여유 8 A를 맞춤. 7°·10° 경사의 오르막 전류와 미끄러지지 않는 핸드브레이크 값, 평지 주행 전류 측정이 있으면 좋음). 남은 것: 4단계 VIO로 미끄러짐 감지(그때 유지 중 RESET·재출발이 ERPM 0을 정지로 믿지 않게), 5단계 밀리는 중·내리막 정지 때 능동 정지 후 유지.
 7. 데스크톱 Qt GUI 도움말(`desktop/main.cpp`)의 '실제 차량에서는 브레이크가 아닙니다' 문구는 Qt6 빌드 확인 뒤 고칩니다. 웹 GUI는 실제 정지 설정을 표시합니다.

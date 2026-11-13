@@ -896,6 +896,147 @@ void testPlanningTransientRecovery() {
     expect(gap.controller.resumePlanning(1000,.5,gap.steady,gap.ros,true),"telemetry gap recovers without resetting controller");
 }
 
+// 2026-11-13 stop ramp: an LPP STOP / lost LPP input ramps the speed command down, then stops as pausePlanning does.
+void testPlanningStopRamp() {
+    using nomad::OutputKind; using nomad::RawAxis; using nomad::TrialState;
+    // Headless planning drive at 1000 ERPM (floor 1000), reported speed following the command.
+    const auto cruise = [](Rig& r, double erpm = 1000.0) {
+        r.controller.setPlanningRecovery(true);
+        expect(r.start(RawAxis::Manual, 0, .5, 0), "stop ramp fixture starts");
+        for (int i = 0; i < 10; ++i) {
+            r.feed(.02, erpm); r.update(RawAxis::Manual, erpm, .5); r.controller.tick(r.steady, r.ros, true, 1000);
+        }
+    };
+    const auto begin = [](Rig& r, double ramp_s = .3, double end = 200) {
+        return r.controller.beginStopRamp("LPP pause; waiting for fresh command", r.steady, r.ros, ramp_s, end);
+    };
+    Rig r; r.prime(); cruise(r);
+    expect(r.controller.commandedMotorErpm() == 1000, "stop ramp fixture cruises at 1000 ERPM");
+    expect(begin(r) && r.controller.stopRampActive() && r.controller.state() == TrialState::Running &&
+           r.controller.commandedMotorErpm() == 1000, "ramp begins from the 1000 ERPM drive and keeps it running");
+    expect(begin(r) && r.controller.commandedMotorErpm() == 1000, "a second begin keeps the running ramp");
+    double previous = 1000; int drive_ticks = 0; nomad::RawOutput out;
+    for (int i = 0; i < 30; ++i) {
+        r.feed(.02, previous); // the reported speed trails the command by one tick
+        out = r.controller.tick(r.steady, r.ros, true, 1000);
+        if (out.kind != OutputKind::Drive) break;
+        expect(out.motor_erpm >= 200 && (out.motor_erpm < previous - 50 || out.motor_erpm == 200) &&
+               out.servo_position && *out.servo_position == .5,
+               "each ramp tick lowers the command (~53 ERPM per 20 ms) down to 200, ignores the floor and keeps steering");
+        previous = out.motor_erpm; ++drive_ticks;
+    }
+    expect(out.kind == OutputKind::Release && r.controller.state() == TrialState::Stopped &&
+           r.controller.planningWaitActive() && r.controller.reason() == "LPP pause; waiting for fresh command" &&
+           !r.controller.stopRampActive() && r.controller.commandedMotorErpm() == 0 && previous == 200,
+           "the ramp ends once the measured speed is at 200 ERPM, as pausePlanning does: stopped, planning wait, the LPP reason");
+    expect(drive_ticks >= 14 && drive_ticks <= 16, "1000 -> 200 ERPM takes about ramp_s (0.3 s at 20 ms ticks)");
+    {
+        // The VESC speed PID trails the ramp: the command stays at 200 until the reported speed is there.
+        Rig lag; lag.prime(); cruise(lag); begin(lag);
+        int at_end = 0; nomad::RawOutput last;
+        for (int i = 0; i < 60; ++i) {
+            lag.feed(.02, 450);
+            last = lag.controller.tick(lag.steady, lag.ros, true, 1000);
+            if (last.kind != OutputKind::Drive) break;
+            if (last.motor_erpm == 200) ++at_end;
+        }
+        expect(last.kind == OutputKind::Release && lag.controller.state() == TrialState::Stopped &&
+               lag.controller.planningWaitActive() && at_end >= 14 && at_end <= 16,
+               "a speed that stays above 200 gets the 200 ERPM command for at most 0.3 s, then the stop output");
+        Rig slows; slows.prime(); cruise(slows); begin(slows);
+        int ticks = 0;
+        for (; ticks < 40; ++ticks) {
+            slows.feed(.02, ticks < 18 ? 450 : 190);
+            if (slows.controller.tick(slows.steady, slows.ros, true, 1000).kind != OutputKind::Drive) break;
+        }
+        expect(ticks == 18 && slows.controller.state() == TrialState::Stopped,
+               "while waiting at 200, the stop output follows on the first reading at or below 200");
+    }
+    r.feed(.02, 150);
+    expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "a fresh command resumes after the ramp stop");
+
+    Rig slow; slow.prime(); cruise(slow); slow.feed(.02, 600);
+    expect(begin(slow) && slow.controller.commandedMotorErpm() == 600,
+           "the ramp starts from the measured speed when the car is slower than the command");
+    slow.feed(.02, 600); slow.controller.tick(slow.steady, slow.ros, true, 1000); // 0.04 s since the last tick
+    expect(abs(slow.controller.commandedMotorErpm() - (600 - 400 / .3 * .04)) < 1e-6,
+           "the ramp rate brings the measured start to 200 ERPM in ramp_s");
+    for (double measured : {200.0, 40.0, -300.0}) {
+        Rig blocked; blocked.prime(); cruise(blocked); blocked.feed(.02, measured);
+        expect(!begin(blocked) && !blocked.controller.stopRampActive() &&
+               blocked.controller.state() == TrialState::Running && blocked.controller.commandedMotorErpm() == 1000,
+               "already at or below 200 ERPM (blocked, rolling back): no ramp, the caller stops at once");
+    }
+    Rig early; early.prime(); cruise(early); begin(early);
+    early.feed(.02, 900);
+    expect(early.controller.tick(early.steady, early.ros, true, 1000).kind == OutputKind::Drive, "ramp drives on above 200");
+    early.feed(.02, 180);
+    expect(early.controller.tick(early.steady, early.ros, true, 1000).kind == OutputKind::Release &&
+           early.controller.state() == TrialState::Stopped && early.controller.planningWaitActive(),
+           "the ramp ends early once the measured speed is at 200 ERPM (slope or obstacle)");
+
+    // Everything else still stops at once.
+    { Rig f; f.prime(); cruise(f); begin(f);
+      f.steady += .02; f.ros += .02; f.controller.observe({f.ros, 900, 0, 0, 16.3, 1}, f.steady, f.ros);
+      expect(f.controller.state() == TrialState::Fault && f.controller.vescFault() && !f.controller.stopRampActive() &&
+             f.controller.tick(f.steady, f.ros, true, 1000).kind == OutputKind::Release, "VESC fault during the ramp: immediate"); }
+    { Rig f; f.prime(); cruise(f); begin(f); f.feed(.02, 2600);
+      expect(f.controller.state() == TrialState::Fault && !f.controller.stopRampActive(), "overspeed during the ramp: immediate"); }
+    { Rig f; f.prime(); cruise(f); begin(f); f.controller.stop("operator STOP");
+      expect(f.controller.state() == TrialState::Stopped && !f.controller.stopRampActive() &&
+             f.controller.tick(f.steady, f.ros, true, 1000).kind == OutputKind::Release, "operator STOP during the ramp: immediate"); }
+    { Rig f; f.prime(); cruise(f); begin(f); f.feed(.02, 900);
+      expect(f.controller.pausePlanning("telemetry unavailable; waiting", f.steady, f.ros) &&
+             f.controller.state() == TrialState::Stopped && !f.controller.stopRampActive(),
+             "an immediate planning pause during the ramp ends it at once"); }
+    { Rig f; f.prime(); cruise(f); begin(f, .8);
+      for (int i = 0; i < 16; ++i) { f.steady += .02; f.ros += .02; f.controller.tick(f.steady, f.ros, true, 1000); }
+      expect(f.controller.state() == TrialState::Stopped && f.controller.planningWaitActive() &&
+             !f.controller.stopRampActive() && f.controller.reason().find("telemetry") != string::npos,
+             "telemetry timeout during the ramp: immediate"); }
+    { Rig f; f.prime(); cruise(f); begin(f, .8);
+      for (int i = 0; i < 25; ++i) { f.feed(.02, 900); f.controller.tick(f.steady, f.ros, true, 1000); }
+      expect(f.controller.state() == TrialState::Running && f.controller.stopRampActive(),
+             "a 0.8 s ramp outlives the 0.35 s command watchdog: the ramp needs no fresh command"); }
+
+    Rig c; c.prime(); cruise(c); begin(c, .8);
+    for (int i = 0; i < 20; ++i) { c.feed(.02, 900); c.controller.tick(c.steady, c.ros, true, 1000); }
+    c.controller.cancelStopRamp(c.steady);
+    expect(!c.controller.stopRampActive() && c.controller.state() == TrialState::Running,
+           "a fresh LPP command cancels the ramp and the drive goes on");
+    expect(c.update(RawAxis::Manual, 1000, .5) && c.controller.tick(c.steady, c.ros, true, 1000).motor_erpm == 1000,
+           "after a 0.4 s ramp the cancel counts as the heartbeat: the next update drives again with the floor");
+
+    { Rig manual; manual.prime(); expect(manual.start(RawAxis::Manual, 0, .5, 0), "non-planning fixture starts");
+      for (int i = 0; i < 5; ++i) {
+          manual.feed(.02, 1000); manual.update(RawAxis::Manual, 1000, .5); manual.controller.tick(manual.steady, manual.ros, true, 1000);
+      }
+      expect(manual.controller.commandedMotorErpm() == 1000 && !begin(manual) && !manual.controller.stopRampActive(),
+             "no ramp without headless planning recovery"); }
+    { Rig idle; idle.prime(); idle.controller.setPlanningRecovery(true);
+      expect(!begin(idle), "no ramp when not running"); }
+    for (double ramp_s : {0.0, -.1, 1.01, numeric_limits<double>::quiet_NaN()}) {
+        Rig f; f.prime(); cruise(f);
+        expect(!begin(f, ramp_s) && !f.controller.stopRampActive(), "invalid ramp time refused (0 < ramp_s <= 1)");
+    }
+    for (double end : {-1.0, numeric_limits<double>::quiet_NaN()}) {
+        Rig f; f.prime(); cruise(f);
+        expect(!begin(f, .3, end) && !f.controller.stopRampActive(), "invalid end ERPM refused");
+    }
+    { Rig f; f.prime(); cruise(f); f.steady += .25; f.ros += .25;
+      expect(!begin(f) && f.controller.state() == TrialState::Running && !f.controller.stopRampActive(),
+             "a stalled control timer: refused without side effects (the caller's pause reports it)"); }
+    { Rig f; f.prime(); cruise(f); f.steady += .15; f.ros += .15; f.controller.tick(f.steady, f.ros, true, 1000);
+      f.steady += .16; f.ros += .16;
+      expect(!begin(f) && f.controller.state() == TrialState::Running && !f.controller.stopRampActive(),
+             "stale telemetry (0.31 s) with a running timer: refused without side effects"); }
+    { Rig f; f.prime(); cruise(f);
+      expect(!f.controller.beginStopRamp("LPP pause", f.steady, f.ros - .01, .3, 200) &&
+             !f.controller.beginStopRamp("LPP pause", f.steady - .01, f.ros, .3, 200) &&
+             f.controller.state() == TrialState::Running && !f.controller.stopRampActive() && begin(f),
+             "a clock behind the last tick: refused without side effects"); }
+}
+
 // Critical physical faults latch with their own reason; non-critical ones only pause headless planning.
 void testCriticalAndNonCriticalSplit() {
     using nomad::TrialState;
@@ -1080,6 +1221,7 @@ int main() {
     testPlanningContinuation();
     testPlanningContinuationGates();
     testPlanningMinimumDriveOutput();
+    testPlanningStopRamp();
     testCriticalAndNonCriticalSplit();
     testVescFaultClassification();
     cout << checks << " raw commissioning checks, " << failures << " failures\n";

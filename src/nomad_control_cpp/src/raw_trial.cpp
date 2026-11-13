@@ -244,7 +244,8 @@ bool RawTrialController::checkRunning(double steady_now, double ros_now) {
     if (state_ != TrialState::Running) return false;
     if (!healthy(steady_now, ros_now)) invalidateTelemetry("raw telemetry timeout or invalid sample", true);
     else if (axis_ != RawAxis::Manual && steady_now - started_at_ >= duration_s_) stop("raw trial duration elapsed");
-    else if (steady_now - last_manual_at_ > manualTimeout(axis_)) stop("raw GUI command timeout", true);
+    // A stop ramp is the controller's own stop; it no longer needs a fresh command.
+    else if (!stop_ramp_ && steady_now - last_manual_at_ > manualTimeout(axis_)) stop("raw GUI command timeout", true);
     else if (last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
         const string reason = format("raw control timer stalled %.2f s", steady_now - *last_tick_);
         stop(reason, !planning_recovery_);
@@ -287,6 +288,35 @@ bool RawTrialController::pausePlanning(const string& reason, double steady_now, 
     return true;
 }
 
+// 2026-11-13: LPP pauses stopped the car from ~1000 ERPM within ~50 ms (brake, then handbrake) and it lurched.
+// The ramp starts from the measured speed when that is lower (a blocked or slowed car is not pushed on).
+bool RawTrialController::beginStopRamp(const string& reason, double steady_now, double ros_now, double ramp_s,
+                                       double end_erpm) {
+    if (stop_ramp_) return state_ == TrialState::Running;
+    // No side effects when refused: the caller's pausePlanning() then reports any clock, timer or telemetry issue.
+    const bool clock_ok = isfinite(steady_now) && isfinite(ros_now) &&
+        (!last_steady_now_ || steady_now >= *last_steady_now_) && (!last_ros_now_ || ros_now >= *last_ros_now_);
+    if (!planning_recovery_ || state_ != TrialState::Running || axis_ != RawAxis::Manual || !clock_ok ||
+        !healthy(steady_now, ros_now) || !last_tick_ || steady_now - *last_tick_ > options_.max_tick_gap_s ||
+        !isfinite(ramp_s) || ramp_s <= 0.0 || ramp_s > kMaxStopRampS || !isfinite(end_erpm) || end_erpm < 0.0)
+        return false;
+    const double start = min(commanded_erpm_, max(0.0, sample_->raw_erpm));
+    if (!(start > end_erpm)) return false;
+    commanded_erpm_ = start;
+    stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt};
+    stalled_since_.reset();
+    reason_ = "speed ramp before planning stop: " + reason;
+    return true;
+}
+
+void RawTrialController::cancelStopRamp(double steady_now) {
+    if (!stop_ramp_) return;
+    stop_ramp_.reset();
+    // The fresh LPP command that cancels the ramp is the heartbeat; update() follows in the same tick.
+    if (isfinite(steady_now)) last_manual_at_ = max(last_manual_at_, steady_now);
+    reason_ = "raw planning drive continues: fresh command during the stop ramp";
+}
+
 // A short planner pause may still be rolling (coast or brake) while fresh telemetry reports rotation.
 // This is not a manual START/reset bypass: its caller owns soft-pause permission.
 bool RawTrialController::resumePlanning(double erpm, double servo, double steady_now, double ros_now,
@@ -320,6 +350,7 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
 void RawTrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor || (state_ == TrialState::Fault && !fault)) return;
     planning_wait_ = false;
+    stop_ramp_.reset();
     state_ = fault ? TrialState::Fault : TrialState::Stopped;
     reason_ = reason;
     commanded_erpm_ = 0.0;
@@ -410,15 +441,32 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
     const double dt = steady_now - *last_tick_;
     last_tick_ = steady_now;
     if (axis_ == RawAxis::Motor || axis_ == RawAxis::Manual) {
-        // 0은 감속 목표가 아니라 출력 해제입니다. 낮은 RPM의 PID 구간에 오래 머물지 않습니다.
-        const double rate = target_erpm_ < commanded_erpm_ ? options_.motor_deceleration_erpm_s
-                                                         : options_.motor_ramp_erpm_s;
-        commanded_erpm_ = target_erpm_ == 0.0 ? 0.0 : approach(commanded_erpm_, target_erpm_, rate, dt);
-        // Skip the low-RPM ramp only for a positive planning target. STOP/zero
-        // still releases immediately; overspeed reduction calls with floor=0.
-        if (target_erpm_ > 0.0 && minimum_drive_erpm > 0.0)
-            commanded_erpm_ = max(commanded_erpm_, minimum_drive_erpm);
-        if (!checkMotorProgress(steady_now)) return restingOutput();
+        if (stop_ramp_) {
+            // Planning stop ramp: the running floor and the stall check do not apply. The command stays at end_erpm
+            // until the measured speed is there (then the stop output starts with the handbrake, not a brake pulse),
+            // at most kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle).
+            commanded_erpm_ = max(stop_ramp_->end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
+            if (commanded_erpm_ <= stop_ramp_->end_erpm + 1e-9 && !stop_ramp_->at_end_since)
+                stop_ramp_->at_end_since = steady_now;
+            const bool settled_too_long = stop_ramp_->at_end_since &&
+                steady_now - *stop_ramp_->at_end_since >= kStopRampSettleS - 1e-9;
+            if (sample_->raw_erpm <= stop_ramp_->end_erpm || settled_too_long) {
+                const string reason = stop_ramp_->reason;
+                stop(reason);
+                planning_wait_ = true;
+                return restingOutput();
+            }
+        } else {
+            // 0은 감속 목표가 아니라 출력 해제입니다. 낮은 RPM의 PID 구간에 오래 머물지 않습니다.
+            const double rate = target_erpm_ < commanded_erpm_ ? options_.motor_deceleration_erpm_s
+                                                             : options_.motor_ramp_erpm_s;
+            commanded_erpm_ = target_erpm_ == 0.0 ? 0.0 : approach(commanded_erpm_, target_erpm_, rate, dt);
+            // Skip the low-RPM ramp only for a positive planning target. STOP/zero
+            // still releases immediately; overspeed reduction calls with floor=0.
+            if (target_erpm_ > 0.0 && minimum_drive_erpm > 0.0)
+                commanded_erpm_ = max(commanded_erpm_, minimum_drive_erpm);
+            if (!checkMotorProgress(steady_now)) return restingOutput();
+        }
         if (axis_ == RawAxis::Motor) return {OutputKind::Drive, commanded_erpm_, nullopt};
     }
     const double servo_rate = axis_ == RawAxis::Manual ? options_.manual_servo_rate_s : options_.servo_rate_s;

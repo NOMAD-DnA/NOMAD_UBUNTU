@@ -4,8 +4,15 @@ nomad_vesc_trial:
     planning.headless: true
     planning.resume_after_stop: true
     planning.measured_speed_control: true
-    # 양수 LPP 요청: max(이 값, 요청 ERPM). 0/STOP은 출력 해제.
+    # 양수 LPP 요청: max(이 값, 요청 ERPM). 속도 0은 바로 출력 해제(감속 중이면 감속을 마침), STOP·명령 끊김은 아래 감속 뒤 해제.
     # 일반 주행 최종 송신에도 적용하며, 측정 과속 감속 시에는 예외입니다.
     planning.minimum_running_erpm: 1000.0
     planning.feedback_limit_erpm: 1200.0
+    # 2026-11-13: LPP STOP / lost LPP input (expiry, planner publisher count not 1) ramp the speed command from
+    # min(command, measured) down to stop_handbrake_below_erpm (200) over this many seconds and keep 200 until the
+    # measured ERPM is there (at most 0.3 s more), so the handbrake follows without a 20 A brake pulse.
+    # Stopping from ~1000 ERPM within ~50 ms made the car lurch. Faults, operator STOP, overspeed, telemetry/driver
+    # loss and a car already at or below 200 ERPM still stop at once; a fresh moving LPP command during the ramp
+    # cancels it. Adds ~4-5 cm of stop distance at 1000 ERPM. 0 = stop at once (before 11-13). Range 0..1 s.
+    planning.stop_ramp_s: 0.3
     planning.allow_estimated_calibration: true

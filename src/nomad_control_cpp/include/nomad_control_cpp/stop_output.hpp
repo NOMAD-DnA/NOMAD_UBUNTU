@@ -56,6 +56,14 @@
 // back to the foot of the slope (~1 cm in the 11-13 review model).
 // The first kSkipSamples avg_iq samples of a drive are not used: avg_iq is the mean since the previous telemetry
 // read, so they still carry the stop output (+handbrake or -brake current).
+// Stop ramp (2026-11-13 night): an LPP STOP or lost LPP input ramps the speed command down first (raw_trial
+// beginStopRamp). beginStopRamp() ends the drive record for the hold where the ramp begins: the settled end, the end
+// rule and the tiny-creep time use the drive up to there, since a falling command is not an unsettled drive and its
+// lower current is not less load. Ramp samples from kRampIgnoreS on can only raise L (Load: max with the usable ramp
+// samples; SamePlace: the drive's largest usable L); movement during the ramp still counts (conservative for the
+// same-place and tiny-creep distances). A slope edge crossed in the last ~0.15 s of the ramp (~2-3 cm) shows nothing
+// yet, as one crossed while braking or just before an immediate stop did before; the 11-13 review model found the
+// ramp moves that band but does not widen it.
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -153,9 +161,13 @@ public:
     static constexpr double kInertiaLowA = 0.002;
     // A drive that ends slowing faster than kEndDecel with its last current kEndExcessA above rolling just met more
     // load (a slope or obstacle) and has had no time to show it: no better than the launch current (conservative).
-    // LPP stops have no decel ramp, so flat stops end at cruise or in the overshoot recovery (below rolling).
+    // The drive ends where a stop ramp begins, so flat stops end at cruise or in the overshoot recovery.
     static constexpr double kEndDecel = 1000.0;
     static constexpr double kEndExcessA = 2.0;
+    // Stop ramp samples this soon after the ramp began are not used: the speed PID (~20-60 ms) and the
+    // kMedianSamples median (~40-60 ms) still show the cruise current while the speed already drops, which reads
+    // like meeting a slope.
+    static constexpr double kRampIgnoreS = 0.15;
 
     explicit StopOutput(StopOutputConfig config = {}) : config_(config) {
         const auto within = [](double value, double low, double high) {
@@ -201,11 +213,29 @@ public:
             drive_start_s_.reset();
             drive_moved_erev_ = 0.0;
             escalated_ = false;
+            ramp_start_s_.reset();
         }
-        command_erpm_ = std::isfinite(commanded_erpm) ? std::abs(commanded_erpm) : 0.0;
+        if (!ramp_start_s_) command_erpm_ = std::isfinite(commanded_erpm) ? std::abs(commanded_erpm) : 0.0;
         hold_since_.reset();
         last_.reset();
     }
+
+    // The drive ends with a commanded speed ramp (a planning stop, 2026-11-13): the hold is selected as if the stop
+    // happened now. Later samples (ramp samples) are never settled and do not count as launch current; from
+    // kRampIgnoreS on, a usable one can only raise the load (a slope or obstacle met during the ramp, or a downhill
+    // the speed PID cannot slow). Movement still counts. No effect outside a drive or when already ramping.
+    void beginStopRamp(double steady_now) {
+        if (!in_drive_ || ramp_start_s_ || !std::isfinite(steady_now)) return;
+        evaluateTail();
+        ramp_start_s_ = last_sample_s_ ? std::max(steady_now, *last_sample_s_) : steady_now;
+    }
+
+    // The ramp was cancelled and the drive goes on: the next drive command starts a new record, as after a stop.
+    void cancelStopRamp() {
+        if (!in_drive_ || !ramp_start_s_) return;
+        in_drive_ = false;
+    }
+    bool stopRampActive() const { return in_drive_ && ramp_start_s_.has_value(); }
 
     // One VESC telemetry sample while driving: avg_iq (A) and the reported ERPM. Ignored outside a drive.
     void observeDrive(double steady_now, double iq_a, double erpm) {
@@ -223,20 +253,24 @@ public:
             return;
         }
         if (!std::isfinite(iq_a) || !std::isfinite(erpm)) return;
-        const bool settled = command_erpm_ > 0.0 &&
+        const bool ramp = ramp_start_s_.has_value();
+        const bool settled = !ramp && command_erpm_ > 0.0 &&
                              std::abs(direction_ * erpm - command_erpm_) <= kSettledFraction * command_erpm_;
         DriveSample sample;
         sample.t = steady_now;
         sample.along_iq = direction_ * iq_a;
         sample.along_erpm = direction_ * erpm;
         sample.settled = settled;
+        sample.ramp = ramp;
         samples_.push_back(sample);
         samples_.back().excess = excessAt(samples_.size() - 1);
         samples_.back().load = std::abs(samples_.back().excess);
-        if (steady_now - *drive_start_s_ >= kLaunchIgnoreS)
+        if (!ramp && steady_now - *drive_start_s_ >= kLaunchIgnoreS)
             drive_launch_load_a_ = std::max(drive_launch_load_a_.value_or(0.0), samples_.back().load);
         evaluateCentred();
-        while (samples_.front().t < steady_now - kLoadWindowS - kSettledS) samples_.pop_front();
+        // Keep what the hold needs: kLoadWindowS + kSettledS before the stop, or before the ramp began.
+        const double end = ramp ? std::min(steady_now, *ramp_start_s_) : steady_now;
+        while (samples_.front().t < end - kLoadWindowS - kSettledS) samples_.pop_front();
     }
 
     StopOutputCommand decide(const StopOutputInput& in) {
@@ -288,6 +322,7 @@ private:
         double load = 0.0;       // L = |excess|
         double evidence = 0.0;   // L used for sizing: load, plus kInertiaLowA * |accel| for a lower-bound sample
         bool settled = false;
+        bool ramp = false;       // taken during a stop ramp (beginStopRamp)
         bool evaluated = false;  // usable decided
         bool usable = false;     // steady, or a lower bound of the load (see classify)
     };
@@ -324,7 +359,7 @@ private:
     // Excluded: the flat launch (speeding up above rolling) and the overshoot recovery (slowing below rolling).
     void classify(DriveSample& sample, const std::optional<Window>& w) {
         sample.evaluated = true;
-        if (!w) return;
+        if (!w || (sample.ramp && sample.t - *ramp_start_s_ < kRampIgnoreS)) return;
         const bool steady = std::abs(w->accel) <= kSteadyAccel && w->range <= kSteadyRange;
         const bool lower_bound = drive_start_s_ && sample.t - *drive_start_s_ >= kLaunchIgnoreS &&
                                  sample.excess * w->accel < 0.0;
@@ -359,30 +394,51 @@ private:
         return median - config_.hold_rolling_current_a;
     }
 
+    // Number of samples before the stop ramp (all of them without one): the drive "ends" at the last of these.
+    std::size_t endIndex() const {
+        std::size_t n = samples_.size();
+        while (n > 0 && samples_[n - 1].ramp) --n;
+        return n;
+    }
+
     // The last sample's trailing speed change and raw current show a load rise at the very end.
     bool endsMeetingLoad() const {
-        if (samples_.empty()) return false;
-        const auto& last = samples_.back();
+        const std::size_t n = endIndex();
+        if (n == 0) return false;
+        const auto& last = samples_[n - 1];
         const auto w = window(last.t - kAccelWindowS, last.t);
         return w && w->accel < -kEndDecel && last.along_iq - config_.hold_rolling_current_a > kEndExcessA;
     }
 
+    // Drive command time up to the stop, or up to the start of the stop ramp.
     double driveSpanS() const {
-        return drive_start_s_ && last_sample_s_ ? *last_sample_s_ - *drive_start_s_ : 0.0;
+        if (!drive_start_s_ || !last_sample_s_) return 0.0;
+        const double end = ramp_start_s_ ? std::min(*last_sample_s_, *ramp_start_s_) : *last_sample_s_;
+        return std::max(0.0, end - *drive_start_s_);
     }
 
     // L from a drive that ended settled; empty otherwise.
     std::optional<double> settledLoadA() const {
-        if (samples_.empty() || !samples_.back().settled) return std::nullopt;
-        const double end = samples_.back().t;
+        const std::size_t n = endIndex();
+        if (n == 0 || !samples_[n - 1].settled) return std::nullopt;
+        const double end = samples_[n - 1].t;
         double settled_from = end;
-        for (auto it = samples_.rbegin(); it != samples_.rend() && it->settled; ++it) settled_from = it->t;
+        for (std::size_t j = n; j-- > 0 && samples_[j].settled;) settled_from = samples_[j].t;
         if (end - settled_from < kSettledS) return std::nullopt;
         std::optional<double> peak;
-        for (const auto& sample : samples_) {
+        for (std::size_t j = 0; j < n; ++j) {
+            const auto& sample = samples_[j];
             if (!sample.settled || !sample.usable || sample.t < end - kLoadWindowS) continue;
             peak = peak ? std::max(*peak, sample.evidence) : sample.evidence;
         }
+        return peak;
+    }
+
+    // Largest usable L seen during the stop ramp; empty without one.
+    std::optional<double> rampLoadA() const {
+        std::optional<double> peak;
+        for (std::size_t j = endIndex(); j < samples_.size(); ++j)
+            if (samples_[j].usable) peak = peak ? std::max(*peak, samples_[j].evidence) : samples_[j].evidence;
         return peak;
     }
 
@@ -402,6 +458,7 @@ private:
         } else if (const auto settled = settledLoadA()) {
             hold_load_a_ = settled;
             if (endsMeetingLoad() && drive_launch_load_a_) hold_load_a_ = std::max(*hold_load_a_, *drive_launch_load_a_);
+            if (const auto ramp = rampLoadA()) hold_load_a_ = std::max(*hold_load_a_, *ramp);
             amps = sized(*hold_load_a_);
             hold_basis_ = HoldBasis::Load;
         } else if (previous_hold_a_ && moved_erev_ <= kSamePlaceErev) {
@@ -447,6 +504,7 @@ private:
     std::optional<double> drive_peak_load_a_; // largest usable L of the current/last drive record, settled or not
     std::optional<double> drive_launch_load_a_; // largest L from kLaunchIgnoreS on, steady or not
     std::optional<double> drive_start_s_;
+    std::optional<double> ramp_start_s_;      // the current/last drive record ended with a stop ramp from here
     double drive_moved_erev_ = 0.0;            // electrical revolutions of the current/last drive record
     std::deque<DriveSample> samples_;
 };

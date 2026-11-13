@@ -68,6 +68,19 @@ public:
     // Enabled only by the headless planner; manual/commissioning keeps its latch policy.
     void setPlanningRecovery(bool enabled) { planning_recovery_ = enabled; }
     bool pausePlanning(const std::string& reason, double steady_now, double ros_now);
+    // Headless planning only, for an LPP STOP or lost LPP input while driving forward: ramp the speed command
+    // from min(command, measured ERPM) down to end_erpm over ramp_s (no running floor), keep end_erpm until the
+    // measured ERPM is at or below it (at most kStopRampSettleS more), then stop exactly as pausePlanning(reason)
+    // does. Faults, timeouts and stop() still end it at once. False when it does not apply (not running a planning
+    // drive faster than end_erpm, invalid values): the caller then stops at once.
+    bool beginStopRamp(const std::string& reason, double steady_now, double ros_now, double ramp_s, double end_erpm);
+    // A fresh LPP command arrived during the ramp: keep driving; the next update() sets the target.
+    void cancelStopRamp(double steady_now);
+    bool stopRampActive() const { return stop_ramp_.has_value(); }
+    static constexpr double kMaxStopRampS = 1.0;
+    // 2026-11-13 review: the VESC speed PID (kp 0.010 / ki 0.04) trails a 0.3 s ramp by ~250-400 ERPM, so the car is
+    // still at ~300-500 ERPM when the command reaches end_erpm; handing over then gave a 20 A brake pulse first.
+    static constexpr double kStopRampSettleS = 0.30;
     bool planningWaitActive() const { return planning_wait_; }
     double telemetryReceiveAge(double steady) const { return sample_ ? steady - received_at_ : -1.0; }
     double telemetryStampAge(double ros) const { return sample_ ? ros - sample_->stamp_s : -1.0; }
@@ -137,6 +150,13 @@ private:
     // 사용자가 정지 중 설정하는 조향 전용 시험 한계. 일반 주행 한계와 분리하며 재시작 시 초기화합니다.
     double steering_test_min_, steering_test_max_;
     bool planning_recovery_ = false, planning_wait_ = false;
+    struct StopRamp {
+        std::string reason;       // the planning pause reason, kept for the stop at the end
+        double rate_erpm_s = 0.0; // command decrease per second
+        double end_erpm = 0.0;    // hand over to the stop output once the measured ERPM is at or below this
+        std::optional<double> at_end_since; // the command reached end_erpm (waiting for the measured speed)
+    };
+    std::optional<StopRamp> stop_ramp_;
     bool vesc_fault_ = false;
     std::string telemetry_issue_ = "NO_TELEMETRY";
 };

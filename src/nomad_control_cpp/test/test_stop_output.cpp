@@ -1,6 +1,7 @@
 // Stop output policy without ROS: coast/brake/hold selection, hold latch and its fallback,
 // VESC fault release, and the load-sized hold current (2026-11-13).
 #include "nomad_control_cpp/stop_output.hpp"
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 #include <limits>
@@ -41,6 +42,22 @@ double ramp(StopOutput& output, double t, double seconds, double from, double to
     return t;
 }
 StopOutputInput still(double t) { return {t, true, true, 0.0, false, true}; }
+// Stop ramp (planning stop): beginStopRamp at t, then the command falls from `from` to 200 ERPM over `seconds` at
+// 50 Hz. The reported ERPM trails the command by `lag` (or stays at `from` when lag < 0); iq(s) is avg_iq s seconds
+// into the ramp.
+template <typename Iq>
+double stopRamp(StopOutput& output, double t, double seconds, double from, Iq iq, double lag = 150.0) {
+    output.beginStopRamp(t);
+    const double start = t;
+    for (; t <= start + seconds + 1e-9; t += 0.02) {
+        const double command = from - (from - 200.0) * (t - start) / seconds;
+        output.onDrive(command);
+        output.observeDrive(t, iq(t - start), lag < 0.0 ? from : std::min(from, command + lag));
+    }
+    return t;
+}
+// Flat ramp current: the speed PID drops the cruise current within ~60 ms, then brakes lightly.
+double flatRampIq(double s) { return s < 0.06 ? 6.5 - 100.0 * s : 0.5; }
 // Real 11-13 20:18 flat hop (kp 0.010, drive 6): reported ERPM / avg_iq every 20 ms from the speed command on. The
 // handover jump (645 -> 95 ERPM at 20-27 A) must not read as a stalled push or a lower bound.
 const double kRealHop[][2] = {{0, 14}, {0, 14}, {0, 14}, {645, 5}, {160, 21}, {95, 22}, {244, 25}, {194, 27},
@@ -483,6 +500,74 @@ int main() {
         expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && output.holdBasis() == HoldBasis::Load &&
                abs(*output.holdLoadA()) < 1e-12,
                "a direction change starts a new drive record (old forward samples and direction dropped)");
+    }
+    {
+        // Stop ramp (2026-11-13): the hold is chosen as at the ramp start; ramp samples can only raise it.
+        StopOutput reference(kLoad);
+        double t = cruise(reference, 0.0, 1.2, 6.5);
+        expect(is(reference.decide(still(t)), StopOutputKind::Hold, 12.5), "stop ramp reference: flat stop without a ramp");
+        StopOutput flat(kLoad);
+        t = cruise(flat, 0.0, 1.2, 6.5);
+        t = stopRamp(flat, t, 0.3, 1000.0, flatRampIq);
+        expect(flat.stopRampActive(), "stop ramp: active until the stop");
+        expect(is(flat.decide(still(t)), StopOutputKind::Hold, 12.5) && flat.holdBasis() == HoldBasis::Load &&
+               abs(*flat.holdLoadA() - 0.5) < 1e-9 && !flat.stopRampActive(),
+               "flat stop ramp: the lagging speed is not an unsettled end and the falling cruise current is not a slope");
+        StopOutput prompt(kLoad);
+        t = cruise(prompt, 0.0, 1.2, 7.0);
+        t = stopRamp(prompt, t, 0.3, 1000.0, [](double s) { return s < 0.06 ? 7.0 - 100.0 * s : 0.5; }, 0.0);
+        expect(is(prompt.decide(still(t)), StopOutputKind::Hold, 12.5) && abs(*prompt.holdLoadA() - 1.0) < 1e-9,
+               "the last cruise samples are judged without the ramp (a prompt slowdown is not a slope met at the end)");
+        StopOutput slope(kLoad);
+        t = cruise(slope, 0.0, 1.2, 6.5);
+        t = stopRamp(slope, t, 0.3, 1000.0, [](double s) { return s < 0.15 ? flatRampIq(s) : 18.0; });
+        expect(is(slope.decide(still(t)), StopOutputKind::Hold, 30.0) && slope.holdBasis() == HoldBasis::Load &&
+               *slope.holdLoadA() > 15.0,
+               "a slope met during the ramp (current rising while slowing) raises the hold");
+        StopOutput downhill(kLoad);
+        t = cruise(downhill, 0.0, 1.2, -4.0);
+        t = stopRamp(downhill, t, 0.3, 1000.0, [](double) { return -12.0; }, -1.0);
+        expect(is(downhill.decide(still(t)), StopOutputKind::Hold, 30.0) && downhill.holdBasis() == HoldBasis::Load,
+               "a downhill the speed PID cannot slow during the ramp (steady, braking hard) raises the hold");
+        StopOutput climb(kLoad);
+        t = cruise(climb, 0.0, 1.2, 16.0);
+        t = stopRamp(climb, t, 0.3, 1000.0, [](double) { return 8.0; });
+        expect(is(climb.decide(still(t)), StopOutputKind::Hold, kGentle) && climb.holdBasis() == HoldBasis::Load &&
+               abs(*climb.holdLoadA() - 10.0) < 1e-9,
+               "a climb keeps the hold from its cruise; the lower current while slowing does not lower it");
+        StopOutput long_ramp(kLoad);
+        t = cruise(long_ramp, 0.0, 0.6, 27.0);
+        t = cruise(long_ramp, t, 0.6, 16.0);
+        t = stopRamp(long_ramp, t, 1.0, 1000.0, [](double) { return 8.0; });
+        expect(is(long_ramp.decide(still(t)), StopOutputKind::Hold, 30.0) && long_ramp.holdBasis() == HoldBasis::Load &&
+               abs(*long_ramp.holdLoadA() - 21.0) < 1e-9,
+               "a 1 s ramp keeps the samples of the last second before the ramp");
+        StopOutput resumed(kLoad);
+        t = cruise(resumed, 0.0, 1.2, 16.0);
+        t = stopRamp(resumed, t, 0.1, 1000.0, [](double) { return 10.0; });
+        resumed.cancelStopRamp();
+        expect(!resumed.stopRampActive(), "a cancelled ramp is no longer active");
+        t = cruise(resumed, t, 1.2, 6.0);
+        expect(is(resumed.decide(still(t)), StopOutputKind::Hold, 12.5) && resumed.holdBasis() == HoldBasis::Load &&
+               abs(*resumed.holdLoadA()) < 1e-9,
+               "a cancelled ramp starts a new drive record: the later flat cruise sizes the hold");
+        StopOutput idle(kLoad);
+        idle.beginStopRamp(0.0);
+        expect(!idle.stopRampActive(), "beginStopRamp outside a drive does nothing");
+        StopOutput hop(kLoad);
+        t = cruise(hop, 0.0, 2.0, 6.0);
+        hop.decide(still(t + 0.1)); // flat hold 12.5 A
+        t = ramp(hop, t + 1.0, 0.25, 0.0, 600.0, 9.0);
+        t = stopRamp(hop, t, 0.3, 600.0, [](double) { return -1.0; }, 0.0);
+        expect(is(hop.decide(still(t)), StopOutputKind::Hold, 12.5) && hop.holdBasis() == HoldBasis::SamePlace,
+               "ramp braking current is not launch current (a hop without usable samples keeps the flat hold)");
+        StopOutput tiny(kLoad);
+        t = cruise(tiny, 0.0, 2.0, 6.0);
+        tiny.decide(still(t + 0.1));
+        t = ramp(tiny, t + 1.0, 0.2, 0.0, 400.0, 20.0);
+        t = stopRamp(tiny, t, 0.3, 400.0, flatRampIq, 0.0);
+        expect(is(tiny.decide(still(t)), StopOutputKind::Hold, 12.5) && tiny.holdBasis() == HoldBasis::SamePlace,
+               "a tiny creep's time is counted up to the ramp start (the ramp adds distance, not drive time)");
     }
     expect(rejected({-1.0, 0.0, 200.0}) && rejected({30.5, 0.0, 200.0}) && rejected({nan_value, 0.0, 200.0}),
            "invalid brake current rejected");
