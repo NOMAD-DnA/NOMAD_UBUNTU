@@ -31,10 +31,24 @@ nomad_vesc_trial:
     # Needs the patched vesc_driver (commands/motor/handbrake) and driver handbrake_max >= this value.
     # 11-12 21:42 (VIO pose): 12 of 13 stops moved under ~4 cm (most under 1 cm), but the stop right after a
     # 33.8 A climb rolled ~10-15 cm back while VESC ERPM read 0 (the handbrake freezes the ERPM
-    # estimate). Try 25..30 A next.
+    # estimate). 11-13 VESC Tool handbrake on artificial slopes: 30 A stopped at once on 14 and 20 deg (the
+    # costmap climb limit); lower currents slid a little on 14 deg first. 14 deg climb drew ~27 A.
     motor_handbrake_topic: /nomad_bench/commands/motor/handbrake
-    stop_handbrake_current_a: 15.0
+    stop_handbrake_current_a: 30.0
     stop_handbrake_below_erpm: 200.0
+    # 2026-11-13: load-sized hold (stop_output.hpp; only the VESC telemetry this node already reads). Hold =
+    # clamp(gain * |s*iq - rolling| + margin, min, stop_handbrake_current_a) from the VESC avg_iq at the end of
+    # the last drive (s = commanded direction; the speed PID brakes downhill, so the same formula covers both),
+    # used only when the drive ended settled (|ERPM| within 25% of the command for 0.3 s). Otherwise the previous
+    # hold current (raised to what this drive's own largest load needs) if the car moved <= ~24 cm in total since
+    # the last hold that set its current, else stop_handbrake_current_a. Flat 12.5 A, 16 A climb
+    # (~7 deg) 22.5 A, 14 deg climb (27 A) or steeper 30 A; 30 A all the time would put ~15 W into the motor on
+    # every flat stop. Candidate values (below 14 deg not measured); rolling 6 A sits between the 11-12 cruise
+    # median (~8 A) and lower quartile (~4 A). min 0 = fixed stop_handbrake_current_a.
+    stop_handbrake_min_current_a: 12.5
+    stop_handbrake_load_gain: 1.45
+    stop_handbrake_rolling_current_a: 6.0
+    stop_handbrake_margin_a: 8.0
     # 2026-11-13: after each restart (stop output -> speed command) log '[RESTART_TRACE]' every control tick
     # (cmd/measured ERPM, current_a, VESC avg_iq) for this many seconds, to judge VESC speed-PID tuning
     # (s_pid_kp/ki) on slopes; 3 s also covers slow restarts with the current gains. 0 = off.

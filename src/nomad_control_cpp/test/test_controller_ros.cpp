@@ -108,6 +108,7 @@ public:
                 msg.header.stamp = fake_->now();
                 msg.state.speed = telemetry_erpm_;
                 msg.state.current_motor = 0.0;
+                msg.state.avg_iq = telemetry_iq_;
                 msg.state.current_input = 0.0;
                 msg.state.voltage_input = 12.0;
                 msg.state.fault_code = telemetry_fault_;
@@ -482,6 +483,65 @@ public:
         expect(brake_messages_>brakes&&handbrake_messages_==holds&&stop_output()=="brake",
                "stop profile: telemetry loss brakes and never holds on a stale sample");
         planning_without_telemetry_=false;send_telemetry_=true;send_planning_=false;pump(.2);
+    }
+
+    // 2026-11-13: load-sized handbrake (12.5..30 A from the drive's VESC avg_iq before a settled stop, gain
+    // 1.45, rolling 6 A, margin 8 A) on the headless planning path. Current is set along the commanded direction;
+    // "settled" telemetry follows the commanded ERPM (every 40 ms) after a 0.15 s start.
+    void runPlanningLoadHold() {
+        planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
+        send_planning_=false;pump(.6);
+        const auto stop=[&]{
+            nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();
+            cmd.header.frame_id="base_link";cmd.valid_for.nanosec=300000000;cmd.stop_requested=true;
+            planning_pub_->publish(cmd);pump(.13);
+        };
+        const auto basis=[&]{return status_.value("stop_hold_basis",string());};
+        double sign=1.0;
+        const auto drive_then_stop=[&](double start_iq,double iq,double seconds,bool settled){
+            telemetry_iq_=start_iq*sign;telemetry_erpm_=0.0;const int moves=moving_messages_;
+            send_planning_=true;pump(.15);
+            expect(moving_messages_>moves&&!observed_motor_erpm_.empty()&&observed_motor_erpm_.back()!=0.0,"load hold: LPP drives");
+            sign=observed_motor_erpm_.back()>0?1.0:-1.0;
+            telemetry_iq_=iq*sign;
+            // Settled: the reported ERPM follows the command (it may still be ramping up).
+            for(double done=0.0;done<seconds;done+=.04){
+                if(settled)telemetry_erpm_=observed_motor_erpm_.back();
+                pump(.04);
+            }
+            send_planning_=false;stop();telemetry_erpm_=0.0;pump(.2);
+        };
+        // A first drive that never settles (stalled): not sized from its current, so the maximum.
+        drive_then_stop(0.0,0.0,.25,false);
+        expect(last_handbrake_==30.0&&basis()!="load"&&status_.value("stop_output",string())=="hold",
+               "load hold: a drive that never settled holds with the maximum");
+        expect(status_.value("stop_handbrake_min_current_a",0.0)==12.5&&status_.value("stop_handbrake_current_a",0.0)==30.0&&
+               status_.value("stop_handbrake_load_gain",0.0)==1.45&&status_.value("stop_handbrake_rolling_current_a",0.0)==6.0&&
+               status_.value("stop_handbrake_margin_a",0.0)==8.0,"load hold: status reports the configuration");
+        // Gentle climb: 16 A along the command = 10 A gravity over 6 A rolling -> 1.45 * 10 + 8 = 22.5 A.
+        drive_then_stop(16.0,16.0,1.2,true);
+        expect(abs(last_handbrake_-22.5)<1e-9&&basis()=="load"&&abs(status_.value("stop_output_a",0.0)-22.5)<1e-9&&
+               abs(status_.value("stop_hold_load_a",0.0)-10.0)<1e-9,"load hold: settled climb current sizes the hold");
+        // Downhill: the speed PID brakes, current against the command (4 A = 10 A gravity - 6 A rolling).
+        drive_then_stop(-4.0,-4.0,1.2,true);
+        expect(abs(last_handbrake_-22.5)<1e-9&&basis()=="load","load hold: downhill braking current sizes the same hold");
+        // Flat ground after a 22.5 A hold: the minimum through the node path (the unit test covers ignoring the
+        // restart samples that still carry the previous hold current).
+        drive_then_stop(6.0,6.0,1.2,true);
+        expect(last_handbrake_==12.5&&basis()=="load","load hold: flat ground after a load hold holds with the minimum");
+        // A short stalled hop on the same spot keeps that hold current.
+        drive_then_stop(6.0,6.0,.25,false);
+        expect(last_handbrake_==12.5&&basis()=="same_place","load hold: a stalled hop keeps the previous hold current");
+        // 14 deg climb (27 A) or steeper: the maximum; a stalled hill start from there keeps it.
+        drive_then_stop(27.0,27.0,1.2,true);
+        expect(last_handbrake_==30.0&&basis()=="load","load hold: steep climb holds with the maximum");
+        drive_then_stop(15.0,15.0,1.2,false);
+        expect(last_handbrake_==30.0&&basis()=="same_place","load hold: a stalled hill start keeps the previous hold current");
+        expect(release_messages_==0,"load hold: never 0A without a VESC fault");
+        send_planning_=true;pump(.3);
+        expect(basis()=="none"&&status_.contains("stop_hold_load_a")&&status_.at("stop_hold_load_a").is_null(),
+               "load hold: driving reports no hold basis");
+        send_planning_=false;stop();pump(.2);
     }
 
     // Without a handbrake subscriber (unpatched vesc_driver) the node names it, does not claim a
@@ -1073,6 +1133,7 @@ private:
     bool send_telemetry_ = true;
     double last_sent_ = 0.0;
     double telemetry_erpm_ = 0.0;
+    double telemetry_iq_ = 0.0; // VESC avg_iq (load-sized hold)
     int telemetry_fault_ = 0;
     int speed_messages_ = 0, moving_messages_ = 0, servo_messages_ = 0, release_messages_ = 0;
     int brake_messages_ = 0, handbrake_messages_ = 0;
@@ -1089,6 +1150,11 @@ void testPlanningStopOutput() {
         {"stop_brake_current_a",20.0},{"stop_handbrake_current_a",15.0},{"stop_handbrake_below_erpm",200.0}};
     {RosRig stop_output(true,true,true,true,false,parameters);stop_output.runPlanningStopOutput();}
     {RosRig missing(true,true,true,true,false,parameters);missing.runStopOutputDriverMissing();}
+    vector<rclcpp::Parameter> load=parameters;
+    for(auto& parameter:load)if(parameter.get_name()=="stop_handbrake_current_a")parameter=rclcpp::Parameter("stop_handbrake_current_a",30.0);
+    load.insert(load.end(),{{"stop_handbrake_min_current_a",12.5},{"stop_handbrake_load_gain",1.45},
+                              {"stop_handbrake_rolling_current_a",6.0},{"stop_handbrake_margin_a",8.0}});
+    {RosRig load_hold(true,true,true,true,false,load);load_hold.runPlanningLoadHold();}
 }
 
 void testMinimumRunningFloor() {

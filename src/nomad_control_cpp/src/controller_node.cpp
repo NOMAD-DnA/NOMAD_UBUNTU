@@ -20,6 +20,7 @@
 #include "nomad_control_cpp/srv/set_steering_range.hpp"
 #include "json.hpp"
 #include <cctype>
+#include <cstdio>
 
 #include <rclcpp/rclcpp.hpp>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
@@ -87,9 +88,19 @@ public:
         // motor, does not hold); near standstill the VESC handbrake holds the rotor (slope roll-back). 0 disables
         // either; both 0 = the old 0A coast. Selection, hold latch/fallback and the 0A release on a VESC fault
         // code live in StopOutput (stop_output.hpp), which also validates the ranges (0..30 A, 0..2000 ERPM).
-        stop_output_ = StopOutput({parameter<double>("stop_brake_current_a", 0.0),
-                                   parameter<double>("stop_handbrake_current_a", 0.0),
-                                   parameter<double>("stop_handbrake_below_erpm", 200.0)});
+        // 2026-11-13: stop_handbrake_min_current_a > 0 sizes the handbrake from the drive load
+        // seen in the last drive's VESC avg_iq (min..stop_handbrake_current_a); 0 keeps a fixed hold current.
+        {
+            StopOutputConfig stop;
+            stop.brake_current_a = parameter<double>("stop_brake_current_a", 0.0);
+            stop.hold_current_a = parameter<double>("stop_handbrake_current_a", 0.0);
+            stop.hold_below_erpm = parameter<double>("stop_handbrake_below_erpm", 200.0);
+            stop.hold_min_current_a = parameter<double>("stop_handbrake_min_current_a", 0.0);
+            stop.hold_load_gain = parameter<double>("stop_handbrake_load_gain", stop.hold_load_gain);
+            stop.hold_rolling_current_a = parameter<double>("stop_handbrake_rolling_current_a", stop.hold_rolling_current_a);
+            stop.hold_margin_a = parameter<double>("stop_handbrake_margin_a", stop.hold_margin_a);
+            stop_output_ = StopOutput(stop);
+        }
         // 2026-11-13: after each restart (stop output -> nonzero speed) log every control tick for this long,
         // to see how fast the VESC speed PID rebuilds torque (hill start, s_pid_kp/ki tuning). 0 = off.
         restart_trace_s_ = parameter<double>("restart_trace_s", 3.0);
@@ -208,11 +219,11 @@ public:
             RCLCPP_INFO(get_logger(), "mode=%s; start is manual; duration=%.2fs (hard maximum 5s)",
                         mode.c_str(), options_.duration_s);
         if (handbrake_pub_ && brake_pub_)
-            RCLCPP_WARN(get_logger(), "stop release = VESC brake %.1f A while |erpm| > %.0f, VESC handbrake hold %.1f A at or below (latched until the next drive command); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.",
-                        stop_output_.config().brake_current_a, stop_output_.config().hold_below_erpm, stop_output_.config().hold_current_a);
+            RCLCPP_WARN(get_logger(), "stop release = VESC brake %.1f A while |erpm| > %.0f, VESC handbrake hold %s at or below (latched until the next drive command); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.",
+                        stop_output_.config().brake_current_a, stop_output_.config().hold_below_erpm, holdDescription().c_str());
         else if (handbrake_pub_)
-            RCLCPP_WARN(get_logger(), "stop release = 0A coast while |erpm| > %.0f, VESC handbrake hold %.1f A at or below (latched until the next drive command); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.",
-                        stop_output_.config().hold_below_erpm, stop_output_.config().hold_current_a);
+            RCLCPP_WARN(get_logger(), "stop release = 0A coast while |erpm| > %.0f, VESC handbrake hold %s at or below (latched until the next drive command); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.",
+                        stop_output_.config().hold_below_erpm, holdDescription().c_str());
         else if (brake_pub_)
             RCLCPP_WARN(get_logger(), "stop release = VESC brake current %.1f A (not a parking hold); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.", stop_output_.config().brake_current_a);
         else
@@ -904,6 +915,8 @@ private:
         last_current_ = s.current_motor;
         last_iq_ = s.avg_iq;
         last_fault_ = s.fault_code;
+        // Drive current and speed for the load-sized hold (StopOutput ignores them outside a drive).
+        if (driving_) stop_output_.observeDrive(*last_telemetry_rx_, s.avg_iq, s.speed);
         if (thermal_.update({s.ntc_temp_mos1, s.ntc_temp_mos2, s.ntc_temp_mos3}))
             RCLCPP_WARN(get_logger(), thermal_.stopped() ? "[ESC_TEMP] STOP %.1f C >= 80 C; autonomous output paused until below 70 C"
                                                            : "[ESC_TEMP] resume allowed: %.1f C below 70 C", thermal_.temp_c());
@@ -923,14 +936,27 @@ private:
         publisher->publish(message);
     }
 
+    // Startup log text for the handbrake hold current (fixed, or load-sized range).
+    string holdDescription() const {
+        const auto& c = stop_output_.config();
+        char text[192];
+        if (stop_output_.loadHoldEnabled())
+            snprintf(text, sizeof(text), "%.1f..%.1f A sized from the drive load before a settled stop (gain %.2f, rolling %.1f A, margin %.1f A; else same-place previous or %.1f A)",
+                     c.hold_min_current_a, c.hold_current_a, c.hold_load_gain, c.hold_rolling_current_a, c.hold_margin_a,
+                     c.hold_current_a);
+        else
+            snprintf(text, sizeof(text), "%.1f A", c.hold_current_a);
+        return text;
+    }
+
     // 자신이 시작한 시험에 대해서만 출력합니다. 정지 시 서보를 갑자기 중앙으로 돌리지 않습니다.
     // 2026-11-13: release = StopOutput::decide (stop_output.hpp): 0A on a latched VESC fault code; otherwise
     // the VESC handbrake once fresh telemetry is at or below stop_handbrake_below_erpm and the driver
     // subscribes to the handbrake topic (then latched until the next nonzero drive command, ERPM reported
     // invalid; given up when a sample received within the telemetry timeout, accepted or rejected, reads above
     // StopOutput::holdReleaseErpm() = max(2x, +200) ERPM at least 0.1 s after the hold began, or the handbrake
-    // subscriber disappears), else the brake
-    // current, else 0A. Repeated every tick while stopped and owned.
+    // subscriber disappears), else the brake current, else 0A. Repeated every tick while stopped and owned.
+    // The hold current is fixed or load-sized (stop_output.hpp); each new hold logs [STOP_OUTPUT] once.
     void releaseMotor() {
         driving_ = false;
         if (!current_pub_ || !activeOwnsOutput()) return;
@@ -949,7 +975,17 @@ private:
         input.erpm = last_raw_erpm_;
         input.vesc_fault = vesc_fault;
         input.hold_available = graph_handbrake_subscribers_ > 0;
+        const bool was_holding = stop_output_.holding();
+        const double moved_erev = stop_output_.movedErev(); // reset when a hold begins
         const auto command = stop_output_.decide(input);
+        if (!was_holding && stop_output_.holding()) {
+            // load_a = drive load above rolling that sized the hold (stop_output.hpp); none = not used.
+            const auto load = stop_output_.holdLoadA();
+            char load_text[32] = "none";
+            if (load) snprintf(load_text, sizeof(load_text), "%.1f", *load);
+            RCLCPP_INFO(get_logger(), "[STOP_OUTPUT] handbrake hold %.1f A basis=%s load_a=%s moved_erev=%.1f",
+                        command.current_a, holdBasisName(stop_output_.holdBasis()), load_text, moved_erev);
+        }
         if (command.kind == StopOutputKind::Hold && handbrake_pub_) publishScalar(handbrake_pub_, command.current_a);
         else if (command.kind == StopOutputKind::Brake && brake_pub_) publishScalar(brake_pub_, command.current_a);
         else publishScalar(current_pub_, 0.0);
@@ -964,7 +1000,7 @@ private:
             else {
                 if (!driving_) startRestartTrace(erpm);
                 driving_ = true;
-                stop_output_.onDrive();
+                stop_output_.onDrive(erpm);
                 publishScalar(speed_pub_, erpm);
             }
         }
@@ -1145,6 +1181,16 @@ private:
         data["stop_brake_current_a"]=brake_pub_?stop_output_.config().brake_current_a:0.0;
         data["stop_handbrake_current_a"]=handbrake_pub_?stop_output_.config().hold_current_a:0.0;
         data["stop_handbrake_below_erpm"]=stop_output_.config().hold_below_erpm;
+        // 2026-11-13 load-sized hold: min 0 = fixed stop_handbrake_current_a; otherwise min..max from the drive load.
+        data["stop_handbrake_min_current_a"]=handbrake_pub_&&stop_output_.loadHoldEnabled()?stop_output_.config().hold_min_current_a:0.0;
+        data["stop_handbrake_load_gain"]=stop_output_.config().hold_load_gain;
+        data["stop_handbrake_rolling_current_a"]=stop_output_.config().hold_rolling_current_a;
+        data["stop_handbrake_margin_a"]=stop_output_.config().hold_margin_a;
+        data["stop_hold_basis"]=holdBasisName(stop_output_.holdBasis());
+        {
+            const auto load=stop_output_.holdLoadA();
+            data["stop_hold_load_a"]=load?nlohmann::json(*load):nlohmann::json(nullptr);
+        }
         // What the stop output is doing now: none while driving or before the first stop.
         data["stop_output"]=stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none";
         data["stop_output_a"]=stop_output_.last()?stop_output_.last()->current_a:0.0;
@@ -1181,11 +1227,12 @@ private:
             const auto requested=planning_guard_->target(ros_now,steady_now);
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
             RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
-                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s stop=%s erpm_valid=%d start_gate=%s reset_required=%d",
+                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s stop=%s stop_a=%.1f erpm_valid=%d start_gate=%s reset_required=%d",
                 supervisor_.active()?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
                 thermal_.temp_c(),thermal_.state().c_str(),
-                stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none",static_cast<int>(stop_output_.erpmValid()),
+                stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none",stop_output_.last()?stop_output_.last()->current_a:0.0,
+                static_cast<int>(stop_output_.erpmValid()),
                 planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()));
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
