@@ -1122,6 +1122,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 from developer_traversability import TraversabilityWindow as Window
             elif part == "planning":
                 from developer_planning import PlanningWindow as Window
+            elif part == "person_follow":
+                from developer_person_follow import PersonFollowWindow as Window
             elif part == "control":
                 from developer_control import ControlWindow as Window
             else:
@@ -2183,7 +2185,7 @@ def parse_args():
     relay.add_argument("--relay-listen", type=int, metavar="PORT", help="Operator PC: share accepted packets on all interfaces")
     relay.add_argument("--relay-host", metavar="HOST:PORT", help="Spectator: read-only TCP connection to the operator PC; no board SSH")
     parser.add_argument("--open-developer-window", action="append", default=[],
-                        choices=("localization", "perception", "traversability", "planning", "control"),
+                        choices=("localization", "perception", "traversability", "planning", "person_follow", "control"),
                         help="Open an independent developer window using the existing collectors; repeatable")
     parser.add_argument("--preview-heading-calibration", help="Explicit IMU=base preview only: use saved Basalt T_imu_cam[0] optical +Z for the front arrow; does not change ROS poses or TF")
     parser.add_argument("--enable-trial-control", action="store_true", help="Show the explicit remote trial stop button; board power stays on")

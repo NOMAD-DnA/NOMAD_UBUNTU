@@ -126,6 +126,14 @@ class PlanningMap(QtWidgets.QWidget):
         self.show_footprint_cells = checked
         self.redraw()
 
+    def set_layer_visible(self, name, checked):
+        """Show/hide an already received overlay; the data itself is unchanged."""
+        artist = {'global': '_global_line', 'local': '_local_line', 'history': '_history_line'}.get(name)
+        if artist is None or not self._artists_ready:
+            return
+        getattr(self, artist).set_visible(bool(checked))
+        self.canvas.draw_idle()
+
     def _all_points(self):
         points = []
         geometry = self.geometry(self.event)
@@ -461,6 +469,10 @@ class PlanningWindow(QtWidgets.QMainWindow):
             button = QtWidgets.QPushButton(title)
             button.clicked.connect(action)
             controls.addWidget(button)
+        self.follow_button = QtWidgets.QPushButton('사람 추종 작업창')
+        self.follow_button.setToolTip('지도·인지 화면 미리보기. Jetson 사람 추종 모듈은 아직 연결되지 않았습니다.')
+        self.follow_button.clicked.connect(self._open_follow_window)
+        controls.addWidget(self.follow_button)
         controls.addStretch(1)
         controls.addWidget(QtWidgets.QLabel('지도 갱신 시 확대/이동 유지'))
         layout.addLayout(controls)
@@ -510,6 +522,11 @@ class PlanningWindow(QtWidgets.QMainWindow):
 
     def append_module_log(self, event):
         return self.log_panel.append_event(event)
+
+    def _open_follow_window(self):
+        # Opening a shared display is also allowed in replay/spectator mode.
+        if self.controller is not None:
+            self.controller.open_developer_window("person_follow")
 
     def _set_host(self, value):
         if self.controller is not None and not self._readonly:
