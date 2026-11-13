@@ -39,7 +39,8 @@ nomad_vesc_trial:
     # 2026-11-13: load-sized hold (stop_output.hpp; only the VESC telemetry this node already reads). Hold =
     # clamp(gain * |s*iq - rolling| + margin, min, stop_handbrake_current_a) from the VESC avg_iq at the end of
     # the last drive (s = commanded direction; the speed PID brakes downhill, so the same formula covers both),
-    # used only when the drive ended settled (|ERPM| within 25% of the command for 0.3 s). Otherwise the previous
+    # used only when the drive ended settled (|ERPM| within 25% of the command for 0.3 s); acceleration current
+    # is not load (11-13 evening: steady samples, or lower bounds when slowing under load). Otherwise the previous
     # hold current (raised to what this drive's own largest load needs) if the car moved <= ~24 cm in total since
     # the last hold that set its current, else stop_handbrake_current_a. Flat 12.5 A, 16 A climb
     # (~7 deg) 22.5 A, 14 deg climb (27 A) or steeper 30 A; 30 A all the time would put ~15 W into the motor on

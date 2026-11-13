@@ -31,7 +31,41 @@ double drive(StopOutput& output, double t, double seconds, double command, doubl
 }
 // Settled drive at 1000 ERPM.
 double cruise(StopOutput& output, double t, double seconds, double iq) { return drive(output, t, seconds, 1000.0, 1000.0, iq); }
+// Speed ramp from `from` to `to` ERPM over `seconds` at a constant current (command 1000 ERPM).
+double ramp(StopOutput& output, double t, double seconds, double from, double to, double iq) {
+    const double start = t, end = t + seconds;
+    for (; t <= end + 1e-9; t += 0.02) {
+        output.onDrive(1000.0);
+        output.observeDrive(t, iq, from + (to - from) * (t - start) / seconds);
+    }
+    return t;
+}
 StopOutputInput still(double t) { return {t, true, true, 0.0, false, true}; }
+// Real 11-13 20:18 flat hop (kp 0.010, drive 6): reported ERPM / avg_iq every 20 ms from the speed command on. The
+// handover jump (645 -> 95 ERPM at 20-27 A) must not read as a stalled push or a lower bound.
+const double kRealHop[][2] = {{0, 14}, {0, 14}, {0, 14}, {645, 5}, {160, 21}, {95, 22}, {244, 25}, {194, 27},
+    {205, 27}, {411, 24}, {501, 24}, {554, 21}, {720, 20}, {810, 18}, {866, 17}, {969, 14}, {1057, 13},
+    {1090, 11}, {1161, 9}, {1209, 8}, {1280, 6}, {1250, 5}, {1302, 3}, {1331, 3}, {1274, 2}, {1297, 1},
+    {1242, 1}, {1283, 1}, {1251, 1}, {1204, 1}, {1271, 0}, {1174, 1}, {1174, 1}, {1192, 1}, {1149, 2},
+    {1155, 0}, {1096, 1}, {1118, 2}, {1159, 0}, {1038, 2}};
+// Real 11-13 20:18 steady flat cruise (drive 1, 1.0-2.4 s): ERPM / avg_iq with the kp 0.010 ripple.
+const double kRealCruise[][2] = {{1046, 4.36}, {1049, 4.23}, {1054, 3.24}, {1041, 3.6}, {1035, 3.93}, {1026, 2.93},
+    {1014, 3.85}, {1009, 3.54}, {1018, 3.06}, {1010, 3.82}, {994, 3.62}, {1004, 3.4}, {982, 3.99}, {1020, 3.99},
+    {993, 3.4}, {989, 4.21}, {997, 4.23}, {964, 3.73}, {967, 4.41}, {991, 4.53}, {972, 3.67}, {976, 4.56},
+    {969, 4.77}, {966, 4.1}, {955, 5.08}, {955, 5.21}, {968, 4.49}, {965, 5.17}, {971, 5.53}, {966, 5.11},
+    {971, 5.68}, {974, 6.1}, {967, 5.5}, {986, 5.93}, {945, 6.29}, {952, 5.57}, {958, 6.2}, {944, 6.49},
+    {964, 5.64}, {970, 6.22}, {962, 6.64}, {984, 5.98}, {985, 6.56}, {935, 6.77}, {990, 6.42}, {1005, 6.84},
+    {928, 6.63}, {988, 6.47}, {1028, 6.68}, {940, 6.48}, {1022, 6.11}, {1039, 5.81}, {1022, 5.64}, {1036, 5.16},
+    {1029, 5.08}, {1016, 4.92}, {1043, 4.78}, {1033, 4.74}, {1027, 4.62}, {1073, 4.03}, {1052, 4.64}, {1041, 4.69},
+    {1054, 3.99}, {1042, 4.57}, {1019, 4.44}, {1031, 3.86}, {1014, 4.58}, {1016, 4.43}, {1011, 3.59}, {1003, 4.33},
+    {1010, 4.19}};
+// Feed {ERPM, avg_iq} rows every 20 ms (command 1000 ERPM), with `iq_offset` added to the current.
+template <std::size_t N>
+double replay(StopOutput& output, double t, const double (&rows)[N][2], double iq_offset = 0.0) {
+    for (const auto& row : rows) { output.onDrive(1000.0); output.observeDrive(t, row[1] + iq_offset, row[0]); t += 0.02; }
+    return t;
+}
+
 // Deployed candidate: brake 20 A, handbrake 12.5..30 A, gain 1.45, rolling 6 A, margin 8 A.
 const StopOutputConfig kLoad{20.0, 30.0, 200.0, 12.5, 1.45, 6.0, 8.0};
 // Gentle climb: iq 16 A = 10 A gravity over 6 A rolling -> 22.5 A (a 14 deg climb, 27 A, clamps at 30 A).
@@ -187,12 +221,12 @@ int main() {
         StopOutput output(kLoad);
         double t = cruise(output, 0.0, 2.0, 27.0);
         output.decide(still(t + 0.1));
-        t = drive(output, t + 1.0, 0.05, 1000.0, 0.0, 30.0); // 3 samples: the 30 A handbrake mean
+        t = drive(output, t + 1.0, 0.05, 1000.0, 1000.0, 30.0); // 3 samples: the 30 A handbrake mean
         t = cruise(output, t, 0.6, 6.0);
         expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && output.holdBasis() == HoldBasis::Load,
                "the first restart samples (previous handbrake current) are not used");
         StopOutput braked(kLoad);
-        t = drive(braked, 0.0, 0.05, 1000.0, 800.0, -20.0); // brake current while still rolling (reads settled)
+        t = drive(braked, 0.0, 0.05, 1000.0, 1000.0, -20.0); // brake current while still rolling (settled, steady)
         t = cruise(braked, t, 0.6, 6.0);
         expect(is(braked.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5), "a restart from the brake is not read as a slope");
     }
@@ -277,6 +311,113 @@ int main() {
         expect(is(late.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5), "an out-of-order sample is ignored");
     }
     {
+        // 11-13 review: slowing while the current rises above rolling is a lower bound of the load and counts, also
+        // after a steady overshoot plateau and in the last 0.1 s (no complete centred window).
+        StopOutput output(kLoad);
+        double t = cruise(output, 0.0, 2.0, 6.0);
+        output.decide(still(t + 0.1)); // flat hold 12.5 A
+        t += 1.0;
+        for (int k = 0; k < 30; ++k, t += 0.02) { output.onDrive(1000.0); output.observeDrive(t, kRealHop[k][1], kRealHop[k][0]); }
+        for (double s = 0.0; s <= 0.25 + 1e-9; s += 0.02, t += 0.02) { // the front axle reaches a slope
+            output.onDrive(1000.0);
+            output.observeDrive(t, 2.0 + 13.0 * s / 0.25, 1100.0 - 450.0 * s / 0.25);
+        }
+        const auto held = output.decide(still(t + 0.1));
+        expect(held.current_a >= 20.0 && output.holdBasis() == HoldBasis::SamePlace && output.holdLoadA() &&
+               *output.holdLoadA() >= 8.0,
+               "a hop that ends slowing onto a slope under rising current sizes from it (not the flat plateau)");
+        StopOutput gentle(kLoad);
+        t = cruise(gentle, 0.0, 1.5, 6.0);
+        for (double s = 0.0; s <= 0.3 + 1e-9; s += 0.02, t += 0.02) { // settled, but the load rises before the stop
+            gentle.onDrive(1000.0);
+            gentle.observeDrive(t, 6.0 + 10.0 * s / 0.3, 1000.0 - 220.0 * s / 0.3);
+        }
+        // End: 16 A at -730 ERPM/s, i.e. ~12.6 A of load above rolling with ~0.0035 A per ERPM/s of inertia. The lower
+        // bound reaches 10.1 A only with the last 0.1 s (trailing windows) and the inertia correction (17.9 / 20.6 A
+        // without either).
+        expect(gentle.decide(still(t + 0.1)).current_a >= 22.0 && gentle.holdBasis() == HoldBasis::Load &&
+               *gentle.holdLoadA() >= 10.0 && *gentle.holdLoadA() <= 12.6,
+               "settled drive whose load rises in its last 0.3 s: the rising (slowing) samples count, as a lower bound");
+    }
+    {
+        // Stop 0.1 s after the front axle meets a slope: the drive ends slowing hard (-3,500 ERPM/s) with the current
+        // rising above rolling, too early for any usable evidence. It falls back to its launch current.
+        StopOutput output(kLoad);
+        double t = cruise(output, 0.0, 2.0, 6.0);
+        output.decide(still(t + 0.1)); // flat hold 12.5 A
+        t += 1.0;
+        for (int k = 0; k < 30; ++k, t += 0.02) { output.onDrive(1000.0); output.observeDrive(t, kRealHop[k][1], kRealHop[k][0]); }
+        for (double s = 0.0; s <= 0.1 + 1e-9; s += 0.02, t += 0.02) {
+            output.onDrive(1000.0);
+            output.observeDrive(t, 1.0 + 11.0 * s / 0.1, 1150.0 - 350.0 * s / 0.1);
+        }
+        expect(output.decide(still(t + 0.1)).current_a >= 25.0 && output.holdBasis() == HoldBasis::SamePlace,
+               "a drive that ends slowing hard under rising current uses at least its launch current");
+    }
+    {
+        // A 0.4 s restart on a slope (slow launch: 0 -> 450 ERPM at 33 A) hardly moves but is not a tiny creep.
+        StopOutput output(kLoad);
+        double t = cruise(output, 0.0, 2.0, 6.0);
+        output.decide(still(t + 0.1));
+        t = ramp(output, t + 1.0, 0.4, 0.0, 450.0, 33.0);
+        expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 30.0) && output.holdBasis() == HoldBasis::SamePlace,
+               "a 0.4 s slope restart that moved < 3 erev: sized from its launch current, not the flat hold");
+        StopOutput creep(kLoad);
+        t = cruise(creep, 0.0, 2.0, 6.0);
+        creep.decide(still(t + 0.1));
+        t = ramp(creep, t + 1.0, 0.26, 0.0, 600.0, 33.0);
+        const auto first = creep.decide(still(t + 0.1));
+        t = ramp(creep, t + 1.0, 0.26, 0.0, 600.0, 33.0);
+        const auto second = creep.decide(still(t + 0.1));
+        t = ramp(creep, t + 1.0, 0.26, 0.0, 600.0, 33.0);
+        const auto third = creep.decide(still(t + 0.1));
+        expect(is(first, StopOutputKind::Hold, 12.5) && is(second, StopOutputKind::Hold, 12.5) &&
+               is(third, StopOutputKind::Hold, 30.0),
+               "creeping 0.26 s hops (~1.4 erev each) add up: past 3 erev in total their launch current sizes the hold");
+    }
+    {
+        // 11-12 21:42-like stalled push at 33.8 A with the reported speed swinging -155..341 (range > 300): not
+        // steady, but its slowing windows are lower bounds. A steady flat stretch earlier in the drive must not hide it.
+        StopOutput output(kLoad);
+        double t = cruise(output, 0.0, 2.0, 6.0);
+        output.decide(still(t + 0.1));
+        t = cruise(output, t + 1.0, 0.6, 6.0);
+        const double noise[] = {0, 150, -80, 341, 20, -155, 90, 10, 200, -40};
+        for (int k = 0; k < 40; ++k, t += 0.02) { output.onDrive(1000.0); output.observeDrive(t, 33.8, noise[k % 10]); }
+        expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 30.0) && output.holdBasis() == HoldBasis::SamePlace,
+               "noisy stalled push after a flat stretch: 30 A");
+    }
+    {
+        // Each drive record restarts its launch evidence: hop A (30 A, ended braking at 800 ERPM, no hold) must not size
+        // hop B (8 A).
+        StopOutput output(kLoad);
+        double t = cruise(output, 0.0, 2.0, 6.0);
+        output.decide(still(t + 0.1));
+        t = ramp(output, t + 1.0, 0.35, 0.0, 600.0, 30.0);
+        expect(is(output.decide({t, true, true, 800.0, false, true}), StopOutputKind::Brake, 20.0), "hop A ends braking");
+        t = ramp(output, t + 0.5, 0.35, 0.0, 600.0, 8.0);
+        expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && output.holdBasis() == HoldBasis::SamePlace,
+               "hop B is sized from its own launch only");
+    }
+    {
+        // Real kp 0.010 ripple: flat cruise reads as flat; the same speed trace 27 A higher reads as a 14 deg climb.
+        StopOutput flat(kLoad);
+        double t = replay(flat, 0.0, kRealCruise);
+        expect(is(flat.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && flat.holdBasis() == HoldBasis::Load &&
+               *flat.holdLoadA() < 3.2, "real flat cruise ripple: 12.5 A");
+        StopOutput climb(kLoad);
+        t = replay(climb, 0.0, kRealCruise, 27.0);
+        expect(is(climb.decide(still(t + 0.1)), StopOutputKind::Hold, 30.0) && climb.holdBasis() == HoldBasis::Load,
+               "the same ripple on a 14 deg climb: 30 A");
+        StopOutput jitter(kLoad);
+        t = 0.0;
+        for (int k = 0; k < 100; ++k, t += 0.02) {
+            jitter.onDrive(1000.0);
+            jitter.observeDrive(t + 0.002 * (k % 3 - 1), 16.0, 1000.0);
+        }
+        expect(is(jitter.decide(still(t + 0.1)), StopOutputKind::Hold, kGentle), "telemetry jitter (+-2 ms): same result");
+    }
+    {
         StopOutput output(kLoad);
         double t = cruise(output, 0.0, 2.0, 16.0);
         output.decide(still(t + 0.1));
@@ -291,6 +432,49 @@ int main() {
         expect(is(output.decide({t + 0.2, true, true, 0.0, true, true}), StopOutputKind::Coast, 0.0) &&
                is(output.decide(still(t + 0.3)), StopOutputKind::Hold, 12.5),
                "re-entry after a VESC fault keeps the load-sized current");
+    }
+    {
+        // 11-13 flat launch with kp 0.010: +4,300 ERPM/s at ~21 A, overshoot to 1300, back at -1,000 ERPM/s at ~3 A.
+        StopOutput output(kLoad);
+        double t = ramp(output, 0.0, 0.3, 0.0, 1300.0, 21.0);
+        t = ramp(output, t, 0.3, 1300.0, 1000.0, 3.0);
+        t = cruise(output, t, 0.6, 5.5);
+        expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && output.holdBasis() == HoldBasis::Load &&
+               *output.holdLoadA() < 3.2,
+               "flat launch: acceleration and overshoot-recovery current are not read as slope (was ~28 A)");
+        t = ramp(output, t + 1.0, 0.3, 0.0, 1300.0, 21.0);
+        t = ramp(output, t, 0.25, 1300.0, 1050.0, 3.0);
+        expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && output.holdBasis() == HoldBasis::SamePlace,
+               "short flat hop ending in the overshoot: steady samples give no extra load");
+    }
+    {
+        StopOutput output(kLoad);
+        double t = cruise(output, 0.0, 2.0, 6.0);
+        output.decide(still(t + 0.1)); // flat hold 12.5 A
+        t = ramp(output, t + 1.0, 0.6, 0.0, 750.0, 33.0);
+        expect(is(output.decide(still(t + 0.1)), StopOutputKind::Hold, 30.0) && output.holdBasis() == HoldBasis::SamePlace,
+               "a hop that kept accelerating (no steady sample) and moved > 3 erev: sized from its launch current (onto a slope: 30 A)");
+        StopOutput launch(kLoad);
+        t = cruise(launch, 0.0, 2.0, 6.0);
+        launch.decide(still(t + 0.1)); // flat hold 12.5 A
+        t += 1.0;
+        t = replay(launch, t, kRealHop);
+        const auto launched = launch.decide(still(t + 0.1));
+        expect(launched.kind == StopOutputKind::Hold && launched.current_a < 16.0 && launch.holdLoadA() && *launch.holdLoadA() < 5.5,
+               "the launch speed jump with 20-27 A is not a steady (stalled-push) sample");
+        StopOutput tiny(kLoad);
+        t = cruise(tiny, 0.0, 2.0, 6.0);
+        tiny.decide(still(t + 0.1));
+        t = ramp(tiny, t + 1.0, 0.2, 0.0, 400.0, 20.0);
+        expect(is(tiny.decide(still(t + 0.1)), StopOutputKind::Hold, 12.5) && tiny.holdBasis() == HoldBasis::SamePlace,
+               "a tiny creep (<= 3 erev, < 0.28 s) with no usable sample keeps the previous hold");
+        StopOutput climb(kLoad);
+        for (t = 0.0; t <= 2.0 + 1e-9; t += 0.02) {
+            climb.onDrive(1000.0);
+            climb.observeDrive(t, 33.0 + 3.0 * sin(6.283185307 * t), 1000.0 + 70.0 * sin(6.283185307 * t));
+        }
+        expect(is(climb.decide(still(t + 0.1)), StopOutputKind::Hold, 30.0) && climb.holdBasis() == HoldBasis::Load,
+               "steady climb with the kp 0.010 speed ripple (+-70 ERPM at 1 Hz) counts as steady");
     }
     {
         StopOutput output(kLoad);
