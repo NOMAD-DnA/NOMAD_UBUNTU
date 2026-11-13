@@ -547,10 +547,68 @@ int main() {
         t = stopRamp(resumed, t, 0.1, 1000.0, [](double) { return 10.0; });
         resumed.cancelStopRamp();
         expect(!resumed.stopRampActive(), "a cancelled ramp is no longer active");
-        t = cruise(resumed, t, 1.2, 6.0);
+        t = cruise(resumed, t, 0.6, 6.0); // shorter than kLoadWindowS: a kept record would still show the climb
         expect(is(resumed.decide(still(t)), StopOutputKind::Hold, 12.5) && resumed.holdBasis() == HoldBasis::Load &&
                abs(*resumed.holdLoadA()) < 1e-9,
                "a cancelled ramp starts a new drive record: the later flat cruise sizes the hold");
+        // Mechanism of the 200 ERPM phase (2026-11-13 review): when the ramp command reaches hold_below_erpm the
+        // ramp samples not yet judged get trailing windows, so a steady braking stretch just before the speed PID
+        // pulls the car down is judged by what came before, not by the fast fall after. Here the reported speed
+        // stays at 1000 under a -12 A braking current (a downhill), then falls at 3000 ERPM/s from the 200 command.
+        StopOutput phase(kLoad);
+        t = cruise(phase, 0.0, 1.2, 6.5);
+        phase.beginStopRamp(t);
+        for (const double t0 = t; t <= t0 + 1.0; t += 0.02) {
+            const double s = t - t0;
+            const double command = std::max(200.0, 1000.0 - 3200.0 * s), reported = s < 0.25 - 1e-9 ? 1000.0 : 1000.0 - 3000.0 * (s - 0.2);
+            if (reported <= 200.0) break;
+            phase.onDrive(command);
+            phase.observeDrive(t, s < 0.25 - 1e-9 ? -12.0 : -15.0, reported);
+        }
+        expect(is(phase.decide(still(t)), StopOutputKind::Hold, 30.0) && phase.holdBasis() == HoldBasis::Load &&
+               *phase.holdLoadA() > 15.0,
+               "a braking stretch that held the speed just before the 200 ERPM phase raises the hold (judged with trailing windows)");
+        // 11-14 check: flat 0.3 s ramp from the review's closed-loop PID model (reported speed lags ~50 ms while the
+        // PID already brakes at -3..-7 A). One sample 80 ERPM high (normal HFI noise) made its trailing window read
+        // as steady braking (22.5 A); a single such sample is not enough at the 200 ERPM phase.
+        {
+            StopOutput model(kLoad);
+            double tm = 0.0;
+            for (; tm < 1.2 - 1e-9; tm += 0.02) { model.observeDrive(tm + 0.001, 6.0, 1000.0); model.onDrive(1000.0); }
+            const double cmd[] = {947, 893, 840, 787, 733, 680, 627, 573, 520, 467, 413, 360, 307, 253, 200, 200, 200, 200, 200, 200, 200};
+            const double meas[] = {1000, 1000, 999, 995, 986, 971, 951, 924, 892, 854, 811, 762, 709, 652, 592, 528, 462, 395, 330, 268, 211};
+            const double iq[] = {5.2, 3.8, 2.4, 1.2, -0.1, -1.2, -2.2, -3.1, -4.0, -4.7, -5.3, -5.8, -6.2, -6.5, -6.8, -7.0, -5.7, -4.4, -3.1, -1.8, -0.6};
+            const double t0 = tm;
+            model.observeDrive(t0 - 0.019, 6.0, 1000.0);
+            model.beginStopRamp(t0);
+            model.onDrive(cmd[0]);
+            for (int i = 1; i < 21; ++i) {
+                model.observeDrive(t0 + 0.02 * i - 0.019, iq[i], meas[i] + (i == 10 ? 80.0 : 0.0));
+                model.onDrive(cmd[i]);
+            }
+            expect(is(model.decide({t0 + 0.43, true, true, 190.0, false, true}), StopOutputKind::Hold, 12.5) &&
+                   model.holdBasis() == HoldBasis::Load,
+                   "flat model ramp with one noisy reading: the minimum hold (one trailing-window sample is not enough)");
+        }
+        // 11-14 check (mechanism): a downhill plateau that starts 0.15 s before the 200 ERPM phase. At the phase start
+        // the trailing windows of its samples still reach the drop before it (unusable); their centred windows see the
+        // plateau (usable) and must still decide. The braking current ends with the phase and the speed then falls
+        // steeply, so no later sample can raise the hold by itself.
+        {
+            StopOutput plateau(kLoad);
+            t = cruise(plateau, 0.0, 1.2, 6.5);
+            plateau.beginStopRamp(t);
+            for (const double t0 = t; t <= t0 + 1.0; t += 0.02) {
+                const double s = t - t0;
+                const double command = std::max(200.0, 1000.0 - 800.0 / 0.3 * s);
+                const double reported = s < 0.15 - 1e-9 ? 1000.0 : s < 0.36 - 1e-9 ? 750.0 : 750.0 - 10000.0 * (s - 0.36);
+                if (reported <= 200.0) break;
+                plateau.onDrive(command);
+                plateau.observeDrive(t, s < 0.15 - 1e-9 ? 0.5 : s < 0.30 - 1e-9 ? -12.0 : 6.0, reported);
+            }
+            expect(is(plateau.decide(still(t)), StopOutputKind::Hold, 30.0) && plateau.holdBasis() == HoldBasis::Load,
+                   "a downhill plateau just before the 200 ERPM phase is still judged by its centred windows (30 A)");
+        }
         StopOutput idle(kLoad);
         idle.beginStopRamp(0.0);
         expect(!idle.stopRampActive(), "beginStopRamp outside a drive does nothing");

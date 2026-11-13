@@ -10,9 +10,9 @@ nomad_vesc_trial:
     planning.feedback_limit_erpm: 1200.0
     # 2026-11-13: LPP STOP / lost LPP input (expiry, planner publisher count not 1) ramp the speed command from
     # min(command, measured) down to stop_handbrake_below_erpm (200) over this many seconds and keep 200 until the
-    # measured ERPM is there (at most 0.3 s more), so the handbrake follows without a 20 A brake pulse.
+    # measured ERPM is there (at most 0.6 s more), so the handbrake follows without a 20 A brake pulse.
     # Stopping from ~1000 ERPM within ~50 ms made the car lurch. Faults, operator STOP, overspeed, telemetry/driver
     # loss and a car already at or below 200 ERPM still stop at once; a fresh moving LPP command during the ramp
-    # cancels it. Adds ~4-5 cm of stop distance at 1000 ERPM. 0 = stop at once (before 11-13). Range 0..1 s.
+    # cancels it. Adds ~4-6 cm of stop distance at 1000 ERPM. 0 = stop at once (before 11-13). Range 0..1 s.
     planning.stop_ramp_s: 0.3
     planning.allow_estimated_calibration: true

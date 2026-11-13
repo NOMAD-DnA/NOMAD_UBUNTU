@@ -933,16 +933,46 @@ void testPlanningStopRamp() {
     {
         // The VESC speed PID trails the ramp: the command stays at 200 until the reported speed is there.
         Rig lag; lag.prime(); cruise(lag); begin(lag);
-        int at_end = 0; nomad::RawOutput last;
-        for (int i = 0; i < 60; ++i) {
+        int at_end = 0; nomad::RawOutput last; double first_at_end = -1, released = -1;
+        for (int i = 0; i < 80; ++i) {
             lag.feed(.02, 450);
             last = lag.controller.tick(lag.steady, lag.ros, true, 1000);
-            if (last.kind != OutputKind::Drive) break;
-            if (last.motor_erpm == 200) ++at_end;
+            if (last.kind != OutputKind::Drive) { released = lag.steady; break; }
+            if (last.motor_erpm <= 200 + 1e-6) { ++at_end; if (first_at_end < 0) first_at_end = lag.steady; }
         }
         expect(last.kind == OutputKind::Release && lag.controller.state() == TrialState::Stopped &&
-               lag.controller.planningWaitActive() && at_end >= 14 && at_end <= 16,
-               "a speed that stays above 200 gets the 200 ERPM command for at most 0.3 s, then the stop output");
+               lag.controller.planningWaitActive() && at_end == 30 &&
+               abs(released - first_at_end - nomad::RawTrialController::kStopRampSettleS) < 1e-6,
+               "a speed that stays above 200 gets the 200 ERPM command for exactly 0.6 s from the first 200, then the stop output");
+        // The wait is timed from the first tick at 200, with a 1e-9 s tolerance.
+        Rig edge; edge.prime(); cruise(edge); begin(edge);
+        double at = -1;
+        for (int i = 0; i < 30 && at < 0; ++i) {
+            edge.feed(.02, 450);
+            if (edge.controller.tick(edge.steady, edge.ros, true, 1000).motor_erpm <= 200 + 1e-6) at = edge.steady;
+        }
+        for (double t : {.15, .30, .45}) { edge.feed(at + t - edge.steady, 450); edge.controller.tick(edge.steady, edge.ros, true, 1000); }
+        edge.feed(at + .6 - 2e-9 - edge.steady, 450);
+        const auto before_limit = edge.controller.tick(edge.steady, edge.ros, true, 1000);
+        edge.feed(1.5e-9, 450);
+        const auto at_limit = edge.controller.tick(edge.steady, edge.ros, true, 1000);
+        expect(at > 0 && before_limit.kind == OutputKind::Drive && before_limit.motor_erpm == 200 &&
+               at_limit.kind == OutputKind::Release && edge.controller.state() == TrialState::Stopped,
+               "still 200 ERPM 2 ns before the 0.6 s limit, the stop output 0.5 ns before it");
+        // Steep downhill: the command is at 200 while the speed PID still brakes the car down from 1250 ERPM at
+        // ~3000 ERPM/s; the stop waits for the reported speed (0.35 s), not a 20 A brake at 0.3 s.
+        Rig down; down.prime(); cruise(down); begin(down);
+        double reported = 1000; int phase = 0, down_ticks = 0; nomad::RawOutput d;
+        for (int i = 0; i < 80; ++i) {
+            if (phase == 0) reported = 1250;
+            else reported -= 60;
+            down.feed(.02, reported);
+            d = down.controller.tick(down.steady, down.ros, true, 1000);
+            if (d.kind != OutputKind::Drive) break;
+            if (d.motor_erpm <= 200 + 1e-6) { phase = 1; ++down_ticks; }
+        }
+        expect(d.kind == OutputKind::Release && reported <= 200 && down_ticks >= 17,
+               "a downhill speed falling ~3000 ERPM/s from 1250 at the 200 command ends by the reported speed after 0.35 s");
         Rig slows; slows.prime(); cruise(slows); begin(slows);
         int ticks = 0;
         for (; ticks < 40; ++ticks) {

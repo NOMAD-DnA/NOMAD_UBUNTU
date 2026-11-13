@@ -61,15 +61,21 @@
 // rule and the tiny-creep time use the drive up to there, since a falling command is not an unsettled drive and its
 // lower current is not less load. Ramp samples from kRampIgnoreS on can only raise L (Load: max with the usable ramp
 // samples; SamePlace: the drive's largest usable L); movement during the ramp still counts (conservative for the
-// same-place and tiny-creep distances). A slope edge crossed in the last ~0.15 s of the ramp (~2-3 cm) shows nothing
-// yet, as one crossed while braking or just before an immediate stop did before; the 11-13 review model found the
-// ramp moves that band but does not widen it.
+// same-place and tiny-creep distances). When the ramp command reaches hold_below_erpm (the controller then waits there
+// for the reported speed while the speed PID brakes hard) the ramp samples not yet judged are also tried with
+// trailing windows; usable results are kept when at least kRampEndMinUsable agree (evaluateRampEnd). A slope edge
+// crossed just before the stop can still show nothing yet: in the 11-14 review model (real code, 0.3 s ramp) the
+// downhill-edge band where the hold slips is 2.3-3.8 cm at 12-20 deg against 4.9-5.5 cm for an immediate stop (and no
+// wider than the plain ramp at 0.4-0.5 s ramps); the uphill band (a roll back to the foot of the slope) is wider,
+// 7.1-8.9 cm at 12-14 deg against ~5 cm, from the longer travel. Flat stops: mean hold 12.69 A against 12.60 A.
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <deque>
 #include <optional>
 #include <stdexcept>
+#include <utility>
+#include <vector>
 
 namespace nomad {
 
@@ -168,6 +174,8 @@ public:
     // kMedianSamples median (~40-60 ms) still show the cruise current while the speed already drops, which reads
     // like meeting a slope.
     static constexpr double kRampIgnoreS = 0.15;
+    // Usable trailing-window ramp samples needed at the start of the 200 ERPM phase (evaluateRampEnd).
+    static constexpr std::size_t kRampEndMinUsable = 2;
 
     explicit StopOutput(StopOutputConfig config = {}) : config_(config) {
         const auto within = [](double value, double low, double high) {
@@ -214,8 +222,19 @@ public:
             drive_moved_erev_ = 0.0;
             escalated_ = false;
             ramp_start_s_.reset();
+            ramp_end_judged_ = false;
         }
-        if (!ramp_start_s_) command_erpm_ = std::isfinite(commanded_erpm) ? std::abs(commanded_erpm) : 0.0;
+        if (!ramp_start_s_) {
+            command_erpm_ = std::isfinite(commanded_erpm) ? std::abs(commanded_erpm) : 0.0;
+        } else if (!ramp_end_judged_ && config_.hold_below_erpm > 0.0 && std::isfinite(commanded_erpm) &&
+                   std::abs(commanded_erpm) <= config_.hold_below_erpm + 1e-9) {
+            // The ramp command reached the handbrake entry speed: the controller now keeps it there until the
+            // reported speed follows (raw_trial kStopRampSettleS) while the speed PID brakes hard, so a window centred
+            // on the last ramp samples would mostly see that braking and call them unsteady (2026-11-13 review: a
+            // downhill edge crossed late in the ramp was missed). See evaluateRampEnd.
+            evaluateRampEnd();
+            ramp_end_judged_ = true;
+        }
         hold_since_.reset();
         last_.reset();
     }
@@ -228,6 +247,7 @@ public:
         if (!in_drive_ || ramp_start_s_ || !std::isfinite(steady_now)) return;
         evaluateTail();
         ramp_start_s_ = last_sample_s_ ? std::max(steady_now, *last_sample_s_) : steady_now;
+        ramp_end_judged_ = false;
     }
 
     // The ramp was cancelled and the drive goes on: the next drive command starts a new record, as after a stop.
@@ -369,6 +389,29 @@ private:
             drive_peak_load_a_ = drive_peak_load_a_ ? std::max(*drive_peak_load_a_, sample.evidence) : sample.evidence;
     }
 
+    // At the start of the 200 ERPM phase: judge the ramp samples not yet judged with trailing windows, but keep only
+    // results that make a sample usable, and only when at least kRampEndMinUsable of them do; the rest are left to
+    // their centred windows as before. (11-14 check of the plain trailing judgement: it dropped a downhill plateau
+    // the centred windows had caught, and with the reported-speed lag plus HFI noise one sample could read as
+    // steady braking on flat ground, ~6% of flat stops at 20-25 A in the review model; this rule: 0 new downhill
+    // slips against the plain ramp at 0.3-0.5 s ramps, flat stops >= 18 A 3 of 420.)
+    void evaluateRampEnd() {
+        const auto peak = drive_peak_load_a_;
+        std::vector<std::pair<std::size_t, DriveSample>> usable;
+        for (std::size_t j = 0; j < samples_.size(); ++j) {
+            if (samples_[j].evaluated || !samples_[j].ramp) continue;
+            DriveSample probe = samples_[j];
+            classify(probe, window(probe.t - kAccelWindowS, probe.t));
+            if (probe.usable) usable.emplace_back(j, probe);
+        }
+        drive_peak_load_a_ = peak; // classify() raised it for the probes
+        if (usable.size() < kRampEndMinUsable) return;
+        for (const auto& [j, probe] : usable) {
+            samples_[j] = probe;
+            drive_peak_load_a_ = drive_peak_load_a_ ? std::max(*drive_peak_load_a_, probe.evidence) : probe.evidence;
+        }
+    }
+
     // Every sample whose centred window (kAccelWindowS / 2 each side) is complete, once.
     void evaluateCentred() {
         const double newest = samples_.back().t;
@@ -505,6 +548,7 @@ private:
     std::optional<double> drive_launch_load_a_; // largest L from kLaunchIgnoreS on, steady or not
     std::optional<double> drive_start_s_;
     std::optional<double> ramp_start_s_;      // the current/last drive record ended with a stop ramp from here
+    bool ramp_end_judged_ = false;            // ramp samples judged when the ramp command reached hold_below_erpm
     double drive_moved_erev_ = 0.0;            // electrical revolutions of the current/last drive record
     std::deque<DriveSample> samples_;
 };

@@ -554,7 +554,7 @@ public:
 
     // 2026-11-13 stop ramp (planning.stop_ramp_s, running floor 1000 ERPM): an LPP STOP or lost LPP input ramps
     // the speed command down to the handbrake entry speed, keeps it there until the reported speed is there (at most
-    // 0.3 s more), then the stop output; everything else still stops at once. ramp_s is 1.0 in the scenarios that act
+    // 0.6 s more), then the stop output; everything else still stops at once. ramp_s is 1.0 in the scenarios that act
     // during the ramp, so a slow machine still acts while it runs.
     void runStopRamp(const string& scenario,double ramp_s) {
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
@@ -611,13 +611,13 @@ public:
         if(scenario=="LPP STOP"||scenario=="expiry"||scenario=="climb hold"){
             check(wait_status(ramp_running,scenario=="expiry"?.6:.25)&&status_.value("planning_stop_ramp_s",0.0)==ramp_s,
                   "status reports the running ramp");
-            check(wait_status(held,1.5),"the ramp ends in a hold");
+            check(wait_status(held,2.0),"the ramp ends in a hold");
             pump(.15);
             const double until=first_output_after(),lead=scenario=="expiry"?.3:0.0;
             if(scenario=="climb hold"){
-                // The reported speed stays 150 ERPM above the command: 0.3 s at 200 ERPM, then brake, then hold.
-                check(until>=.5&&until<=.95&&brake_messages_>brakes,
-                      "a speed still above 200 after the ramp waits 0.3 s at 200 ERPM, then brakes before the hold");
+                // The reported speed stays 150 ERPM above the command: 0.6 s at 200 ERPM, then brake, then hold.
+                check(until>=.8&&until<=1.3&&brake_messages_>brakes,
+                      "a speed still above 200 after the ramp waits 0.6 s at 200 ERPM, then brakes before the hold");
             }else{
                 check(falling_until_output(mark,200.0),"the speed command falls step by step from 1000 to 200 ERPM");
                 check(until>=lead+.24&&until<=lead+.55,"the stop output follows about 0.3 s after the stop"+
@@ -637,6 +637,8 @@ public:
                   "a fresh command resumes after the ramp stop");
         }else if(scenario=="cancel"||scenario=="cancel then flat"){
             pump(.1);
+            // The drive after the cancel is flat; the cancelled ramp's record (climb, 10 A load) must not size its stop.
+            if(scenario=="cancel then flat")telemetry_iq_=6.0;
             send_planning_=true;pump(.4);
             const auto v=speeds_after(mark);
             double lowest=1000.0;for(double x:v)lowest=min(lowest,x);
@@ -645,8 +647,9 @@ public:
                       status_.value("planning_supervisor_state",string())=="ACTIVE";},.3),
                   "a fresh command during the ramp cancels it: no brake/hold, back to 1000 ERPM");
             if(scenario=="cancel then flat"){
-                // The cancelled ramp's record (climb, 10 A load) must not size a later flat stop.
-                telemetry_iq_=6.0;pump(1.5);
+                // STOP ~0.75 s after the climb (inside kLoadWindowS: a kept record would still hold 22.5 A), with
+                // ~0.5 s of settled flat driving in the new record even on a slow machine.
+                pump(.25);
                 send_planning_=false;lpp(true,0.0);
                 check(wait_status(held,ramp_s+1.0)&&last_handbrake_==12.5&&status_.value("stop_hold_basis",string())=="load",
                       "after a cancelled ramp, a later flat stop holds with the minimum (new drive record)");

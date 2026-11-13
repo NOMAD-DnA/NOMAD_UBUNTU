@@ -79,8 +79,11 @@ public:
     bool stopRampActive() const { return stop_ramp_.has_value(); }
     static constexpr double kMaxStopRampS = 1.0;
     // 2026-11-13 review: the VESC speed PID (kp 0.010 / ki 0.04) trails a 0.3 s ramp by ~250-400 ERPM, so the car is
-    // still at ~300-500 ERPM when the command reaches end_erpm; handing over then gave a 20 A brake pulse first.
-    static constexpr double kStopRampSettleS = 0.30;
+    // still at ~300-500 ERPM when the command reaches end_erpm; handing over then gave a 20 A brake pulse first. Flat
+    // and uphill stops get there in ~0.10-0.16 s. 0.6 s (not 0.3) because on a steep downhill the speed PID brakes at
+    // 30-50 A, harder than the 20 A stop brake, which cannot hold 17-20 deg (14 deg loaded) (review model: 0 runaways and no brake
+    // pulse in 180 downhill cases at 0.6 s; 0.3 s left some).
+    static constexpr double kStopRampSettleS = 0.60;
     bool planningWaitActive() const { return planning_wait_; }
     double telemetryReceiveAge(double steady) const { return sample_ ? steady - received_at_ : -1.0; }
     double telemetryStampAge(double ros) const { return sample_ ? ros - sample_->stamp_s : -1.0; }
