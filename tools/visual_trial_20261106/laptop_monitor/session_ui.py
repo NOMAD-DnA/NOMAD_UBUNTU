@@ -28,6 +28,14 @@ class RecordingMixin:
         self.recorder = None
         self.recording_result = None
         self._record_started = 0.
+        self._auto_trial_recording = False
+        self._trial_record_path = None
+        self._trial_notes_dialog = None
+        self._trial_notes_required = False
+        self._trial_record_closed = False
+        self._trial_stop_requested_at = None
+        self._trial_summary = None
+        self._trial_notes_copy_path = None
         self._packet_cache = {}
         self._display_packet_cache = {}
         self._display_qimages = {}
@@ -87,7 +95,7 @@ class RecordingMixin:
             folder_button = QtWidgets.QPushButton("기록 폴더")
             folder_button.clicked.connect(self.open_recording_folder)
             bar.addWidget(folder_button)
-            self.record_label = QtWidgets.QLabel("기록 꺼짐 · 이 PC에 수신된 데이터 저장")
+            self.record_label = QtWidgets.QLabel("출력 허용 시 자동 기록 · 수동 기록도 가능")
             self.record_label.setWordWrap(True)
             bar.addWidget(self.record_label, 1)
         else:
@@ -167,13 +175,23 @@ class RecordingMixin:
     def toggle_recording(self):
         if self.replay_mode:
             return
+        if self._auto_trial_recording:
+            return  # An output-enabled trial is recorded through trial termination.
         if self.recorder is not None:
             self.stop_recording()
             return
+        self.start_recording()
+
+    def start_recording(self, trigger="manual"):
+        if self.replay_mode:
+            return False
+        if self.recorder is not None:
+            return self.recorder.status()["state"] == "RECORDING"
         self._record_started = time.monotonic()
         try:
             metadata = {**display_metadata(self.display_footprint),
-                "started_wall_s": time.time(), "forward_axis": list(self.forward_axis),
+                "started_wall_s": time.time(), "recording_trigger": trigger,
+                "forward_axis": list(self.forward_axis),
                 "heading_note": self.heading_note, "ui_hz": self.args.ui_hz,
                 "active_model": self.active_model,
                 "active_cloud_source": getattr(self, "active_cloud_source", None),
@@ -191,7 +209,7 @@ class RecordingMixin:
         except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
             self.record_label.setText("기록 시작 실패 · " + str(error))
             self.record_label.setStyleSheet("color:#fca5a5;")
-            return
+            return False
         self.recorder = recorder
         self.recording_result = None
         self._last_view_json = None
@@ -201,6 +219,131 @@ class RecordingMixin:
         self.record_view(initial=True)
         self.record_button.setText("기록 정지")
         self.update_recording_bar()
+        return recorder.status()["state"] == "RECORDING"
+
+    def ensure_trial_recording(self, click_timing):
+        """Start/reuse one recording before sending an output-enable request."""
+        if not self.start_recording(trigger="output_allow"):
+            return False
+        if not self.recorder.wait_ready():
+            self.record_label.setText("기록 준비 실패 · 출력 허용 요청을 보내지 않았습니다.")
+            self.record_label.setStyleSheet("color:#fca5a5;")
+            return False
+        event = {**self._view_event(), "trial_action": "output_allow_requested",
+                 "click_wall_ns": click_timing[0], "click_monotonic_ns": click_timing[1]}
+        if not self.recorder.append("gui", event, max(0., time.monotonic()-self._record_started)):
+            self.update_recording_bar()
+            return False
+        self._auto_trial_recording = True
+        self._trial_record_path = self.recorder.path
+        self.record_button.setEnabled(False)
+        self.record_button.setText("자동 기록 중")
+        self.record_button.setToolTip("출력 정지·재허용에도 같은 기록을 유지하며 시험 종료 때 저장합니다.")
+        self.update_recording_bar()
+        return True
+
+    def request_trial_notes(self):
+        """Nonblocking dialog: called only after the board-stop worker starts."""
+        if self.replay_mode or self.spectator_mode:
+            return
+        self._trial_stop_requested_at = self._trial_stop_requested_at or time.time()
+        self._trial_notes_required = True
+        self._trial_record_closed = False
+        if self.recorder is None and self._trial_record_path is None:
+            # A trial that never enabled output still gets an explicitly labelled
+            # end snapshot, not a claim that its earlier motion was recorded.
+            self.start_recording(trigger="trial_end_without_output_allow")
+        if self.recorder is not None:
+            self._trial_record_path = self.recorder.path
+        if self._trial_notes_dialog is None:
+            from trial_summary import TrialSummaryDialog
+            dialog = TrialSummaryDialog(self, self.save_trial_notes, self._trial_summary,
+                                        save_copy=self.save_trial_notes_copy)
+            self._trial_notes_dialog = dialog
+        self._trial_notes_dialog.set_recording_state(False, "실행 모듈 종료 중 · 이름과 내용을 입력해 주세요.")
+        self._trial_notes_dialog.show()
+        self._trial_notes_dialog.raise_()
+        self._trial_notes_dialog.activateWindow()
+
+    def finish_trial_recording(self):
+        if not self._trial_notes_required:
+            return
+        self.drain_receivers()
+        recorder = self.recorder
+        self.stop_recording()
+        # A close timeout must not race a still-running database writer.
+        self._trial_record_closed = recorder is None or recorder.writer_finished()
+        self._auto_trial_recording = False
+        self.record_button.setEnabled(False)
+        if not self._trial_record_closed:
+            QtCore.QTimer.singleShot(200, lambda: self._wait_trial_writer(recorder))
+        self._update_trial_notes_state()
+
+    def _wait_trial_writer(self, recorder):
+        if not recorder.writer_finished():
+            QtCore.QTimer.singleShot(200, lambda: self._wait_trial_writer(recorder))
+            return
+        self._trial_record_closed = True
+        self._update_trial_notes_state()
+
+    def _update_trial_notes_state(self):
+        if self._trial_notes_dialog is None:
+            return
+        ok = bool((self.trial_stop_result or {}).get("ok"))
+        message = "모듈 종료 확인 · 시험 이름과 내용을 저장해 주세요." if ok else "일부 모듈 종료 미확인 · 내용을 저장한 뒤 종료 재시도가 가능합니다."
+        if not self._trial_record_closed:
+            message = "기록 파일을 마무리하는 중입니다. 입력한 내용은 유지됩니다."
+        elif (self.recording_result or {}).get("error"):
+            message += " 기록 오류가 있어 저장된 부분까지만 남습니다."
+        self._trial_notes_dialog.set_recording_state(self._trial_record_closed, message)
+
+    def save_trial_notes(self, name, description):
+        from session_recording import save_trial_summary
+        if not self._trial_record_closed:
+            raise RuntimeError("기록 파일을 마무리 중입니다. 잠시 후 다시 저장해 주세요.")
+        if not self._trial_record_path:
+            raise RuntimeError("기록 파일을 만들지 못했습니다. 저장 위치와 디스크 여유를 확인해 주세요.")
+        self._trial_summary = save_trial_summary(self._trial_record_path, name, description,
+                                                self.trial_stop_result, self._trial_stop_requested_at)
+        self._trial_notes_required = False
+        self._trial_notes_copy_path = None
+        self.update_recording_bar()
+
+    def save_trial_notes_copy(self, name, description):
+        """Preserve notes elsewhere if the recording disk/file has failed."""
+        import os
+        import tempfile
+        if not name.strip() or not description.strip() or not self._trial_record_closed:
+            raise ValueError("시험 이름과 내용을 입력하고 기록 종료를 기다려 주세요.")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "메모만 별도 저장 · 주행 로그는 복구되지 않습니다", "시험메모.json", "시험 메모 (*.json)")
+        if not path:
+            return False
+        summary = {"name": name.strip(), "description": description.strip(),
+                   "stop_requested_wall_s": self._trial_stop_requested_at,
+                   "stop_result": self.trial_stop_result, "saved_wall_s": time.time()}
+        value = {"trial": summary, "recording": self.recording_result,
+                 "original_recording_path": self._trial_record_path, "contains_driving_log": False}
+        target = Path(path).expanduser().absolute()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
+                                             prefix=".trial-notes-", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+        self._trial_summary = summary
+        self._trial_notes_copy_path = str(target)
+        self._trial_notes_required = False
+        self.update_recording_bar()
+        self.record_label.setText("메모만 별도 저장 · " + str(target) + " · 주행 기록은 오류 상태를 확인해 주세요.")
+        self.record_label.setStyleSheet("color:#fbbf24;")
+        return True
 
     def recording_baseline(self):
         rows = []
@@ -250,10 +393,12 @@ class RecordingMixin:
             incomplete = not self.reader.metadata.get("_recording", {}).get("complete", False)
             state = "시각 이동 중…" if self._replay_seeking else ("재생 중" if self._replay_playing else "일시정지")
             warnings = (f" · 적용 제외 {self._replay_rejection_count}건" if self._replay_rejection_count else "")
-            self.record_label.setText(f"기록 재생 · {state} · {Path(self.args.replay).name}" +
+            trial = self.reader.metadata.get("trial", {})
+            trial_name = " · " + trial["name"] if trial.get("name") else ""
+            self.record_label.setText(f"기록 재생 · {state} · {Path(self.args.replay).name}" + trial_name +
                                       (" · 미완료 기록: 저장된 부분까지 재생" if incomplete else "") + warnings +
                                       (" · " + self.recording_compatibility_note if self.recording_compatibility_note else ""))
-            self.record_label.setToolTip("\n".join(self._replay_rejections))
+            self.record_label.setToolTip("\n".join(filter(None, [trial.get("description", ""), *self._replay_rejections])))
             self.record_label.setStyleSheet("color:#fbbf24;" if warnings else "color:#7dd3fc;")
             return
         status = self.recorder.status() if self.recorder is not None else self.recording_result
@@ -261,8 +406,14 @@ class RecordingMixin:
             return
         failed = status.get("state") == "FAILED" or bool(status.get("error"))
         label = "기록 오류 · 누락 없는 저장 미확인" if failed else ("기록 중" if self.recorder else "저장 완료")
+        if self.recorder and self._auto_trial_recording:
+            label += " · 자동 / 시험 종료까지"
+        if self._trial_summary:
+            label += " · " + self._trial_summary["name"]
         self.record_label.setText(f"{label} · {status.get('events', 0):,}개 · {status.get('path', '')}" +
                                   (" · " + str(status["error"]) if failed else ""))
+        if self._trial_notes_copy_path:
+            self.record_label.setText(self.record_label.text() + " · 메모만 별도 저장: " + self._trial_notes_copy_path)
         self.record_label.setToolTip(str(status.get("path", "")))
         self.record_label.setStyleSheet("color:#fca5a5;" if failed else "color:#7dd3fc;")
 

@@ -1425,6 +1425,12 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         if age is None or age > 3 or report.get("plan_only", True):
             self.planning_message.setText("출력 허용 불가 · 최신 출력 모드 상태를 먼저 확인해 주세요.")
             return
+        if self._trial_notes_required or self.trial_stop_result is not None or (
+                self.stop_worker is not None and self.stop_worker.isRunning()):
+            return
+        if not self.ensure_trial_recording(click_timing):
+            self.planning_message.setText("기록을 시작하지 못해 출력 허용 요청을 보내지 않았습니다. 기록 상태를 확인해 주세요.")
+            return
         if self.planning_client.send({"cmd": "arm"}, timing=click_timing, origin="output_allow_button"):
             self.planning_message.setText("출력 허용 요청 · Pi4 응답 대기 · 실제 모터 회전 확인값 아님")
 
@@ -1506,6 +1512,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.stop_worker.progress.connect(self.stop_message.setText)
         self.stop_worker.result.connect(self.on_trial_stopped)
         self.stop_worker.start()
+        self.request_trial_notes()
 
     def apply_model(self):
         if self.spectator_mode or self.args.no_ssh or not self.args.enable_trial_control or self.model_switch_in_progress or self.cloud_switch_in_progress or self.slope_switch_in_progress:
@@ -1719,6 +1726,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         else:
             self.stop_message.setText("일부 보드 종료를 확인하지 못했습니다. " + " | ".join(details) +
                                      (" | " + str(value["reason"]) if value.get("reason") else ""))
+        self.finish_trial_recording()
         self.write_state()
 
     @QtCore.pyqtSlot(str, dict)
@@ -2100,6 +2108,12 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.footer.setText("Snapshot save failed; check output path permissions.")
 
     def closeEvent(self, event):
+        if self._trial_notes_required:
+            if self._trial_notes_dialog is not None:
+                self._trial_notes_dialog.show()
+                self._trial_notes_dialog.raise_()
+            event.ignore()
+            return
         if self.planning_client is not None:
             self.planning_client.stop()
             self.footer.setText("Pi4 플래너 연결 종료 중…")

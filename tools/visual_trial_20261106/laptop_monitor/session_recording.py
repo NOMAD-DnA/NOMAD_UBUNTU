@@ -84,6 +84,7 @@ class SessionRecorder:
         if not math.isfinite(self._close_timeout_s) or self._close_timeout_s <= 0:
             raise ValueError("close_timeout_s must be finite and positive")
         self._condition = threading.Condition()
+        self._ready = threading.Event()
         self._queue = deque()
         self._queue_bytes = 0
         self._accepted_events = 0
@@ -102,6 +103,13 @@ class SessionRecorder:
         self._thread = threading.Thread(target=self._run,
                                         name="nomad-session-writer", daemon=True)
         self._thread.start()
+
+    def wait_ready(self, timeout_s=2.0):
+        """Confirm that the initial database transaction reached disk."""
+        return self._ready.wait(timeout_s) and self.status()["state"] == "RECORDING"
+
+    def writer_finished(self):
+        return not self._thread.is_alive()
 
     def _fail_locked(self, message):
         if not self._error:
@@ -210,6 +218,7 @@ class SessionRecorder:
                 ("user", self._metadata),
                 ("recording", _json_bytes(self._recording_info()))])
             connection.commit()
+            self._ready.set()
             while True:
                 with self._condition:
                     self._condition.wait_for(lambda: self._queue or self._close_requested)
@@ -249,6 +258,37 @@ class SessionRecorder:
         finally:
             if connection is not None:
                 connection.close()
+            self._ready.set()
+
+
+def save_trial_summary(path, name, description, stop_result, stop_requested_wall_s):
+    """Attach required notes to an already closed recording, preserving its events.
+
+    The UI must close/join its writer first. A transaction leaves the previous
+    metadata intact if saving fails. Trial names are data, never file paths.
+    """
+    name, description = str(name).strip(), str(description).strip()
+    if not name or not description:
+        raise ValueError("시험 이름과 내용을 모두 입력해 주세요.")
+    summary = {"name": name, "description": description,
+               "stop_requested_wall_s": stop_requested_wall_s,
+               "stop_result": stop_result,
+               "saved_wall_s": datetime.now(timezone.utc).timestamp()}
+    with sqlite3.connect(Path(path).absolute().as_uri() + "?mode=rw", uri=True,
+                         timeout=1.0) as connection:
+        if connection.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID:
+            raise RecordingError("시험 내용을 저장할 주행 기록을 확인할 수 없습니다.")
+        if connection.execute("PRAGMA user_version").fetchone()[0] != FORMAT_VERSION:
+            raise RecordingError("Unsupported NOMAD recording version")
+        row = connection.execute("SELECT value FROM metadata WHERE key='user'").fetchone()
+        if row is None:
+            raise RecordingError("Recording metadata is missing")
+        metadata = _load_json(row[0])
+        if not isinstance(metadata, dict):
+            raise RecordingError("Invalid recording metadata")
+        metadata["trial"] = summary
+        connection.execute("UPDATE metadata SET value=? WHERE key='user'", (_json_bytes(metadata),))
+    return summary
 
 
 class SessionReader:
