@@ -1202,6 +1202,8 @@ private:
             data["commissioning_axis"] = commissioning_axis_;
             data["motor_max_erpm"] = raw_options_.motor_max_erpm;
             data["manual_reverse_max_erpm"] = raw_options_.manual_reverse_max_erpm;
+            // True while an operator reversal is released until the wheel stops (at most 0.5 s).
+            data["manual_reversal_wait"] = raw_controller_->reversalWaitActive();
             data["servo_min"] = raw_options_.servo_min;
             data["servo_max"] = raw_options_.servo_max;
             data["servo_center"] = raw_options_.servo_center;
