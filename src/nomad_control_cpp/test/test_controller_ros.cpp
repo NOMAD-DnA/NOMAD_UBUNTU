@@ -1301,7 +1301,8 @@ public:
         expect(noted.value("accepted",false)&&noted.at("record").at("left_rad").is_null(),"memo needs no measured angle");
         auto listed=bridge->command("steering-records",{{"operation","list"}});
         expect(listed.at("records").size()==4&&!listed.value("applied",true),"command, observation and measurements remain distinct without applying calibration");
-        send_telemetry_=false;pump(.4);row["id"]=string(32,'d');
+        // 0.6 s: telemetry timeout (0.3 s) + status period (0.1 s) + margin; 0.4 s failed once under load (11-15).
+        send_telemetry_=false;pump(.6);row["id"]=string(32,'d');
         expect(!bridge->command("steering-records",row).value("accepted",true),"stale telemetry cannot save measurement");
         expect(moving_messages_==0,"calibration emitted no nonzero motor speed command");
         executor_.remove_node(bridge);

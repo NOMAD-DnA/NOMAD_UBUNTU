@@ -210,7 +210,7 @@ python3 src/nomad_control_cpp/scripts/test_record_control_trials.py
 
 이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다.
 
-ROS 환경에서는 `colcon test`로 20개 시험이 돕니다(ROS 통합시험은 약 75~80초, 제한 150초, 자체 DDS domain 226). 알려진 실패: `rpm_running_floor_ros`의 100 ERPM 경계 기대값 2건은 의도적으로 예전 값을 유지해 실패하고, `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관).
+ROS 환경에서는 `colcon test`로 20개 시험이 돕니다(ROS 통합시험은 약 75~80초, 제한 150초, 자체 DDS domain 226). 알려진 실패: `rpm_running_floor_ros`의 100 ERPM 경계 기대값 2건은 의도적으로 예전 값을 유지해 실패하고, `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관). 'stale telemetry cannot save measurement'도 PC 부하 때 한 번 실패해 11-15에 대기를 0.6초로 늘렸습니다.
 
 ## 작업 내역 (2026-11-11 ~ 11-13, BAE)
 
@@ -249,7 +249,13 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | feb3dd3 | (11-15) 1d47cf0 Pi4 배포 기록(`d2bbe876…`) |
 | 445cfef | (11-15) 수동 조종에도 ESC 80 ℃ 정지(세션 종료, 70 ℃ 미만까지 START 거부), RESET 때 과전류 피크 기록 초기화(RESET 직후 피크 한 번에 다시 잠기던 것). |
 | e076d48 | (11-15) 팀원이 Pi4에서 바꾼 수동(=LPP) 서보 변화율 0.40 → 1.0/s(끝에서 끝 0.5초, 팀 합의)를 그대로 옮김 |
-| (이 커밋) | (11-15) e076d48 Pi4 배포 기록(`68827bc0…`) |
+| 7629970 | (11-15) e076d48 Pi4 배포 기록(`68827bc0…`) |
+| ecffb52 | (11-15) 리팩토링: 주행 상태 초기화를 `clearDriveState()`·`beginRunning()` 한 곳으로(`start`·`resumePlanning`·`stop`에 복사돼 있던 것) |
+| e1efe81 | (11-15) 리팩토링: `raw_trial` `tick()`을 `tickStopRamp()`·`updateReversalWait()`·`rampMotorCommand()`로 나눔(순서 그대로) |
+| acf3b15 | (11-15) 리팩토링: `controlTick()`에서 상태 발행을 `publishStatus()`로 옮김. 플래닝을 끈 빌드가 `[REVERSAL]` 변수 때문에 컴파일 안 되던 것 수정 |
+| 7cd79ba | (11-15) 리팩토링: 감속 정지 끝 속도를 노드가 `raw_trial`과 `StopOutput`에 같은 값으로 넘김(경사 작업에서 한쪽만 바뀌어 내리막 판정이 꺼지는 일 방지) |
+| 398c9a8 | (11-15) 설정 범위 오류에 값 이름 표시(예: `commissioning.manual_servo_rate_s=1.5 outside 0 < x <= 1`). 검사 조건은 그대로, 시험 없던 범위 9개 추가 |
+| (이 커밋) | (11-15) 리팩토링 기록, ROS 시험 'stale telemetry' 대기 0.4 → 0.6초(부하 때 한 번 실패) |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
