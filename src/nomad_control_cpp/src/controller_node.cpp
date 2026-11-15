@@ -1170,6 +1170,12 @@ private:
         if (!activeManual()) closeManualSession();
         if (steady_now - last_status_at_ < 0.1) return;
         last_status_at_ = steady_now;
+        publishStatus(steady_now, ros_now, driver_ready);
+    }
+
+    // Status text, status_json and the 1 Hz control_trace (every 0.1 s, from controlTick; 11-15: moved out of
+    // controlTick unchanged).
+    void publishStatus(double steady_now, double ros_now, [[maybe_unused]] bool driver_ready) {
         const bool fresh = activeHealthy(steady_now, ros_now);
         const bool stationary = activeStationary(steady_now, ros_now);
 #ifdef NOMAD_ENABLE_PLANNING
@@ -1339,6 +1345,7 @@ private:
     }
 
     bool commissioning_ = false;
+    optional<double> reversal_wait_started_; // steady time a manual reversal wait began ([REVERSAL] trace)
     PlanningSupervisor supervisor_; // who owns LPP output: idle/active/soft-stopped/resume-pending/blocked
 #ifdef NOMAD_ENABLE_PLANNING
     PlanningCalibration planning_calibration_;
@@ -1348,7 +1355,6 @@ private:
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
-    optional<double> reversal_wait_started_; // steady time a manual reversal wait began ([REVERSAL] trace)
     optional<double> stop_ramp_started_;     // steady time the running stop ramp began ([STOP_RAMP] trace)
     bool planning_measured_speed_control_=false,planning_feedback_reducing_=false;
     double planning_feedback_target_=0;
