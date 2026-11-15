@@ -144,6 +144,9 @@ private:
     void invalidateTelemetry(const std::string& reason, bool recoverable = false, bool vesc_fault = false);
     RawOutput restingOutput() const;
     void clearDriveState();
+    void pauseOrLatch(const std::string& reason, bool recoverable);
+    bool timerStalled(double steady_now) const;
+    std::string timerStallReason(double steady_now) const;
     bool tickStopRamp(double steady_now, double dt);
     int updateReversalWait(double steady_now);
     void rampMotorCommand(int target_dir, double dt, double minimum_drive_erpm);

@@ -172,9 +172,7 @@ void RawTrialController::invalidateTelemetry(const string& reason, bool recovera
     stationary_since_.reset();
     telemetry_issue_ = reason;
     if (state_ == TrialState::Running) {
-        const bool wait = planning_recovery_ && recoverable;
-        stop(reason, !wait);
-        planning_wait_ = wait;
+        pauseOrLatch(reason, recoverable);
     } else if (planning_recovery_ && !recoverable &&
                (state_ == TrialState::Stopped || state_ == TrialState::Idle)) {
         // Physical faults during a pause, or before headless planning auto-starts, must
@@ -285,11 +283,7 @@ bool RawTrialController::checkRunning(double steady_now, double ros_now) {
     else if (axis_ != RawAxis::Manual && steady_now - started_at_ >= duration_s_) stop("raw trial duration elapsed");
     // A stop ramp is the controller's own stop; it no longer needs a fresh command.
     else if (!stop_ramp_ && steady_now - last_manual_at_ > manualTimeout(axis_)) stop("raw GUI command timeout", true);
-    else if (last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
-        const string reason = format("raw control timer stalled %.2f s", steady_now - *last_tick_);
-        stop(reason, !planning_recovery_);
-        planning_wait_ = planning_recovery_;
-    }
+    else if (timerStalled(steady_now)) pauseOrLatch(timerStallReason(steady_now), true);
     return state_ == TrialState::Running;
 }
 
@@ -317,13 +311,11 @@ bool RawTrialController::pausePlanning(const string& reason, double steady_now, 
         return true;
     }
     // A stalled control loop is reported as such but, like a missing input, only pauses.
-    if (state_ == TrialState::Running && last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s) {
-        stop(format("raw control timer stalled %.2f s", steady_now - *last_tick_)); planning_wait_ = true;
+    if (state_ == TrialState::Running && timerStalled(steady_now)) {
+        pauseOrLatch(timerStallReason(steady_now), true);
         return true;
     }
-    if (state_ == TrialState::Running || state_ == TrialState::Stopped) {
-        stop(reason); planning_wait_ = true;
-    }
+    if (state_ == TrialState::Running || state_ == TrialState::Stopped) pauseOrLatch(reason, true);
     return true;
 }
 
@@ -336,7 +328,7 @@ bool RawTrialController::beginStopRamp(const string& reason, double steady_now, 
     const bool clock_ok = isfinite(steady_now) && isfinite(ros_now) &&
         (!last_steady_now_ || steady_now >= *last_steady_now_) && (!last_ros_now_ || ros_now >= *last_ros_now_);
     if (!planning_recovery_ || state_ != TrialState::Running || axis_ != RawAxis::Manual || !clock_ok ||
-        !healthy(steady_now, ros_now) || !last_tick_ || steady_now - *last_tick_ > options_.max_tick_gap_s ||
+        !healthy(steady_now, ros_now) || !last_tick_ || timerStalled(steady_now) ||
         !isfinite(ramp_s) || ramp_s <= 0.0 || ramp_s > kMaxStopRampS || !isfinite(end_erpm) || end_erpm < 0.0)
         return false;
     const double start = min(commanded_erpm_, max(0.0, sample_->raw_erpm));
@@ -384,6 +376,22 @@ void RawTrialController::stop(const string& reason, bool fault) {
     reason_ = reason;
     if (reversal_waiting_) reversal_wait_end_ = "stopped";
     clearDriveState();
+}
+
+// 11-16: the one place for 'headless planning waits for fresh input, everything else latches'. recoverable = the
+// cause may clear by itself (timer, telemetry, driver endpoints, LPP pause); a GUI session still latches.
+void RawTrialController::pauseOrLatch(const string& reason, bool recoverable) {
+    const bool wait = planning_recovery_ && recoverable;
+    stop(reason, !wait);
+    planning_wait_ = wait;
+}
+
+bool RawTrialController::timerStalled(double steady_now) const {
+    return last_tick_ && steady_now - *last_tick_ > options_.max_tick_gap_s;
+}
+
+string RawTrialController::timerStallReason(double steady_now) const {
+    return format("raw control timer stalled %.2f s", steady_now - *last_tick_);
 }
 
 // Everything a drive must not inherit from the previous one (11-15: start, resumePlanning and stop each had their
@@ -488,8 +496,7 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
     if (!exclusive_driver_ready) {
         // Competing publishers are latched by the node before this point; a missing driver
         // endpoint only pauses headless planning.
-        stop("raw driver endpoints unavailable or competing command publisher", !planning_recovery_);
-        planning_wait_ = planning_recovery_;
+        pauseOrLatch("raw driver endpoints unavailable or competing command publisher", true);
         return restingOutput();
     }
     if (!isfinite(minimum_drive_erpm) || minimum_drive_erpm < 0.0 ||
@@ -526,8 +533,7 @@ bool RawTrialController::tickStopRamp(double steady_now, double dt) {
         steady_now - *stop_ramp_->at_end_since >= kStopRampSettleS - 1e-9;
     if (sample_->raw_erpm <= stop_ramp_->end_erpm || settled_too_long) {
         const string reason = stop_ramp_->reason;
-        stop(reason);
-        planning_wait_ = true;
+        pauseOrLatch(reason, true); // a stop ramp exists only with planning recovery: always the wait
         return true;
     }
     return false;
