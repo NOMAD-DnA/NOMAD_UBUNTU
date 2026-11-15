@@ -457,62 +457,10 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
     last_tick_ = steady_now;
     if (axis_ == RawAxis::Motor || axis_ == RawAxis::Manual) {
         if (stop_ramp_) {
-            // Planning stop ramp: the running floor and the stall check do not apply. The command stays at end_erpm
-            // until the measured speed is there (then the stop output starts with the handbrake, not a brake pulse),
-            // at most kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle).
-            commanded_erpm_ = max(stop_ramp_->end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
-            if (commanded_erpm_ <= stop_ramp_->end_erpm + 1e-9 && !stop_ramp_->at_end_since)
-                stop_ramp_->at_end_since = steady_now;
-            const bool settled_too_long = stop_ramp_->at_end_since &&
-                steady_now - *stop_ramp_->at_end_since >= kStopRampSettleS - 1e-9;
-            if (sample_->raw_erpm <= stop_ramp_->end_erpm || settled_too_long) {
-                const string reason = stop_ramp_->reason;
-                stop(reason);
-                planning_wait_ = true;
-                return restingOutput();
-            }
+            if (tickStopRamp(steady_now, dt)) return restingOutput();
         } else {
-            // 0은 감속 목표가 아니라 출력 해제입니다. 낮은 RPM의 PID 구간에 오래 머물지 않습니다.
-            // 2026-11-15 (GUI reverse): speeding up = larger magnitude in the same direction. A reversal never ramps
-            // through zero under drive. It is the operator's: the target points against the last drive direction of
-            // this session (kept across a key release). While the wheel still turns the old way faster than
-            // stationary_erpm the output is released (stop output brake -> handbrake), at most kReversalWaitMaxS; then
-            // the new direction starts from 0. A measured roll-back or a one-sample jump of the reported speed with a
-            // same-direction target keeps driving as before reverse existed (11-15 review: the first version released
-            // on the measured sign alone, so a forward hill start that rolled back cycled handbrake/drive or stayed on
-            // the 20 A brake, even with manual_reverse_max_erpm 0).
-            // The wait also ends early when the old-way speed rises kReversalLosingErpm above its lowest value since
-            // the press (the brake is losing on a steep slope; the speed PID brakes harder).
-            const int target_dir = target_erpm_ > 0.0 ? 1 : target_erpm_ < 0.0 ? -1 : 0;
-            const bool was_waiting = reversal_waiting_;
-            reversal_waiting_ = false;
-            if (target_dir == 0 || target_dir == last_drive_dir_) {
-                reversal_since_.reset();
-                if (was_waiting) reversal_wait_end_ = target_dir == 0 ? "released" : "cancelled";
-            } else if (last_drive_dir_ != 0 && !reversal_since_) {
-                reversal_since_ = steady_now;
-                reversal_min_old_erpm_ = numeric_limits<double>::infinity();
-            }
-            const double measured = sample_ ? sample_->raw_erpm : 0.0;
-            if (reversal_since_) {
-                const double old_way = -target_dir * measured; // speed still in the old direction
-                reversal_min_old_erpm_ = min(reversal_min_old_erpm_, old_way);
-                const char* end = old_way <= options_.stationary_erpm ? "still"
-                    : old_way > reversal_min_old_erpm_ + kReversalLosingErpm ? "brake losing"
-                    : steady_now - *reversal_since_ >= kReversalWaitMaxS - 1e-9 ? "timeout" : nullptr;
-                reversal_waiting_ = end == nullptr;
-                if (was_waiting && end) reversal_wait_end_ = end;
-            }
-            if (target_erpm_ * commanded_erpm_ < 0.0) commanded_erpm_ = 0.0;
-            const bool speeding_up = abs(target_erpm_) > abs(commanded_erpm_) && target_erpm_ * commanded_erpm_ >= 0.0;
-            const double rate = speeding_up ? options_.motor_ramp_erpm_s : options_.motor_deceleration_erpm_s;
-            commanded_erpm_ = (target_dir == 0 || reversal_waiting_) ? 0.0
-                                                                     : approach(commanded_erpm_, target_erpm_, rate, dt);
-            if (commanded_erpm_ != 0.0) last_drive_dir_ = commanded_erpm_ > 0.0 ? 1 : -1;
-            // Skip the low-RPM ramp only for a positive planning target. STOP/zero
-            // still releases immediately; overspeed reduction calls with floor=0.
-            if (target_erpm_ > 0.0 && minimum_drive_erpm > 0.0)
-                commanded_erpm_ = max(commanded_erpm_, minimum_drive_erpm);
+            const int target_dir = updateReversalWait(steady_now);
+            rampMotorCommand(target_dir, dt, minimum_drive_erpm);
             if (!checkMotorProgress(steady_now)) return restingOutput();
         }
         if (axis_ == RawAxis::Motor) return {OutputKind::Drive, commanded_erpm_, nullopt};
@@ -520,6 +468,71 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
     const double servo_rate = axis_ == RawAxis::Manual ? options_.manual_servo_rate_s : options_.servo_rate_s;
     commanded_servo_ = approach(commanded_servo_, target_servo_, servo_rate, dt);
     return {OutputKind::Drive, axis_ == RawAxis::Manual ? commanded_erpm_ : 0.0, commanded_servo_};
+}
+
+// Planning stop ramp: the running floor and the stall check do not apply. The command stays at end_erpm until the
+// measured speed is there (then the stop output starts with the handbrake, not a brake pulse), at most
+// kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle). True when it handed over
+// to the planning wait.
+bool RawTrialController::tickStopRamp(double steady_now, double dt) {
+    commanded_erpm_ = max(stop_ramp_->end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
+    if (commanded_erpm_ <= stop_ramp_->end_erpm + 1e-9 && !stop_ramp_->at_end_since)
+        stop_ramp_->at_end_since = steady_now;
+    const bool settled_too_long = stop_ramp_->at_end_since &&
+        steady_now - *stop_ramp_->at_end_since >= kStopRampSettleS - 1e-9;
+    if (sample_->raw_erpm <= stop_ramp_->end_erpm || settled_too_long) {
+        const string reason = stop_ramp_->reason;
+        stop(reason);
+        planning_wait_ = true;
+        return true;
+    }
+    return false;
+}
+
+// 2026-11-15 (GUI reverse): a reversal is the operator's: the target points against the last drive direction of
+// this session (kept across a key release). While the wheel still turns the old way faster than stationary_erpm the
+// output is released (stop output brake -> handbrake), at most kReversalWaitMaxS; the wait also ends early when the
+// old-way speed rises kReversalLosingErpm above its lowest value since the press (the brake is losing on a steep
+// slope; the speed PID brakes harder). A measured roll-back or a one-sample jump of the reported speed with a
+// same-direction target keeps driving as before reverse existed (11-15 review: the first version released on the
+// measured sign alone, so a forward hill start that rolled back cycled handbrake/drive or stayed on the 20 A brake,
+// even with manual_reverse_max_erpm 0). Returns the target direction (-1, 0, +1).
+int RawTrialController::updateReversalWait(double steady_now) {
+    const int target_dir = target_erpm_ > 0.0 ? 1 : target_erpm_ < 0.0 ? -1 : 0;
+    const bool was_waiting = reversal_waiting_;
+    reversal_waiting_ = false;
+    if (target_dir == 0 || target_dir == last_drive_dir_) {
+        reversal_since_.reset();
+        if (was_waiting) reversal_wait_end_ = target_dir == 0 ? "released" : "cancelled";
+    } else if (last_drive_dir_ != 0 && !reversal_since_) {
+        reversal_since_ = steady_now;
+        reversal_min_old_erpm_ = numeric_limits<double>::infinity();
+    }
+    const double measured = sample_ ? sample_->raw_erpm : 0.0;
+    if (reversal_since_) {
+        const double old_way = -target_dir * measured; // speed still in the old direction
+        reversal_min_old_erpm_ = min(reversal_min_old_erpm_, old_way);
+        const char* end = old_way <= options_.stationary_erpm ? "still"
+            : old_way > reversal_min_old_erpm_ + kReversalLosingErpm ? "brake losing"
+            : steady_now - *reversal_since_ >= kReversalWaitMaxS - 1e-9 ? "timeout" : nullptr;
+        reversal_waiting_ = end == nullptr;
+        if (was_waiting && end) reversal_wait_end_ = end;
+    }
+    return target_dir;
+}
+
+// 0은 감속 목표가 아니라 출력 해제입니다. 낮은 RPM의 PID 구간에 오래 머물지 않습니다. Speeding up = larger magnitude in
+// the same direction; a reversal never ramps through zero under drive (it restarts from 0, after the wait above).
+void RawTrialController::rampMotorCommand(int target_dir, double dt, double minimum_drive_erpm) {
+    if (target_erpm_ * commanded_erpm_ < 0.0) commanded_erpm_ = 0.0;
+    const bool speeding_up = abs(target_erpm_) > abs(commanded_erpm_) && target_erpm_ * commanded_erpm_ >= 0.0;
+    const double rate = speeding_up ? options_.motor_ramp_erpm_s : options_.motor_deceleration_erpm_s;
+    commanded_erpm_ = (target_dir == 0 || reversal_waiting_) ? 0.0 : approach(commanded_erpm_, target_erpm_, rate, dt);
+    if (commanded_erpm_ != 0.0) last_drive_dir_ = commanded_erpm_ > 0.0 ? 1 : -1;
+    // Skip the low-RPM ramp only for a positive planning target. STOP/zero
+    // still releases immediately; overspeed reduction calls with floor=0.
+    if (target_erpm_ > 0.0 && minimum_drive_erpm > 0.0)
+        commanded_erpm_ = max(commanded_erpm_, minimum_drive_erpm);
 }
 
 double RawTrialController::remaining(double steady_now) const {
