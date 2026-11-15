@@ -406,7 +406,7 @@ void testOptionBounds() {
         [](auto& o) { o.stall_timeout_s = 2.01; }, [](auto& o) { o.stall_timeout_s = 0.49; },
         [](auto& o) { o.stall_command_erpm = 101; },
         [](auto& o) { o.stall_feedback_erpm = o.stall_command_erpm + 1.0; },
-        [](auto& o) { o.manual_servo_rate_s = 0.4001; }, [](auto& o) { o.manual_servo_rate_s = 0.0; },
+        [](auto& o) { o.manual_servo_rate_s = 1.0001; }, [](auto& o) { o.manual_servo_rate_s = 0.0; },
         [](auto& o) { o.servo_center = numeric_limits<double>::quiet_NaN(); }
     };
     for (const auto& change : invalid) {

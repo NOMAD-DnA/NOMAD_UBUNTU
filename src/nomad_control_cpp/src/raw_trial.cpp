@@ -59,7 +59,7 @@ RawTrialController::RawTrialController(RawOptions options)
         !positive(options_.stall_command_erpm) || options_.stall_command_erpm > 100.0 ||
         !positive(options_.stall_feedback_erpm) || options_.stall_feedback_erpm > options_.stall_command_erpm ||
         !positive(options_.servo_rate_s) || options_.servo_rate_s > 0.04 ||
-        !positive(options_.manual_servo_rate_s) || options_.manual_servo_rate_s > 0.40)
+        !positive(options_.manual_servo_rate_s) || options_.manual_servo_rate_s > 1.0)
         throw invalid_argument("invalid raw commissioning limits; outside candidate bounds");
     // 실행 파일 교체 때 마지막 소프트웨어 명령을 이어받습니다. 센서 실측값은 아닙니다.
     if(const char* saved=getenv("NOMAD_INITIAL_SERVO")) {

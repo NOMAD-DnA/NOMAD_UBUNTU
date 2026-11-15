@@ -94,4 +94,5 @@ nomad_vesc_trial:
     commissioning.stall_feedback_erpm: 50.0
     commissioning.servo_rate_s: 0.04
     # 연속 수동 조작의 서보 명령 변화율이며 실제 바퀴 각속도가 아닙니다.
-    commissioning.manual_servo_rate_s: 0.40
+    # 2026-11-15 팀 합의: LPP도 MANUAL 축으로 서보에 나감. 0.40/s(끝까지 1.25 s, 약 1 s 지연) -> 1.0/s(0.5 s).
+    commissioning.manual_servo_rate_s: 1.0
