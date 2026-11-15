@@ -2,6 +2,11 @@
 cmake_minimum_required(VERSION 3.16)
 project(nomad_control_cpp LANGUAGES C CXX)
 
+# 2026-11-16: warnings on for this package's code (it builds clean with them), so new mistakes show at build time.
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-Wall> $<$<COMPILE_LANGUAGE:CXX>:-Wextra>)
+endif()
+
 find_package(ament_cmake QUIET)
 option(NOMAD_BUILD_ROS2 "Build the ROS 2 VESC trial node" ${ament_cmake_FOUND})
 

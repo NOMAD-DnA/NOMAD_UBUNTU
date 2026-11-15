@@ -20,6 +20,7 @@
 #include <memory>
 #include <stdexcept>
 #include <utility>
+using namespace std;
 
 namespace {
 using Scalar=std_msgs::msg::Float64;
@@ -28,17 +29,17 @@ using Vehicle=nomad_interfaces::msg::VehicleState;
 using Telemetry=vesc_msgs::msg::VescStateStamped;
 using Trigger=std_srvs::srv::Trigger;
 int checks=0, failures=0;
-void expect(bool ok,const char* message){++checks;std::cout<<(ok?"PASS ":"FAIL ")<<message<<std::endl;if(!ok)++failures;}
-double wall(){return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();}
+void expect(bool ok,const char* message){++checks;cout<<(ok?"PASS ":"FAIL ")<<message<<endl;if(!ok)++failures;}
+double wall(){return chrono::duration<double>(chrono::steady_clock::now().time_since_epoch()).count();}
 class Rig {
 public:
  explicit Rig(const char* controller){
-  prefix_="/module_pause_contract_"+std::to_string(getpid());
-  std::vector<std::string> args={controller,"--ros-args","-r","__ns:="+prefix_};
-  auto remap=[&](const std::string& from,const std::string& to){args.insert(args.end(),{"-r",from+":="+prefix_+to});};
+  prefix_="/module_pause_contract_"+to_string(getpid());
+  vector<string> args={controller,"--ros-args","-r","__ns:="+prefix_};
+  auto remap=[&](const string& from,const string& to){args.insert(args.end(),{"-r",from+":="+prefix_+to});};
   remap("/nomad/planning/drive_command","/planning");remap("/nomad/control/vehicle_state","/vehicle_state");
-  auto param=[&](const std::string& name,const std::string& value){args.insert(args.end(),{"-p",name+":="+value});};
-  for(const auto& kv:std::vector<std::pair<std::string,std::string>>{
+  auto param=[&](const string& name,const string& value){args.insert(args.end(),{"-p",name+":="+value});};
+  for(const auto& kv:vector<pair<string,string>>{
    {"mode","commission"},{"calibration_verified","false"},{"hardware_timeout_verified","true"},{"commissioning_setup_acknowledged","true"},
    {"commissioning.stationary_hold_s","0.2"},{"commissioning.max_duration_s","1.0"},{"commissioning.motor_max_erpm","1850.0"},
    {"commissioning.overspeed_erpm","2500.0"},{"commissioning.stall_watchdog_enabled","false"},
@@ -47,14 +48,14 @@ public:
    {"planning.minimum_running_erpm","700.0"},{"planning.feedback_limit_erpm","1200.0"},
    {"planning.erpm_per_mps","4000.0"},{"planning.servo_per_rad","0.5"},
    {"planning.max_mps","0.25"},{"planning.max_rad","0.3"}})param(kv.first,kv.second);
-  for(const auto& kv:std::vector<std::pair<std::string,std::string>>{
+  for(const auto& kv:vector<pair<string,string>>{
    {"telemetry_topic","/telemetry"},{"motor_speed_topic","/speed"},{"motor_current_topic","/current"},{"servo_topic","/servo"},
    {"motor_duty_topic","/duty"},{"motor_brake_topic","/brake"},{"motor_position_topic","/position"},{"stability.imu_topic","/imu"}})param(kv.first,prefix_+kv.second);
-  child_=fork();if(child_==0){std::vector<char*> argv;for(auto& a:args)argv.push_back(a.data());argv.push_back(nullptr);execv(controller,argv.data());_exit(127);}
-  if(child_<0)throw std::runtime_error("fork failed");
+  child_=fork();if(child_==0){vector<char*> argv;for(auto& a:args)argv.push_back(a.data());argv.push_back(nullptr);execv(controller,argv.data());_exit(127);}
+  if(child_<0)throw runtime_error("fork failed");
   rclcpp::init(0,nullptr);
-  executor_=std::make_unique<rclcpp::executors::SingleThreadedExecutor>();
-  node_=std::make_shared<rclcpp::Node>("fake_endpoints",prefix_);
+  executor_=make_unique<rclcpp::executors::SingleThreadedExecutor>();
+  node_=make_shared<rclcpp::Node>("fake_endpoints",prefix_);
   telemetry_=node_->create_publisher<Telemetry>(prefix_+"/telemetry",rclcpp::QoS(1).reliable());
   planning_=node_->create_publisher<Drive>(prefix_+"/planning",rclcpp::QoS(1).reliable());
   speed_=node_->create_subscription<Scalar>(prefix_+"/speed",10,[this](Scalar::ConstSharedPtr m){if(m->data>0){++positive_;last_positive_=m->data;}});
@@ -64,13 +65,13 @@ public:
   stop_client_=node_->create_client<Trigger>(prefix_+"/nomad_vesc_trial/stop");reset_client_=node_->create_client<Trigger>(prefix_+"/nomad_vesc_trial/reset");
   executor_->add_node(node_);
  }
- ~Rig(){if(child_>0){kill(child_,SIGINT);int status=0;for(int i=0;i<100;++i){if(waitpid(child_,&status,WNOHANG)==child_)return;std::this_thread::sleep_for(std::chrono::milliseconds(10));}kill(child_,SIGKILL);waitpid(child_,&status,0);}}
+ ~Rig(){if(child_>0){kill(child_,SIGINT);int status=0;for(int i=0;i<100;++i){if(waitpid(child_,&status,WNOHANG)==child_)return;this_thread::sleep_for(chrono::milliseconds(10));}kill(child_,SIGKILL);waitpid(child_,&status,0);}}
  void pump(double seconds){const double end=wall()+seconds;while(wall()<end){
   if(wall()-last_publish_>.025){if(send_telemetry_){Telemetry t;t.header.stamp=node_->now();t.state.speed=0;t.state.voltage_input=12;t.state.current_motor=0;t.state.current_input=0;t.state.fault_code=fault_code_;telemetry_->publish(t);}
    if(send_){Drive d;d.header.stamp=node_->now()-rclcpp::Duration::from_seconds(stamp_age_);d.header.frame_id=frame_;d.target_speed=.05;d.target_steering_angle=.01;d.valid_for.nanosec=150000000;d.stop_requested=stop_;planning_->publish(d);}last_publish_=wall();}
-  executor_->spin_some();std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  executor_->spin_some();this_thread::sleep_for(chrono::milliseconds(2));
  }}
- bool call(const rclcpp::Client<Trigger>::SharedPtr& client){if(!client->service_is_ready()){pump(.2);if(!client->service_is_ready())return false;}auto f=client->async_send_request(std::make_shared<Trigger::Request>());double end=wall()+1.;while(wall()<end&&f.wait_for(std::chrono::milliseconds(0))!=std::future_status::ready)pump(.01);return f.wait_for(std::chrono::milliseconds(0))==std::future_status::ready&&f.get()->success;}
+ bool call(const rclcpp::Client<Trigger>::SharedPtr& client){if(!client->service_is_ready()){pump(.2);if(!client->service_is_ready())return false;}auto f=client->async_send_request(make_shared<Trigger::Request>());double end=wall()+1.;while(wall()<end&&f.wait_for(chrono::milliseconds(0))!=future_status::ready)pump(.01);return f.wait_for(chrono::milliseconds(0))==future_status::ready&&f.get()->success;}
  void resume(const char* name){send_=true;stop_=false;frame_="base_link";stamp_age_=0;int before=positive_;pump(.35);expect(positive_>before&&last_positive_>=700-1e-6&&ready_&&!fault_,name);}
  void no_motion(const char* name,bool expect_release=true){pump(.22);int before=positive_;int release_before=releases_;pump(.16);expect(positive_==before&&(!expect_release||releases_>release_before)&&ready_&&!fault_,name);}
  void run(){
@@ -102,19 +103,20 @@ public:
   fault_code_=0;pump(.3);expect(!ready_&&positive_==before,"clearing telemetry fault alone does not clear hardware latch");
  }
 private:
- pid_t child_=-1;std::string prefix_,frame_="base_link";rclcpp::Node::SharedPtr node_;std::unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
+ pid_t child_=-1;string prefix_,frame_="base_link";rclcpp::Node::SharedPtr node_;unique_ptr<rclcpp::executors::SingleThreadedExecutor> executor_;
  rclcpp::Publisher<Telemetry>::SharedPtr telemetry_;rclcpp::Publisher<Drive>::SharedPtr planning_;
  rclcpp::Subscription<Scalar>::SharedPtr speed_,current_,servo_;rclcpp::Subscription<Vehicle>::SharedPtr state_;
  rclcpp::Client<Trigger>::SharedPtr stop_client_,reset_client_;bool ready_=false,fault_=false,send_=false,stop_=false,send_telemetry_=true;int fault_code_=0,positive_=0,releases_=0;double last_publish_=0,stamp_age_=0,last_positive_=0;
 };
 }
 int main(int argc,char** argv){
- const char* domain=std::getenv("ROS_DOMAIN_ID"),*local=std::getenv("ROS_LOCALHOST_ONLY"),*rmw=std::getenv("RMW_IMPLEMENTATION");
- if(argc!=2||!domain||std::string(domain)!="229"||!local||std::string(local)!="1"||!rmw||std::string(rmw)!="rmw_fastrtps_cpp"){
-  std::cerr<<"REFUSED: controller executable plus domain 229, localhost 1 and FastDDS required before init/fork\n";return 2;}
+ const char* domain=getenv("ROS_DOMAIN_ID"),*local=getenv("ROS_LOCALHOST_ONLY"),*rmw=getenv("RMW_IMPLEMENTATION");
+ if(argc!=2||!domain||string(domain)!="229"||!local||string(local)!="1"||!rmw||string(rmw)!="rmw_fastrtps_cpp"){
+  cerr<<"REFUSED: controller executable plus domain 229, localhost 1 and FastDDS required before init/fork\n";return 2;}
  for(const char* key:{"FASTRTPS_DEFAULT_PROFILES_FILE","FASTDDS_DEFAULT_PROFILES_FILE","ROS_DISCOVERY_SERVER","ROS_STATIC_PEERS"})unsetenv(key);
  setenv("ROS_AUTOMATIC_DISCOVERY_RANGE","LOCALHOST",1);
  // Fork before initializing this process's DDS threads.
- try{Rig rig(argv[1]);rig.run();}catch(const std::exception& e){std::cerr<<"EXCEPTION "<<e.what()<<'\n';++failures;}
- if(rclcpp::ok())rclcpp::shutdown();std::cout<<checks<<" checks, "<<failures<<" failures\n";return failures?1:0;
+ try{Rig rig(argv[1]);rig.run();}catch(const exception& e){cerr<<"EXCEPTION "<<e.what()<<'\n';++failures;}
+ if(rclcpp::ok())rclcpp::shutdown();
+ cout<<checks<<" checks, "<<failures<<" failures\n";return failures?1:0;
 }

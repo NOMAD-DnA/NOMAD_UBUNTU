@@ -39,7 +39,7 @@ public:
    {"commissioning.overspeed_erpm",2500.0},{"commissioning.stall_watchdog_enabled",false},
    {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
    {"planning.measured_speed_control",true},{"planning.start_hold_s",0.0},{"planning.restart_cooldown_s",0.0},
-   {"planning.minimum_running_erpm",550.0},{"planning.feedback_limit_erpm",1200.0},{"planning.startup_boost_enabled",false},
+   {"planning.minimum_running_erpm",550.0},{"planning.feedback_limit_erpm",1200.0},
    {"planning.erpm_per_mps",4000.0},{"planning.servo_per_rad",.5},{"planning.max_mps",.25},{"planning.max_rad",.3},
    {"telemetry_topic",prefix_+"/telemetry"},{"motor_speed_topic",prefix_+"/speed"},{"motor_current_topic",prefix_+"/current"},
    {"servo_topic",prefix_+"/servo"},{"motor_duty_topic",prefix_+"/duty"},{"motor_brake_topic",prefix_+"/brake"},

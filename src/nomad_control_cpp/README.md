@@ -208,7 +208,7 @@ ctest --test-dir build-control-offline --output-on-failure
 python3 src/nomad_control_cpp/scripts/test_record_control_trials.py
 ```
 
-이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다.
+이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다. 11-16부터 `-Wall -Wextra`가 켜져 있고 경고 0개가 기준입니다(새 경고가 나오면 고치고 커밋).
 
 ROS 환경에서는 `colcon test`로 20개 시험이 돕니다(ROS 통합시험은 약 95초, 제한 150초, 자체 DDS domain 226). `rpm_running_floor_ros`는 11-15에 제어기에 없던 100 ERPM 요청 데드존(`planning.stop_request_erpm`) 검사 2개를 빼서 이제 통과합니다(그 전 기록의 '의도된 실패 2건'이 이것). 알려진 가끔 실패: `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관). 'stale telemetry cannot save measurement'도 PC 부하 때 한 번 실패해 11-15에 대기를 0.6초로 늘렸습니다.
 
@@ -256,7 +256,9 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 7cd79ba | (11-15) 리팩토링: 감속 정지 끝 속도를 노드가 `raw_trial`과 `StopOutput`에 같은 값으로 넘김(경사 작업에서 한쪽만 바뀌어 내리막 판정이 꺼지는 일 방지) |
 | 398c9a8 | (11-15) 설정 범위 오류에 값 이름 표시(예: `commissioning.manual_servo_rate_s=1.5 outside 0 < x <= 1`). 검사 조건은 그대로, 시험 없던 범위 9개 추가 |
 | 5e59e26 | (11-15) 리팩토링 기록, ROS 시험 'stale telemetry' 대기 0.4 → 0.6초(부하 때 한 번 실패) |
-| (이 커밋) | (11-15) `test_rpm_floor_ros.cpp`에서 제어기에 없던 100 ERPM 데드존 검사 2개와 그 설정을 뺌(사용자 결정). 나머지 검사(STOP·과속·만료 때 해제 등)는 그대로, 이제 통과 |
+| c74bad9 | (11-15) `test_rpm_floor_ros.cpp`에서 제어기에 없던 100 ERPM 데드존 검사 2개와 그 설정을 뺌(사용자 결정). 나머지 검사(STOP·과속·만료 때 해제 등)는 그대로, 이제 통과 |
+| 22760dc | (11-16) 리팩토링: 'headless 자율주행은 대기, 나머지는 잠금' 규칙을 `pauseOrLatch()` 하나로(6곳·3가지 모양이던 것), 제어 주기 지연 검사도 `timerStalled()` 하나로 |
+| (이 커밋) | (11-16) 컴파일 경고 `-Wall -Wextra` 켬(제어 코드·ROS 빌드 경고 0), 시험 경고 3곳 정리, 시험에 남은 없는 설정 `planning.startup_boost_enabled` 삭제 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 

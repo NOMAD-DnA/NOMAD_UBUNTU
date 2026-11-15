@@ -9,7 +9,7 @@ int main(){
     int failures=0;
     auto check=[&](bool ok,const char* name){if(!ok){cerr<<name<<'\n';++failures;}};
     // 합성 보정값은 단위/유효기간 검사용이며 차량 설정이 아닙니다.
-    nomad::PlanningCalibration c{true,1000,-.5,.5,1,.7};
+    nomad::PlanningCalibration c{true,1000,-.5,.5,1,.7,{},{}};
     nomad::PlanningCommandGuard g(c);
     nomad::PlanningCommand cmd{100,.3,.5,.4,"base_link",false};
     check(g.receive(cmd,100,1),"receive fresh");
@@ -30,7 +30,7 @@ int main(){
     c.verified=true;c.erpm_per_mps=4000;nomad::PlanningCommandGuard excessive(c);excessive.receive(cmd,103,4);check(!excessive.target(103,4),"motor limit");
     {
         // The guard follows the configured raw motor limit instead of a fixed 1850 ERPM.
-        nomad::PlanningCalibration lim{true,4000,-.5,.5,.25,.7};
+        nomad::PlanningCalibration lim{true,4000,-.5,.5,.25,.7,{},{}};
         nomad::PlanningCommand slow{500,.3,.25,0,"base_link",false};
         nomad::PlanningCommandGuard defaultLimit(lim);defaultLimit.receive(slow,500,10);
         check(defaultLimit.target(500,10).has_value(),"1000 ERPM accepted under default limit");
@@ -38,7 +38,7 @@ int main(){
         check(!lowered.target(500,10)&&lowered.targetReason(500,10)=="planning mapped actuator outside range",
               "configured motor limit rejects targets above it");
     }
-    nomad::PlanningCommandGuard stopped({true,1000,-.5,.5,1,.7});
+    nomad::PlanningCommandGuard stopped({true,1000,-.5,.5,1,.7,{},{}});
     cmd={200,.3,.2,0,"base_link",false};stopped.receive(cmd,200,1);
     cmd.stamp=200.1;cmd.stop=true;stopped.receive(cmd,200.1,1.1);
     cmd.stamp=200.05;cmd.stop=false;
@@ -46,14 +46,14 @@ int main(){
     cmd.stamp=200.12;check(stopped.receive(cmd,200.12,1.12),"new motion after STOP can be received for explicit rearm");
     const double bad[]={NAN,INFINITY,-INFINITY};
     for(double v:bad){
-        nomad::PlanningCommandGuard badGuard({true,1000,-.5,.5,1,.7});
+        nomad::PlanningCommandGuard badGuard({true,1000,-.5,.5,1,.7,{},{}});
         cmd={300,.3,v,0,"base_link",false};check(!badGuard.receive(cmd,300,2),"nonfinite speed");
         cmd.speed_mps=.2;cmd.steering_rad=v;check(!badGuard.receive(cmd,300,2),"nonfinite angle");
         cmd.steering_rad=0;check(!badGuard.receive(cmd,v,2),"nonfinite ROS clock");
         check(!badGuard.receive(cmd,300,v),"nonfinite steady clock");
     }
     // 고정 seed의 재현 가능한 경계/범위 검사. 출력이 있으면 항상 유효한 명령 범위여야 합니다.
-    nomad::PlanningCalibration table{true,3721.882617894008,0,.5,.25,.3};
+    nomad::PlanningCalibration table{true,3721.882617894008,0,.5,.25,.3,{},{}};
     table.steering_rads={-.4,-.2,0,.1,.4};
     table.steering_servos={0,.2,.5,.7,1};
     nomad::PlanningCommandGuard lookup(table);
@@ -82,7 +82,7 @@ int main(){
     mt19937 random(20261108);uniform_real_distribution<double> speed(-2,3),angle(-3,3),age(-.2,.8);
     int outputs=0;
     for(int i=0;i<20000;++i){
-        nomad::PlanningCommandGuard sample({true,1000,-.5,.5,1,.7});
+        nomad::PlanningCommandGuard sample({true,1000,-.5,.5,1,.7,{},{}});
         cmd={400,.3,speed(random),angle(random),"base_link",false};
         const double elapsed=age(random);sample.receive(cmd,400,5);
         const auto out=sample.target(400+elapsed,5+elapsed);
