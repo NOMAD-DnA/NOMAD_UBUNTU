@@ -702,6 +702,11 @@ private:
         if(supervisor_.active()&&request.action!=Commissioning::Request::STOP){
             response.accepted=false;response.reason="autonomy owns output; STOP before manual control";return;
         }
+        // 2026-11-15: manual/keyboard driving is now long on the ground; no new session while the ESC is >= 80 C
+        // (until below 70 C), like autonomy.
+        if(request.action==Commissioning::Request::START&&thermal_.stopped()){
+            response.accepted=false;response.reason="ESC over-temperature (>=80 C); START allowed below 70 C";return;
+        }
         // STOP은 axis/목표 필드 없이도 종료된 세션을 기록해야 합니다.
         if (request.action != Commissioning::Request::STOP &&
             request.axis != Commissioning::Request::MOTOR && request.axis != Commissioning::Request::STEERING &&
@@ -979,7 +984,7 @@ private:
         // Drive current and speed for the load-sized hold (StopOutput ignores them outside a drive).
         if (driving_) stop_output_.observeDrive(*last_telemetry_rx_, s.avg_iq, s.speed);
         if (thermal_.update({s.ntc_temp_mos1, s.ntc_temp_mos2, s.ntc_temp_mos3}))
-            RCLCPP_WARN(get_logger(), thermal_.stopped() ? "[ESC_TEMP] STOP %.1f C >= 80 C; autonomous output paused until below 70 C"
+            RCLCPP_WARN(get_logger(), thermal_.stopped() ? "[ESC_TEMP] STOP %.1f C >= 80 C; autonomy pauses and manual sessions end until below 70 C"
                                                            : "[ESC_TEMP] resume allowed: %.1f C below 70 C", thermal_.temp_c());
         if (thermal_.warning() && steadySeconds() - last_thermal_warn_ >= 10.) {
             last_thermal_warn_ = steadySeconds();
@@ -1127,6 +1132,10 @@ private:
 #endif
         if (!stabilityReady() && activeState()==TrialState::Running) {
             stopAndRelease(stability_decision_.reason);
+        }
+        // 2026-11-15: ESC over-temperature also ends a manual/GUI session (autonomy pauses in tickPlanning).
+        if (thermal_.stopped() && activeState()==TrialState::Running && !supervisor_.active()) {
+            stopAndRelease("ESC over-temperature (>=80 C) in manual control; START again below 70 C");
         }
         if (commissioning_) {
             double minimum_drive_erpm=0;

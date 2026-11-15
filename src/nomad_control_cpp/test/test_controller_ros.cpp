@@ -120,6 +120,7 @@ public:
                 msg.state.current_input = 0.0;
                 msg.state.voltage_input = 12.0;
                 msg.state.fault_code = telemetry_fault_;
+                msg.state.ntc_temp_mos1 = msg.state.ntc_temp_mos2 = msg.state.ntc_temp_mos3 = telemetry_temp_c_;
                 pub_->publish(msg);
                 if (imu_pub_ && send_imu_) {
                     sensor_msgs::msg::Imu imu;
@@ -771,6 +772,36 @@ public:
         expect(commission(3,0,active),"manual floor-isolation fixture stops normally");
     }
 
+    // 2026-11-15: ESC over-temperature ends a manual GUI session (autonomy already paused) and refuses START until
+    // below 70 C.
+    void runManualThermalStop() {
+        const string first(32,'b'), second(32,'c'), third(32,'e');
+        telemetry_temp_c_=40.0;
+        pump(.70);
+        expect(status_.value("esc_temp_state",string())=="ok","fixture reports the ESC temperature");
+        expect(commission(1,3,first,1,0.0,.5,0.0),"thermal fixture: manual session starts");
+        expect(commission(2,3,first,2,300.0,.5,0.0),"manual drive accepted");
+        pump(.10);
+        expect(commission(2,3,first,3,300.0,.5,0.0),"manual heartbeat");
+        telemetry_temp_c_=85.0;
+        bool stopped=false;
+        for(int i=0;i<15&&!stopped;++i){pump(.02);stopped=status_.value("state",string())!="RUNNING";}
+        expect(stopped&&status_.value("reason",string()).find("ESC over-temperature")!=string::npos,
+               "ESC >= 80 C ends the manual session with its reason (before the GUI heartbeat timeout)");
+        const int moves=moving_messages_;
+        pump(.10);
+        expect(moving_messages_==moves,"no drive after the over-temperature stop");
+        expect(call("reset"),"reset after the over-temperature stop");
+        expect(!commission(1,3,second,1,0.0,.5,0.0),"START refused while the ESC is still hot");
+        telemetry_temp_c_=75.0;
+        pump(.10);
+        expect(!commission(1,3,second,2,0.0,.5,0.0),"START still refused between 70 and 80 C");
+        telemetry_temp_c_=65.0;
+        pump(.10);
+        expect(commission(1,3,third,1,0.0,.5,0.0),"START allowed again below 70 C");
+        expect(commission(3,0,third),"thermal fixture stops normally");
+    }
+
     // 2026-11-15 GUI MANUAL reverse through the ROS commissioning service: the negative target is ramped and
     // published, the status reports the limit, and a forward target while the wheel still turns backward waits on
     // the stop output (manual_reversal_wait) instead of driving through zero.
@@ -1322,6 +1353,7 @@ private:
     double last_sent_ = 0.0;
     double telemetry_erpm_ = 0.0;
     double telemetry_iq_ = 0.0; // VESC avg_iq (load-sized hold)
+    double telemetry_temp_c_ = 0.0; // ESC MOSFET temperature (0 = no reading, thermal guard 'unknown')
     int telemetry_fault_ = 0;
     int speed_messages_ = 0, moving_messages_ = 0, servo_messages_ = 0, release_messages_ = 0;
     int brake_messages_ = 0, handbrake_messages_ = 0;
@@ -1537,6 +1569,7 @@ int main(int argc, char* argv[]) {
         { RosRig continuous(true, true); continuous.runContinuousCommission(); }
         { RosRig reverse(true, true, true, true, false, {{"commissioning.manual_reverse_max_erpm", 600.0}});
           reverse.runManualReverse(); }
+        { RosRig thermal(true, true); thermal.runManualThermalStop(); }
         { RosRig wifi(true, true, true, true, false, {{"commissioning.manual_timeout_s", 2.0}});
           wifi.runWifiManualProfile(); }
         { RosRig optimized(true, true); optimized.runRawMotorOptimization(); }

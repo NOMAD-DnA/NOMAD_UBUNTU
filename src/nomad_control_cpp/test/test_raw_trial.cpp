@@ -1146,6 +1146,22 @@ void testCriticalAndNonCriticalSplit() {
             for (int i = 0; i < 110; ++i) { send(r, 1000, 3.0, 0, 16.3, 0, .05); r.update(nomad::RawAxis::Manual, 1000, .5); r.tick(); }
         }
         expect(r.controller.state() != TrialState::Fault, "spikes outside the window do not latch"); }
+    {   // 2026-11-15: an accepted RESET clears the spike history; one more spike right after RESET does not
+        // complete the '3 in 10 s' latch.
+        Rig r = running();
+        for (int spike = 0; spike < 2; ++spike) {
+            send(r, 900, 33.0, 0, 16.3, 0);
+            send(r, 900, 3.0, 0, 16.3, 0);
+            if (r.controller.state() == TrialState::Stopped) r.controller.resumePlanning(1000, .5, r.steady, r.ros, true);
+            r.tick();
+        }
+        expect(r.controller.state() == TrialState::Running, "two spikes only pause and resume");
+        r.controller.stop("operator STOP", true);
+        for (int i = 0; i < 40; ++i) send(r, 0, 0.0, 0, 16.3, 0);
+        expect(r.controller.reset(r.steady, r.ros), "RESET once the car is still");
+        send(r, 0, 33.0, 0, 16.3, 0);
+        expect(r.controller.state() != TrialState::Fault, "a spike right after RESET starts a new count (no latch)");
+    }
     {   // Manual (non-headless) sessions keep latching on any spike.
         Rig r; r.prime(); r.start(nomad::RawAxis::Manual, 0, .5, 0); r.tick();
         send(r, 0, 33.0, 0, 16.3, 0);

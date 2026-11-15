@@ -379,6 +379,10 @@ bool RawTrialController::reset(double steady_now, double ros_now) {
     state_ = TrialState::Idle;
     planning_wait_ = false;
     vesc_fault_ = false;
+    // 2026-11-15: an accepted RESET (car still) is a fresh start for the current spike rule too; otherwise one more
+    // spike within the 10 s window latched again right after RESET.
+    overcurrent_spikes_.clear();
+    overcurrent_since_.reset();
     reason_ = "raw reset; waiting for explicit axis start; calibration unverified";
     return true;
 }
