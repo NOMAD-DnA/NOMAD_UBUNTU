@@ -143,6 +143,8 @@ private:
     // recoverable: a planning pause may resume without RESET. vesc_fault: the VESC reported a fault code.
     void invalidateTelemetry(const std::string& reason, bool recoverable = false, bool vesc_fault = false);
     RawOutput restingOutput() const;
+    void clearDriveState();
+    void beginRunning(RawAxis axis, double erpm, double servo, double duration, double steady_now, double manual_at);
 
     RawOptions options_;
     TrialState state_;

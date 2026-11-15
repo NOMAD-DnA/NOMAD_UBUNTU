@@ -225,22 +225,9 @@ bool RawTrialController::start(RawAxis axis, double erpm, double servo, double d
         reason_ = "raw start refused: need exclusive driver and fresh stationary hold";
         return false;
     }
-    axis_ = axis;
-    target_erpm_ = erpm;
-    target_servo_ = servo;
-    duration_s_ = duration;
-    started_at_ = steady_now;
     // 수신 시각이 아니라 추정 발행 시각부터 감시하여 지연 큐가 구동 시간을 늘리지 못하게 합니다.
-    last_manual_at_ = steady_now - max(0.0, command_age_s);
-    last_tick_ = steady_now;
-    commanded_erpm_ = 0.0;
-    last_drive_dir_ = 0;
-    reversal_since_.reset();
-    reversal_waiting_ = false;
-    stalled_since_.reset();
     // commanded_servo_는 마지막 명령에서 이어집니다. Motor 시작은 서보를 전혀 송신하지 않습니다.
-    state_ = TrialState::Running;
-    output_owned_ = true;
+    beginRunning(axis, erpm, servo, duration, steady_now, steady_now - max(0.0, command_age_s));
     reason_ = continuous ? "raw MANUAL continuous control; heartbeat required; angle unmeasured"
                          : axis == RawAxis::Motor ? "raw MOTOR trial; no servo output; calibration unverified"
                                                 : "raw STEERING trial; motor released (0A or stop brake/hold); angle unmeasured";
@@ -334,23 +321,11 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
         !options_.hardware_timeout_verified || !healthy(steady_now, ros_now) ||
         !validTarget(RawAxis::Manual, erpm, servo) || outsideDriveRange() ||
         !exclusive_driver_ready || sample_->raw_erpm < -options_.stationary_erpm) return false;
-    axis_ = RawAxis::Manual;
-    target_erpm_ = erpm;
-    target_servo_ = servo;
-    duration_s_ = 0.0;
-    started_at_ = steady_now;
-    last_manual_at_ = steady_now;
-    last_tick_ = steady_now;
+    // Keep the last servo command; normal tick/update slew limits still apply.
+    beginRunning(RawAxis::Manual, erpm, servo, 0.0, steady_now, steady_now);
     // Seed from current measured forward rotation, never a previous target.
     // A lower target cannot inherit a larger command, and zero remains release.
     commanded_erpm_ = clamp(sample_->raw_erpm, 0.0, min(erpm, options_.motor_max_erpm));
-    last_drive_dir_ = 0;
-    reversal_since_.reset();
-    reversal_waiting_ = false;
-    stalled_since_.reset();
-    // Keep the last servo command; normal tick/update slew limits still apply.
-    state_ = TrialState::Running;
-    output_owned_ = true;
     planning_wait_ = false;
     reason_ = "raw planning continuation from fresh measured rotation";
     return true;
@@ -361,16 +336,37 @@ bool RawTrialController::resumePlanning(double erpm, double servo, double steady
 void RawTrialController::stop(const string& reason, bool fault) {
     if (state_ == TrialState::Monitor || (state_ == TrialState::Fault && !fault)) return;
     planning_wait_ = false;
-    stop_ramp_.reset();
     state_ = fault ? TrialState::Fault : TrialState::Stopped;
     reason_ = reason;
+    if (reversal_waiting_) reversal_wait_end_ = "stopped";
+    clearDriveState();
+}
+
+// Everything a drive must not inherit from the previous one (11-15: start, resumePlanning and stop each had their
+// own copy of these lines, and the reverse work had to add to all three).
+void RawTrialController::clearDriveState() {
     commanded_erpm_ = 0.0;
     target_erpm_ = 0.0;
     last_drive_dir_ = 0;
     reversal_since_.reset();
-    if (reversal_waiting_) reversal_wait_end_ = "stopped";
     reversal_waiting_ = false;
     stalled_since_.reset();
+    stop_ramp_.reset();
+}
+
+// The common part of start() and resumePlanning(); each sets its own reason and seeds afterwards.
+void RawTrialController::beginRunning(RawAxis axis, double erpm, double servo, double duration, double steady_now,
+                                      double manual_at) {
+    clearDriveState();
+    axis_ = axis;
+    target_erpm_ = erpm;
+    target_servo_ = servo;
+    duration_s_ = duration;
+    started_at_ = steady_now;
+    last_manual_at_ = manual_at;
+    last_tick_ = steady_now;
+    state_ = TrialState::Running;
+    output_owned_ = true;
 }
 
 bool RawTrialController::reset(double steady_now, double ros_now) {
