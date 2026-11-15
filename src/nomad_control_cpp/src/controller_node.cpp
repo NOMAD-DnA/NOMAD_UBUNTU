@@ -735,8 +735,10 @@ private:
             },
             [&] {
                 const double steady_now = steadySeconds(), ros_now = now().seconds();
+                // 2026-11-15: only this GUI commissioning path may reverse (MANUAL, bounded by manual_reverse_max_erpm).
                 return raw_controller_->update(axis, request.motor_erpm, request.servo_position,
-                                               steady_now, ros_now, ros_now - command_stamp);
+                                               steady_now, ros_now, ros_now - command_stamp,
+                                               axis == RawAxis::Manual);
             },
             max_command_age);
         // 수락된 갱신 간격만 진단하며 세션 식별자나 목표값은 기록하지 않습니다.
@@ -805,6 +807,7 @@ private:
         raw.setup_acknowledged = parameter<bool>("commissioning_setup_acknowledged", false);
         raw.hardware_timeout_verified = options_.hardware_timeout_verified;
         raw.motor_max_erpm = parameter<double>("commissioning.motor_max_erpm", raw.motor_max_erpm);
+        raw.manual_reverse_max_erpm = parameter<double>("commissioning.manual_reverse_max_erpm", raw.manual_reverse_max_erpm);
         raw.overspeed_erpm = parameter<double>("commissioning.overspeed_erpm", raw.overspeed_erpm);
         raw.servo_center = parameter<double>("commissioning.servo_center", raw.servo_center);
         raw.servo_min = parameter<double>("commissioning.servo_min", raw.servo_min);
@@ -1198,6 +1201,7 @@ private:
             data["commissioning_setup_acknowledged"] = raw_options_.setup_acknowledged;
             data["commissioning_axis"] = commissioning_axis_;
             data["motor_max_erpm"] = raw_options_.motor_max_erpm;
+            data["manual_reverse_max_erpm"] = raw_options_.manual_reverse_max_erpm;
             data["servo_min"] = raw_options_.servo_min;
             data["servo_max"] = raw_options_.servo_max;
             data["servo_center"] = raw_options_.servo_center;

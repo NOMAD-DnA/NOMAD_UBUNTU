@@ -13,7 +13,8 @@
     handbrake_max: 30.0
     position_min: 0.0
     position_max: 0.0
-    speed_min: 0.0
+    # 2026-11-15: GUI 수동 조종 후진(제어기 commissioning.manual_reverse_max_erpm 800과 맞춤)
+    speed_min: -800.0
     speed_max: 1850.0
     servo_min: 0.3625
     servo_max: 0.6375

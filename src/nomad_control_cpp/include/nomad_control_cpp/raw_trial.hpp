@@ -15,6 +15,9 @@ struct RawOptions {
     bool setup_acknowledged = false;
     bool hardware_timeout_verified = false;
     double motor_max_erpm = 1850.0;
+    // 2026-11-15: GUI MANUAL reverse limit (ERPM magnitude). 0 = forward only (previous behaviour).
+    // Only the commissioning/GUI MANUAL path may use it; headless planning stays forward-only.
+    double manual_reverse_max_erpm = 0.0;
     double overspeed_erpm = 2500.0;
     double servo_center = 0.50;
     double servo_min = 0.49;
@@ -60,7 +63,7 @@ public:
     bool start(RawAxis axis, double erpm, double servo, double duration,
                double steady_now, double ros_now, bool exclusive_driver_ready, double command_age_s = 0.0);
     bool update(RawAxis axis, double erpm, double servo, double steady_now, double ros_now,
-                double command_age_s = 0.0);
+                double command_age_s = 0.0, bool allow_reverse = false);
     // Caller must authorize a soft planning pause and validate the fresh command.
     // Explicit STOP/fault/session expiry must never call this continuation path.
     bool resumePlanning(double erpm, double servo, double steady_now, double ros_now,
@@ -117,7 +120,7 @@ public:
     double remaining(double steady_now) const;
 
 private:
-    bool validTarget(RawAxis axis, double erpm, double servo) const;
+    bool validTarget(RawAxis axis, double erpm, double servo, bool allow_reverse = false) const;
     bool validCommandAge(RawAxis axis, double age) const;
     double manualTimeout(RawAxis axis) const;
     bool checkClock(double steady_now, double ros_now);

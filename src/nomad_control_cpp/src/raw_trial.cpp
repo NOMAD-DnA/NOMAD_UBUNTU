@@ -30,6 +30,8 @@ RawTrialController::RawTrialController(RawOptions options)
       target_servo_(options.servo_center), commanded_servo_(options.servo_center),
       steering_test_min_(options.servo_min),steering_test_max_(options.servo_max) {
     if (!positive(options_.motor_max_erpm) || options_.motor_max_erpm > limits::kMotorMaxErpm ||
+        !isfinite(options_.manual_reverse_max_erpm) || options_.manual_reverse_max_erpm < 0.0 ||
+        options_.manual_reverse_max_erpm > options_.motor_max_erpm ||
         !positive(options_.overspeed_erpm) || options_.overspeed_erpm > 2500.0 ||
         options_.overspeed_erpm <= options_.motor_max_erpm ||
         !isfinite(options_.servo_center) || !isfinite(options_.servo_min) ||
@@ -68,11 +70,13 @@ RawTrialController::RawTrialController(RawOptions options)
 }
 
 // Steering 시험은 모터 0을 강제하고 Manual은 두 축을 허용합니다. 모든 숫자와 끝점을 검사합니다.
-bool RawTrialController::validTarget(RawAxis axis, double erpm, double servo) const {
+bool RawTrialController::validTarget(RawAxis axis, double erpm, double servo, bool allow_reverse) const {
     const double low=axis==RawAxis::Steering?steering_test_min_:options_.servo_min;
     const double high=axis==RawAxis::Steering?steering_test_max_:options_.servo_max;
+    // 2026-11-15: reverse only for an explicitly allowed (GUI) MANUAL update, bounded by manual_reverse_max_erpm.
+    const double min_erpm = allow_reverse && axis == RawAxis::Manual ? -options_.manual_reverse_max_erpm : 0.0;
     if ((axis != RawAxis::Motor && axis != RawAxis::Steering && axis != RawAxis::Manual) ||
-        !isfinite(erpm) || erpm < 0.0 || erpm > options_.motor_max_erpm ||
+        !isfinite(erpm) || erpm < min_erpm || erpm > options_.motor_max_erpm ||
         !isfinite(servo) || servo < low || servo > high) return false;
     return axis != RawAxis::Steering || erpm == 0.0;
 }
@@ -255,16 +259,16 @@ bool RawTrialController::checkRunning(double steady_now, double ros_now) {
 }
 
 bool RawTrialController::update(RawAxis axis, double erpm, double servo, double steady_now, double ros_now,
-                                double command_age_s) {
+                                double command_age_s, bool allow_reverse) {
     if (!checkClock(steady_now, ros_now) || !checkRunning(steady_now, ros_now)) return false;
-    if (axis != axis_ || !validTarget(axis, erpm, servo) || !validCommandAge(axis, command_age_s)) {
+    if (axis != axis_ || !validTarget(axis, erpm, servo, allow_reverse) || !validCommandAge(axis, command_age_s)) {
         stop("raw axis switch or invalid target; reset and new session required", true);
         return false;
     }
     target_erpm_ = erpm;
     target_servo_ = servo;
     last_manual_at_ = max(last_manual_at_, steady_now - max(0.0, command_age_s));
-    if (erpm < options_.stall_command_erpm) stalled_since_.reset();
+    if (abs(erpm) < options_.stall_command_erpm) stalled_since_.reset();
     return true;
 }
 
@@ -406,7 +410,7 @@ bool RawTrialController::checkCurrent(const TelemetrySample& sample, double stea
 // 명령이 실제로 출발 임계값에 도달한 뒤에만 정체 시간을 셉니다. 회전 확인 시 다시 시작합니다.
 bool RawTrialController::checkMotorProgress(double steady_now) {
     const bool stalled = options_.stall_watchdog_enabled && sample_ &&
-        target_erpm_ >= options_.stall_command_erpm && commanded_erpm_ >= options_.stall_command_erpm &&
+        abs(target_erpm_) >= options_.stall_command_erpm && abs(commanded_erpm_) >= options_.stall_command_erpm &&
         abs(sample_->raw_erpm) < options_.stall_feedback_erpm;
     if (!stalled) {
         stalled_since_.reset();
@@ -458,9 +462,17 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
             }
         } else {
             // 0은 감속 목표가 아니라 출력 해제입니다. 낮은 RPM의 PID 구간에 오래 머물지 않습니다.
-            const double rate = target_erpm_ < commanded_erpm_ ? options_.motor_deceleration_erpm_s
-                                                             : options_.motor_ramp_erpm_s;
-            commanded_erpm_ = target_erpm_ == 0.0 ? 0.0 : approach(commanded_erpm_, target_erpm_, rate, dt);
+            // 2026-11-15 (GUI reverse): speeding up = larger magnitude in the same direction. A direction change never
+            // ramps through zero under drive: it releases (stop output brake -> handbrake) until the wheel is nearly
+            // still (|measured| <= stationary_erpm), then starts the new direction from 0. Forward-only use is unchanged.
+            const double measured = sample_ ? sample_->raw_erpm : 0.0;
+            const bool direction_change =
+                (target_erpm_ > 0.0 && (commanded_erpm_ < 0.0 || measured < -options_.stationary_erpm)) ||
+                (target_erpm_ < 0.0 && (commanded_erpm_ > 0.0 || measured > options_.stationary_erpm));
+            const bool speeding_up = abs(target_erpm_) > abs(commanded_erpm_) && target_erpm_ * commanded_erpm_ >= 0.0;
+            const double rate = speeding_up ? options_.motor_ramp_erpm_s : options_.motor_deceleration_erpm_s;
+            commanded_erpm_ = (target_erpm_ == 0.0 || direction_change) ? 0.0
+                                                                       : approach(commanded_erpm_, target_erpm_, rate, dt);
             // Skip the low-RPM ramp only for a positive planning target. STOP/zero
             // still releases immediately; overspeed reduction calls with floor=0.
             if (target_erpm_ > 0.0 && minimum_drive_erpm > 0.0)

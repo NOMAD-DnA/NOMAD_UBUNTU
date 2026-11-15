@@ -56,6 +56,9 @@ nomad_vesc_trial:
     restart_trace_s: 3.0
     # 후보 시험 한계이며 측정된 속도/각도 또는 기계적 안전 범위가 아닙니다.
     commissioning.motor_max_erpm: 1850.0
+    # 2026-11-15: GUI 수동 조종 후진 최대 ERPM(크기). 0이면 전진만(이전 동작). 자율주행(플래너) 경로는 항상 전진만.
+    # 방향 전환은 먼저 정지 출력으로 멈춘 뒤(|ERPM| <= stationary_erpm) 반대 방향을 0부터 시작합니다.
+    commissioning.manual_reverse_max_erpm: 800.0
     commissioning.overspeed_erpm: 2500.0
     # 2026-11-07 사용자 지상 조종 보고: 서보 0~1 전 범위 정상 동작.
     # 직접 서보 입력을 사용하며 steering_input_limit_rad는 이전 GUI 호환 메타데이터입니다.
