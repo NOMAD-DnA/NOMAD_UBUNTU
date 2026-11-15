@@ -355,7 +355,8 @@ private:
         if(planning_stop_ramp_s_<=0||!supervisor_.active()||thermal_.stopped())return false;
         const double end=stopRampEndErpm(),from=raw_controller_->commandedMotorErpm();
         if(!raw_controller_->beginStopRamp(reason,steady,ros,planning_stop_ramp_s_,end))return false;
-        stop_output_.beginStopRamp(steady);
+        // The same end value for both: StopOutput judges the ramp samples when the command reaches it.
+        stop_output_.beginStopRamp(steady,end);
         planning_guard_->clear();
         stop_ramp_started_=steady;
         RCLCPP_INFO(get_logger(),"[STOP_RAMP] begin reason=%s cmd_erpm=%.0f measured_erpm=%.0f ramp_from_erpm=%.0f end_erpm=%.0f ramp_s=%.2f iq_a=%.2f",

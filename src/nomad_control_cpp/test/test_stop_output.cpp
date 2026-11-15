@@ -568,6 +568,23 @@ int main() {
         expect(is(phase.decide(still(t)), StopOutputKind::Hold, 30.0) && phase.holdBasis() == HoldBasis::Load &&
                *phase.holdLoadA() > 15.0,
                "a braking stretch that held the speed just before the 200 ERPM phase raises the hold (judged with trailing windows)");
+        // 11-15 refactor: the ramp-end judgement uses the end value the controller ramps to (passed by the node to both
+        // raw_trial and StopOutput), not a second copy of hold_below_erpm. Same stretch, ramp ending at 300 ERPM.
+        for (const bool pass_end : {true, false}) {
+            StopOutput end300(kLoad);
+            t = cruise(end300, 0.0, 1.2, 6.5);
+            if (pass_end) end300.beginStopRamp(t, 300.0); else end300.beginStopRamp(t);
+            for (const double t0 = t; t <= t0 + 1.0; t += 0.02) {
+                const double s = t - t0;
+                const double command = std::max(300.0, 1000.0 - 3200.0 * s), reported = s < 0.25 - 1e-9 ? 1000.0 : 1000.0 - 3000.0 * (s - 0.2);
+                if (reported <= 200.0) break;
+                end300.onDrive(command);
+                end300.observeDrive(t, s < 0.25 - 1e-9 ? -12.0 : -15.0, reported);
+            }
+            const bool judged = is(end300.decide(still(t)), StopOutputKind::Hold, 30.0) && *end300.holdLoadA() > 15.0;
+            expect(judged == pass_end, pass_end ? "ramp ending at 300 with end 300 passed: judged at 300 (30 A)"
+                                                : "ramp ending at 300 without the end value: not judged at 300 (shows the value is used)");
+        }
         // 11-14 check: flat 0.3 s ramp from the review's closed-loop PID model (reported speed lags ~50 ms while the
         // PID already brakes at -3..-7 A). One sample 80 ERPM high (normal HFI noise) made its trailing window read
         // as steady braking (22.5 A); a single such sample is not enough at the 200 ERPM phase.

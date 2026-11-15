@@ -61,9 +61,9 @@
 // rule and the tiny-creep time use the drive up to there, since a falling command is not an unsettled drive and its
 // lower current is not less load. Ramp samples from kRampIgnoreS on can only raise L (Load: max with the usable ramp
 // samples; SamePlace: the drive's largest usable L); movement during the ramp still counts (conservative for the
-// same-place and tiny-creep distances). When the ramp command reaches hold_below_erpm (the controller then waits there
-// for the reported speed while the speed PID brakes hard) the ramp samples not yet judged are also tried with
-// trailing windows; usable results are kept when at least kRampEndMinUsable agree (evaluateRampEnd). A slope edge
+// same-place and tiny-creep distances). When the ramp command reaches its end (beginStopRamp end_erpm; the node passes
+// hold_below_erpm), the controller waits there for the reported speed while the speed PID brakes hard, and the ramp
+// samples not yet judged are also tried with trailing windows; usable results are kept when at least kRampEndMinUsable agree (evaluateRampEnd). A slope edge
 // crossed just before the stop can still show nothing yet: in the 11-14 review model (real code, 0.3 s ramp) the
 // downhill-edge band where the hold slips is 2.3-3.8 cm at 12-20 deg against 4.9-5.5 cm for an immediate stop (and no
 // wider than the plain ramp at 0.4-0.5 s ramps); the uphill band (a roll back to the foot of the slope) is wider,
@@ -227,7 +227,7 @@ public:
         if (!ramp_start_s_) {
             command_erpm_ = std::isfinite(commanded_erpm) ? std::abs(commanded_erpm) : 0.0;
         } else if (!ramp_end_judged_ && config_.hold_below_erpm > 0.0 && std::isfinite(commanded_erpm) &&
-                   std::abs(commanded_erpm) <= config_.hold_below_erpm + 1e-9) {
+                   std::abs(commanded_erpm) <= ramp_end_erpm_ + 1e-9) {
             // The ramp command reached the handbrake entry speed: the controller now keeps it there until the
             // reported speed follows (raw_trial kStopRampSettleS) while the speed PID brakes hard, so a window centred
             // on the last ramp samples would mostly see that braking and call them unsteady (2026-11-13 review: a
@@ -243,10 +243,13 @@ public:
     // happened now. Later samples (ramp samples) are never settled and do not count as launch current; from
     // kRampIgnoreS on, a usable one can only raise the load (a slope or obstacle met during the ramp, or a downhill
     // the speed PID cannot slow). Movement still counts. No effect outside a drive or when already ramping.
-    void beginStopRamp(double steady_now) {
+    // end_erpm: where the controller's ramp command stops falling (the node passes the same value to raw_trial);
+    // it defaults to hold_below_erpm, which is what the node uses whenever the handbrake is on.
+    void beginStopRamp(double steady_now, std::optional<double> end_erpm = std::nullopt) {
         if (!in_drive_ || ramp_start_s_ || !std::isfinite(steady_now)) return;
         evaluateTail();
         ramp_start_s_ = last_sample_s_ ? std::max(steady_now, *last_sample_s_) : steady_now;
+        ramp_end_erpm_ = end_erpm && std::isfinite(*end_erpm) ? *end_erpm : config_.hold_below_erpm;
         ramp_end_judged_ = false;
     }
 
@@ -548,7 +551,8 @@ private:
     std::optional<double> drive_launch_load_a_; // largest L from kLaunchIgnoreS on, steady or not
     std::optional<double> drive_start_s_;
     std::optional<double> ramp_start_s_;      // the current/last drive record ended with a stop ramp from here
-    bool ramp_end_judged_ = false;            // ramp samples judged when the ramp command reached hold_below_erpm
+    bool ramp_end_judged_ = false;            // ramp samples judged when the ramp command reached ramp_end_erpm_
+    double ramp_end_erpm_ = 0.0;              // the ramp's end command (set by beginStopRamp)
     double drive_moved_erev_ = 0.0;            // electrical revolutions of the current/last drive record
     std::deque<DriveSample> samples_;
 };
