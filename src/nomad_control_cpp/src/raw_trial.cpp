@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 using namespace std;
 
@@ -367,6 +368,7 @@ void RawTrialController::stop(const string& reason, bool fault) {
     target_erpm_ = 0.0;
     last_drive_dir_ = 0;
     reversal_since_.reset();
+    if (reversal_waiting_) reversal_wait_end_ = "stopped";
     reversal_waiting_ = false;
     stalled_since_.reset();
 }
@@ -479,12 +481,28 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
             // same-direction target keeps driving as before reverse existed (11-15 review: the first version released
             // on the measured sign alone, so a forward hill start that rolled back cycled handbrake/drive or stayed on
             // the 20 A brake, even with manual_reverse_max_erpm 0).
+            // The wait also ends early when the old-way speed rises kReversalLosingErpm above its lowest value since
+            // the press (the brake is losing on a steep slope; the speed PID brakes harder).
             const int target_dir = target_erpm_ > 0.0 ? 1 : target_erpm_ < 0.0 ? -1 : 0;
-            if (target_dir == 0 || target_dir == last_drive_dir_) reversal_since_.reset();
-            else if (last_drive_dir_ != 0 && !reversal_since_) reversal_since_ = steady_now;
+            const bool was_waiting = reversal_waiting_;
+            reversal_waiting_ = false;
+            if (target_dir == 0 || target_dir == last_drive_dir_) {
+                reversal_since_.reset();
+                if (was_waiting) reversal_wait_end_ = target_dir == 0 ? "released" : "cancelled";
+            } else if (last_drive_dir_ != 0 && !reversal_since_) {
+                reversal_since_ = steady_now;
+                reversal_min_old_erpm_ = numeric_limits<double>::infinity();
+            }
             const double measured = sample_ ? sample_->raw_erpm : 0.0;
-            reversal_waiting_ = reversal_since_ && target_dir * measured < -options_.stationary_erpm &&
-                steady_now - *reversal_since_ < kReversalWaitMaxS - 1e-9;
+            if (reversal_since_) {
+                const double old_way = -target_dir * measured; // speed still in the old direction
+                reversal_min_old_erpm_ = min(reversal_min_old_erpm_, old_way);
+                const char* end = old_way <= options_.stationary_erpm ? "still"
+                    : old_way > reversal_min_old_erpm_ + kReversalLosingErpm ? "brake losing"
+                    : steady_now - *reversal_since_ >= kReversalWaitMaxS - 1e-9 ? "timeout" : nullptr;
+                reversal_waiting_ = end == nullptr;
+                if (was_waiting && end) reversal_wait_end_ = end;
+            }
             if (target_erpm_ * commanded_erpm_ < 0.0) commanded_erpm_ = 0.0;
             const bool speeding_up = abs(target_erpm_) > abs(commanded_erpm_) && target_erpm_ * commanded_erpm_ >= 0.0;
             const double rate = speeding_up ? options_.motor_ramp_erpm_s : options_.motor_deceleration_erpm_s;

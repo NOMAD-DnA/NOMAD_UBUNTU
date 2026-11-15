@@ -23,7 +23,7 @@ cd ~/vesc_ws && colcon build --packages-up-to vesc_driver
 
 - **드라이버 한계값이 0이면 관성 정지가 됩니다.** 드라이버의 `brake_*`·`handbrake_*` 기본값은 0이고 명령을 그 범위로 자릅니다. 11-12 이전 Pi4 yaml(`brake_max 0`)이면 브레이크도, `handbrake_*`가 없는 yaml(upstream 포함)이면 핸드브레이크가 0 A로 잘려 VESC가 출력을 끕니다. 제어기 로그에는 표시가 없고 드라이버 로그에만 `... clipping`이 남습니다(11-12 21:10 시험이 이 상태였습니다). `brake_max ≥ stop_brake_current_a`, `handbrake_max ≥ stop_handbrake_current_a`로 두세요.
 - **패치 안 한 드라이버:** 제어기는 핸드브레이크 토픽 구독자가 없으면 드라이버 준비가 안 된 것으로 보고 출발하지 않습니다(안전한 쪽). 사유는 처음 출발 때 `raw start refused: need exclusive driver ...`, 재출발 대기 중에는 `VESC handbrake topic has no subscriber (patched vesc_driver required); waiting`(11-13 저장소판부터, 지금 Pi4 설치본은 `driver endpoints unavailable; waiting`)으로 나옵니다. 처음 출발 실패는 핸드브레이크를 직접 가리키지 않으므로 `ros2 topic info -v /nomad_bench/commands/motor/handbrake`로 구독자를 확인하세요.
-- **후진 한계 짝 맞추기:** 드라이버는 속도 명령을 `speed_min`~`speed_max`로 조용히 자릅니다(드라이버 로그에만 남음). 제어기 `manual_reverse_max_erpm`이 0보다 큰데 `speed_min`이 0이면 후진 명령이 VESC에 0으로 가서 차가 안 움직이고(정지 출력도 안 걸림), 2초 뒤 바퀴 걸림으로 잠깁니다. 두 값을 같은 크기로 두세요.
+- **후진 한계 짝 맞추기:** 드라이버는 속도 명령을 `speed_min`~`speed_max`로 조용히 자릅니다(드라이버 로그에만 남음). 제어기 `manual_reverse_max_erpm`이 0보다 큰데 `speed_min`이 0이면 후진 명령이 VESC에 속도 0으로 갑니다(드라이버 INFO 로그만). 제어기는 구동 중으로 알아 핸드브레이크도 풀립니다. 평지에서는 차가 안 움직이고 2초 뒤 바퀴 걸림으로 잠기지만, 경사에서는 차가 굴러 바퀴 걸림 감시에 안 걸리고 2500 ERPM 과속에서만 잠깁니다. 두 값을 같은 크기로 두세요.
 - **VESC 모터 전류 하한:** VESC는 브레이크 전류를 `|l_current_min|`로 자릅니다. `l_current_min ≤ −30 A`를 유지하세요(지금 −60 A).
 - **핸드브레이크 중 속도값:** 펌웨어 5.03은 핸드브레이크 중 위상을 0으로 고정하므로, VESC가 보고하는 ERPM과 타코가 실제 회전과 상관없이 0이 됩니다.
 - **제어기가 꺼지면:** VESC는 마지막 명령 300 ms 뒤(`timeout_msec`) `timeout_brake_current`(지금 0 = 관성)로 풀립니다. 5.03에는 타임아웃 때 핸드브레이크를 거는 설정이 없습니다.

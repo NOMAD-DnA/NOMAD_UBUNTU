@@ -1081,6 +1081,21 @@ private:
                     last ? stopOutputKindName(last->kind) : "none", stop_output_.holdSeconds(steady),
                     last ? last->current_a : 0.0, erpm, last_raw_erpm_, last_current_, last_iq_);
     }
+    // 2026-11-15 GUI reverse: one line when an operator reversal waits for the wheel and one when it ends (still,
+    // brake losing, timeout, released, cancelled, stopped), so the wait time can be read from the car log.
+    void tickReversalTrace(double steady) {
+        const bool waiting=raw_controller_->reversalWaitActive();
+        if(waiting&&!reversal_wait_started_){
+            reversal_wait_started_=steady;
+            RCLCPP_INFO(get_logger(),"[REVERSAL] wait begin target_erpm=%.0f measured_erpm=%.0f",
+                        raw_controller_->targetMotorErpm(),last_raw_erpm_);
+        } else if(!waiting&&reversal_wait_started_){
+            RCLCPP_INFO(get_logger(),"[REVERSAL] wait end t=%.3f reason=%s measured_erpm=%.0f cmd_erpm=%.0f",
+                        steady-*reversal_wait_started_,raw_controller_->reversalWaitEnd().c_str(),last_raw_erpm_,
+                        raw_controller_->commandedMotorErpm());
+            reversal_wait_started_.reset();
+        }
+    }
     void tickRestartTrace(double steady, double commanded_erpm) {
         if (!restart_trace_until_) return;
         if (steady > *restart_trace_until_ || !driving_) {
@@ -1122,6 +1137,7 @@ private:
             const auto output = raw_controller_->tick(steady_now, ros_now, driver_ready,minimum_drive_erpm);
             publishOutput(output.kind, output.motor_erpm, output.servo_position);
             tickRestartTrace(steady_now, output.motor_erpm);
+            tickReversalTrace(steady_now);
 #ifdef NOMAD_ENABLE_PLANNING
             tickStopRampTrace(steady_now);
 #endif
@@ -1323,6 +1339,7 @@ private:
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
+    optional<double> reversal_wait_started_; // steady time a manual reversal wait began ([REVERSAL] trace)
     optional<double> stop_ramp_started_;     // steady time the running stop ramp began ([STOP_RAMP] trace)
     bool planning_measured_speed_control_=false,planning_feedback_reducing_=false;
     double planning_feedback_target_=0;

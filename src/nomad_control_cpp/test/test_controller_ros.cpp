@@ -771,6 +771,49 @@ public:
         expect(commission(3,0,active),"manual floor-isolation fixture stops normally");
     }
 
+    // 2026-11-15 GUI MANUAL reverse through the ROS commissioning service: the negative target is ramped and
+    // published, the status reports the limit, and a forward target while the wheel still turns backward waits on
+    // the stop output (manual_reversal_wait) instead of driving through zero.
+    void runManualReverse() {
+        const string active(32,'d'); // session ids are 32 hex digits
+        pump(.70);
+        expect(status_.value("manual_reverse_max_erpm",-1.0)==600.0&&!status_.value("manual_reversal_wait",true),
+               "status reports the manual reverse limit and no reversal wait");
+        expect(commission(1,3,active,1,0.0,.5,0.0),"reverse fixture: manual session starts at zero");
+        const auto first=observed_motor_erpm_.size();
+        expect(commission(2,3,active,2,-300.0,.5,0.0),"GUI MANUAL accepts a reverse target within the limit");
+        pump(.20);
+        expect(commission(2,3,active,3,-300.0,.5,0.0),"reverse heartbeat");
+        bool bounded=observed_motor_erpm_.size()>first;
+        double lowest=0.0;
+        for(auto i=first;i<observed_motor_erpm_.size();++i){
+            bounded=bounded&&observed_motor_erpm_[i]<=0.0&&observed_motor_erpm_[i]>=-300.000001;
+            lowest=min(lowest,observed_motor_erpm_[i]);
+        }
+        expect(bounded&&lowest<=-200.0,"reverse speed is ramped toward the target and published negative");
+        telemetry_erpm_=-250.0;
+        pump(.08);
+        const auto reversal=observed_motor_erpm_.size();
+        const int stops=brake_messages_+release_messages_+handbrake_messages_;
+        expect(commission(2,3,active,4,300.0,.5,0.0),"forward target accepted while rolling backward");
+        bool saw_wait=false;
+        for(int i=0;i<10&&!saw_wait;++i){pump(.02);saw_wait=status_.value("manual_reversal_wait",false);}
+        bool no_forward=true;
+        for(auto i=reversal;i<observed_motor_erpm_.size();++i) no_forward=no_forward&&observed_motor_erpm_[i]<=0.0;
+        expect(saw_wait&&no_forward&&brake_messages_+release_messages_+handbrake_messages_>stops,
+               "operator reversal while the wheel turns backward waits on the stop output, no forward drive");
+        telemetry_erpm_=0.0;
+        pump(.04);
+        expect(commission(2,3,active,5,300.0,.5,0.0),"forward heartbeat once the wheel is still");
+        bool forward=false;
+        for(int i=0;i<10&&!forward;++i){
+            pump(.02);
+            forward=!observed_motor_erpm_.empty()&&observed_motor_erpm_.back()>0.0;
+        }
+        expect(forward,"the forward drive starts from 0 once the wheel is still");
+        expect(commission(3,0,active),"reverse fixture stops normally");
+    }
+
     void runCommission() {
         const string a(32, '1'), b(32, '2'), c(32, '3'), d(32, '4');
         pump(0.7);
@@ -1492,6 +1535,8 @@ int main(int argc, char* argv[]) {
         { RosRig raw_gui(true, true); raw_gui.runCommissionGuiBridge(); }
         { RosRig calibration(true,true);calibration.runSteeringRecords(); }
         { RosRig continuous(true, true); continuous.runContinuousCommission(); }
+        { RosRig reverse(true, true, true, true, false, {{"commissioning.manual_reverse_max_erpm", 600.0}});
+          reverse.runManualReverse(); }
         { RosRig wifi(true, true, true, true, false, {{"commissioning.manual_timeout_s", 2.0}});
           wifi.runWifiManualProfile(); }
         { RosRig optimized(true, true); optimized.runRawMotorOptimization(); }

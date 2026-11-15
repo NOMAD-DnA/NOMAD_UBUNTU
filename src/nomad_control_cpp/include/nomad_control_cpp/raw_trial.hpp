@@ -92,7 +92,13 @@ public:
     // direction drives from 0 anyway (the speed PID brakes harder than the 20 A stop brake, which cannot hold a steep
     // slope). On flat ground the brake gets there in ~0.1 s.
     static constexpr double kReversalWaitMaxS = 0.50;
+    // The wait also ends once the old-way speed is this much above its lowest value since the press: the 20 A brake is
+    // losing (a steep slope), so waiting longer only lets the car run on (11-15 review model: without it 17-20 deg
+    // downhill reversals ran 2-5x further and loaded ones reached the 2500 ERPM overspeed latch).
+    static constexpr double kReversalLosingErpm = 100.0;
     bool reversalWaitActive() const { return reversal_waiting_; }
+    // Why the last reversal wait ended: still, brake losing, timeout, released, cancelled or stopped.
+    const std::string& reversalWaitEnd() const { return reversal_wait_end_; }
     bool planningWaitActive() const { return planning_wait_; }
     double telemetryReceiveAge(double steady) const { return sample_ ? steady - received_at_ : -1.0; }
     double telemetryStampAge(double ros) const { return sample_ ? ros - sample_->stamp_s : -1.0; }
@@ -162,7 +168,9 @@ private:
     // reported speed with a same-direction command keeps driving (11-15 review).
     int last_drive_dir_ = 0;
     std::optional<double> reversal_since_;
+    double reversal_min_old_erpm_ = 0.0; // lowest old-way speed since the press
     bool reversal_waiting_ = false;
+    std::string reversal_wait_end_;
     // 마지막 송신 명령을 보존합니다. 최초 값은 센서값이 아닌 중립 후보 가정입니다.
     double commanded_servo_ = 0.50;
     // 사용자가 정지 중 설정하는 조향 전용 시험 한계. 일반 주행 한계와 분리하며 재시작 시 초기화합니다.

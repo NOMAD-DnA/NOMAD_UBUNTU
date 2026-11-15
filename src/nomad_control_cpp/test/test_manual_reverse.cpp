@@ -4,6 +4,7 @@
 #include "nomad_control_cpp/raw_trial.hpp"
 #include <cmath>
 #include <iostream>
+#include <string>
 using namespace std;
 
 namespace {
@@ -60,6 +61,7 @@ void testGuiReverseRampsAndLimit() {
     for (int i = 0; i < 20; ++i) { r.measured = r.c.commandedMotorErpm(); out = r.step(-600.0); }
     expect(abs(out.motor_erpm + 600.0) < 1e-6, "reverse reaches the target");
     r.feed();
+    expect(r.gui(-800.0), "reverse at exactly manual_reverse_max_erpm accepted");
     expect(!r.gui(-900.0), "reverse beyond manual_reverse_max_erpm refused");
 }
 
@@ -85,7 +87,7 @@ void testDirectionChangeStopsFirst() {
     r.measured = 0.0;
     for (int i = 0; i < 2; ++i) out = r.step(-500.0);
     expect(out.motor_erpm < 0.0, "reverse starts once the wheel is nearly still");
-    expect(!r.c.reversalWaitActive(), "the reversal wait ends");
+    expect(!r.c.reversalWaitActive() && r.c.reversalWaitEnd() == "still", "the reversal wait ends (still)");
     r.measured = -450.0;
     out = r.step(500.0);
     expect(out.motor_erpm == 0.0, "reverse -> forward also stops first");
@@ -173,8 +175,9 @@ void testReversalWaitIsBounded() {
         else expect(out.motor_erpm == 0.0, "released while waiting");
     }
     expect(first_drive_at >= nomad::RawTrialController::kReversalWaitMaxS - 1e-6 &&
-           first_drive_at <= nomad::RawTrialController::kReversalWaitMaxS + 0.05 + 1e-6,
-           "the new direction drives from 0 after kReversalWaitMaxS");
+           first_drive_at <= nomad::RawTrialController::kReversalWaitMaxS + 1e-6,
+           "the new direction drives from 0 after kReversalWaitMaxS (not a tick later)");
+    expect(r.c.reversalWaitEnd() == "timeout", "the wait end is reported as a timeout");
     expect(out.motor_erpm > -100.0, "starting from 0, not a jump");
     expect(r.c.state() == nomad::TrialState::Running, "no fault");
 }
@@ -195,6 +198,93 @@ void testReversalAfterKeyRelease() {
     expect(r.step(0.0).motor_erpm == 0.0, "released");
     r.measured = 400.0; // pushed forward (e.g. downhill) while released
     expect(r.step(500.0).motor_erpm > 0.0, "forward while already rolling forward needs no wait");
+}
+
+// The wheel does not turn the old way (blocked, creeping within stationary_erpm, or already rolling the new way):
+// no wait, and the command restarts from 0 instead of decelerating the old way first.
+void testReversalWithWheelStillStartsFromZero() {
+    for (const double measured : {0.0, 50.0, 30.0, -600.0}) {
+        Rig r(800.0); r.prime();
+        expect(r.startManual(), "start (still reversal)");
+        r.cruise(700.0, 30);
+        r.measured = measured;
+        const auto out = r.step(-500.0);
+        expect(out.motor_erpm < 0.0 && out.motor_erpm >= -1200.0 * 0.05 - 1e-6,
+               "forward -> reverse with the wheel not turning forward: reverse from 0 at once");
+        expect(!r.c.reversalWaitActive(), "no reversal wait when the wheel does not turn the old way");
+    }
+}
+
+// 11-15 second review: on a slope the 20 A brake cannot hold, the old-way speed rises; the wait ends at once so the
+// speed PID (which brakes harder) takes over, instead of running on for the whole kReversalWaitMaxS.
+void testReversalEndsWhenBrakeLoses() {
+    Rig r(800.0); r.prime();
+    expect(r.startManual(), "start (brake losing)");
+    r.cruise(700.0, 30);
+    r.measured = 650.0;
+    expect(r.step(-500.0).motor_erpm == 0.0 && r.c.reversalWaitActive(), "reversal waits on the brake");
+    r.measured = 600.0;
+    expect(r.step(-500.0).motor_erpm == 0.0, "the brake is winning: still waiting");
+    r.measured = 700.0; // 100 above the lowest (600): not yet losing
+    expect(r.step(-500.0).motor_erpm == 0.0 && r.c.reversalWaitActive(), "a rise up to kReversalLosingErpm keeps waiting");
+    r.measured = 710.0;
+    const auto out = r.step(-500.0);
+    expect(out.motor_erpm < 0.0 && !r.c.reversalWaitActive() && r.c.reversalWaitEnd() == "brake losing",
+           "the old-way speed rose more than kReversalLosingErpm: the new direction drives from 0");
+    r.measured = 900.0;
+    expect(r.step(-500.0).motor_erpm < out.motor_erpm && !r.c.reversalWaitActive(), "and it does not wait again");
+}
+
+void testReversalWaitReleasedAndStopped() {
+    Rig r(800.0); r.prime();
+    expect(r.startManual(), "start (released)");
+    r.cruise(700.0, 30);
+    r.measured = 650.0;
+    r.step(-500.0);
+    expect(r.c.reversalWaitActive(), "waiting");
+    expect(r.step(0.0).motor_erpm == 0.0 && !r.c.reversalWaitActive() && r.c.reversalWaitEnd() == "released",
+           "key released during the wait");
+    r.step(-500.0);
+    expect(r.c.reversalWaitActive(), "pressed again while still rolling forward: waits again");
+    r.c.stop("operator STOP");
+    expect(!r.c.reversalWaitActive() && r.c.reversalWaitEnd() == "stopped", "STOP clears the wait");
+}
+
+// The wait starts at the press, not at an earlier key release.
+void testReleaseLongerThanWaitStillWaits() {
+    Rig r(800.0); r.prime();
+    expect(r.startManual(), "start (long release)");
+    r.cruise(700.0, 30);
+    r.measured = 600.0;
+    for (int i = 0; i < 20; ++i) r.step(0.0);
+    const auto out = r.step(-500.0);
+    expect(out.motor_erpm == 0.0 && r.c.reversalWaitActive(), "reverse after a 1 s release while rolling forward waits");
+}
+
+// A blocked wheel in reverse trips the stall watchdog like forward (|ERPM| checks).
+void testReverseStallWatchdog() {
+    Rig r(800.0); r.prime();
+    expect(r.startManual(), "start (reverse stall)");
+    r.measured = 0.0;
+    nomad::RawOutput out{};
+    for (int i = 0; i < 45 && r.c.state() == nomad::TrialState::Running; ++i) out = r.step(-600.0);
+    expect(r.c.state() == nomad::TrialState::Fault && r.c.reason().find("stalled") != string::npos,
+           "reverse without rotation trips the stall watchdog after stall_timeout_s");
+    expect(out.kind == nomad::OutputKind::Release, "and releases the motor");
+}
+
+// A new session forgets the last drive direction: its first press never waits.
+void testNewSessionForgetsDirection() {
+    Rig r(800.0); r.prime();
+    expect(r.startManual(), "start (session 1)");
+    r.cruise(-500.0, 20);
+    r.c.stop("operator STOP");
+    r.measured = 0.0;
+    r.prime();
+    expect(r.c.reset(r.steady, r.ros) && r.startManual(), "session 2 starts");
+    r.measured = -600.0;
+    const auto out = r.step(800.0);
+    expect(out.motor_erpm > 0.0 && !r.c.reversalWaitActive(), "new session: forward while rolling back drives at once");
 }
 
 // The fixed-duration MOTOR bench trial never reverses and ignores the measured sign as before.
@@ -232,6 +322,12 @@ int main() {
     testReversalWaitIsBounded();
     testReversalAfterKeyRelease();
     testMotorAxisUnaffected();
+    testReversalWithWheelStillStartsFromZero();
+    testReversalEndsWhenBrakeLoses();
+    testReversalWaitReleasedAndStopped();
+    testReleaseLongerThanWaitStillWaits();
+    testReverseStallWatchdog();
+    testNewSessionForgetsDirection();
     testOptionBounds();
     cout << "manual reverse tests: " << checks - failures << "/" << checks << " passed\n";
     return failures ? 1 : 0;
