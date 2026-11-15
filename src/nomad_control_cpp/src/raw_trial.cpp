@@ -23,6 +23,50 @@ string format(const char* pattern, Args... args) {
     snprintf(text, sizeof(text), pattern, args...);
     return text;
 }
+
+// 2026-11-15: which commissioning.* value is out of bounds, for the startup error. The constructor's own check stays
+// the authority (unchanged); this only names the first failed bound so a bad yaml value is not found by bisecting.
+string invalidOptionsDetail(const RawOptions& o) {
+    struct Bound { bool bad; const char* name; double value; const char* rule; };
+    const Bound bounds[] = {
+        {!positive(o.motor_max_erpm) || o.motor_max_erpm > limits::kMotorMaxErpm, "motor_max_erpm", o.motor_max_erpm, "0 < x <= 1850"},
+        {!isfinite(o.manual_reverse_max_erpm) || o.manual_reverse_max_erpm < 0.0 || o.manual_reverse_max_erpm > o.motor_max_erpm,
+         "manual_reverse_max_erpm", o.manual_reverse_max_erpm, "0 <= x <= motor_max_erpm"},
+        {!positive(o.overspeed_erpm) || o.overspeed_erpm > 2500.0 || o.overspeed_erpm <= o.motor_max_erpm,
+         "overspeed_erpm", o.overspeed_erpm, "motor_max_erpm < x <= 2500"},
+        {!isfinite(o.servo_min) || o.servo_min < 0.0 || o.servo_min >= o.servo_max, "servo_min", o.servo_min, "0 <= x < servo_max"},
+        {!isfinite(o.servo_max) || o.servo_max > 1.0 || o.servo_min >= o.servo_max, "servo_max", o.servo_max, "servo_min < x <= 1"},
+        {!isfinite(o.servo_center) || o.servo_center < o.servo_min || o.servo_center > o.servo_max,
+         "servo_center", o.servo_center, "servo_min <= x <= servo_max"},
+        {!positive(o.max_duration_s) || o.max_duration_s > 3.0, "max_duration_s", o.max_duration_s, "0 < x <= 3"},
+        {!positive(o.telemetry_timeout_s) || o.telemetry_timeout_s > 0.30, "telemetry_timeout_s", o.telemetry_timeout_s, "0 < x <= 0.30"},
+        {!positive(o.manual_timeout_s) || o.manual_timeout_s > 2.0, "manual_timeout_s", o.manual_timeout_s, "0 < x <= 2"},
+        {!positive(o.max_tick_gap_s) || o.max_tick_gap_s > 0.20, "max_tick_gap_s", o.max_tick_gap_s, "0 < x <= 0.20"},
+        {!positive(o.stationary_hold_s) || o.stationary_hold_s < 0.20, "stationary_hold_s", o.stationary_hold_s, "x >= 0.20"},
+        {!positive(o.stationary_erpm) || o.stationary_erpm > 50.0, "stationary_erpm", o.stationary_erpm, "0 < x <= 50"},
+        {!positive(o.current_limit_a) || o.current_limit_a > 30.0, "current_limit_a", o.current_limit_a, "0 < x <= 30"},
+        {!positive(o.motor_current_limit_a) || o.motor_current_limit_a > 60.0, "motor_current_limit_a", o.motor_current_limit_a, "0 < x <= 60"},
+        {!positive(o.overcurrent_hard_a) || o.overcurrent_hard_a <= max(o.current_limit_a, o.motor_current_limit_a) ||
+         o.overcurrent_hard_a > 60.0, "overcurrent_hard_a", o.overcurrent_hard_a, "max(current limits) < x <= 60"},
+        {!positive(o.overcurrent_sustain_s) || o.overcurrent_sustain_s > 1.0, "overcurrent_sustain_s", o.overcurrent_sustain_s, "0 < x <= 1"},
+        {o.overcurrent_spike_limit < 1 || o.overcurrent_spike_limit > 10, "overcurrent_spike_limit",
+         static_cast<double>(o.overcurrent_spike_limit), "1 <= x <= 10"},
+        {!positive(o.overcurrent_spike_window_s) || o.overcurrent_spike_window_s > 60.0, "overcurrent_spike_window_s",
+         o.overcurrent_spike_window_s, "0 < x <= 60"},
+        {!positive(o.motor_ramp_erpm_s) || o.motor_ramp_erpm_s > 1200.0, "motor_ramp_erpm_s", o.motor_ramp_erpm_s, "0 < x <= 1200"},
+        {!positive(o.motor_deceleration_erpm_s) || o.motor_deceleration_erpm_s > 2400.0, "motor_deceleration_erpm_s",
+         o.motor_deceleration_erpm_s, "0 < x <= 2400"},
+        {!positive(o.stall_timeout_s) || o.stall_timeout_s < 0.5 || o.stall_timeout_s > 2.0, "stall_timeout_s", o.stall_timeout_s, "0.5 <= x <= 2"},
+        {!positive(o.stall_command_erpm) || o.stall_command_erpm > 100.0, "stall_command_erpm", o.stall_command_erpm, "0 < x <= 100"},
+        {!positive(o.stall_feedback_erpm) || o.stall_feedback_erpm > o.stall_command_erpm, "stall_feedback_erpm",
+         o.stall_feedback_erpm, "0 < x <= stall_command_erpm"},
+        {!positive(o.servo_rate_s) || o.servo_rate_s > 0.04, "servo_rate_s", o.servo_rate_s, "0 < x <= 0.04"},
+        {!positive(o.manual_servo_rate_s) || o.manual_servo_rate_s > 1.0, "manual_servo_rate_s", o.manual_servo_rate_s, "0 < x <= 1"},
+    };
+    for (const auto& b : bounds)
+        if (b.bad) return format(": commissioning.%s=%g outside %s", b.name, b.value, b.rule);
+    return "";
+}
 } // namespace
 
 // 서보 명령은 프로토콜 범위 0~1 이내입니다. 실제 바퀴 각도나 기계적 끝단을 뜻하지 않습니다.
@@ -60,7 +104,7 @@ RawTrialController::RawTrialController(RawOptions options)
         !positive(options_.stall_feedback_erpm) || options_.stall_feedback_erpm > options_.stall_command_erpm ||
         !positive(options_.servo_rate_s) || options_.servo_rate_s > 0.04 ||
         !positive(options_.manual_servo_rate_s) || options_.manual_servo_rate_s > 1.0)
-        throw invalid_argument("invalid raw commissioning limits; outside candidate bounds");
+        throw invalid_argument("invalid raw commissioning limits; outside candidate bounds" + invalidOptionsDetail(options_));
     // 실행 파일 교체 때 마지막 소프트웨어 명령을 이어받습니다. 센서 실측값은 아닙니다.
     if(const char* saved=getenv("NOMAD_INITIAL_SERVO")) {
         char* end=nullptr;const double value=strtod(saved,&end);

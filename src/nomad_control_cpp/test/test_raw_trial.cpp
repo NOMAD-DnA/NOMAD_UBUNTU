@@ -407,12 +407,28 @@ void testOptionBounds() {
         [](auto& o) { o.stall_command_erpm = 101; },
         [](auto& o) { o.stall_feedback_erpm = o.stall_command_erpm + 1.0; },
         [](auto& o) { o.manual_servo_rate_s = 1.0001; }, [](auto& o) { o.manual_servo_rate_s = 0.0; },
-        [](auto& o) { o.servo_center = numeric_limits<double>::quiet_NaN(); }
+        [](auto& o) { o.servo_center = numeric_limits<double>::quiet_NaN(); },
+        // 11-15: bounds that had no case before.
+        [](auto& o) { o.motor_current_limit_a = 60.01; }, [](auto& o) { o.overcurrent_hard_a = 60.01; },
+        [](auto& o) { o.overcurrent_hard_a = max(o.current_limit_a, o.motor_current_limit_a); },
+        [](auto& o) { o.overcurrent_sustain_s = 1.01; }, [](auto& o) { o.overcurrent_spike_limit = 0; },
+        [](auto& o) { o.overcurrent_spike_limit = 11; }, [](auto& o) { o.overcurrent_spike_window_s = 60.01; },
+        [](auto& o) { o.manual_reverse_max_erpm = -1.0; },
+        [](auto& o) { o.manual_reverse_max_erpm = o.motor_max_erpm + 1.0; }
     };
     for (const auto& change : invalid) {
-        auto options = enabled(); change(options); bool rejected = false;
-        try { Rig invalid_rig(options); } catch (const invalid_argument&) { rejected = true; }
+        auto options = enabled(); change(options); bool rejected = false; string message;
+        try { Rig invalid_rig(options); } catch (const invalid_argument& e) { rejected = true; message = e.what(); }
         expect(rejected, "unsafe or nonsensical commissioning option refused");
+        // 11-15: the error names the value (e.g. 'commissioning.manual_servo_rate_s=1.0001 outside 0 < x <= 1').
+        expect(message.find("outside candidate bounds: commissioning.") != string::npos && message.find(" outside ") != string::npos,
+               "the refusal names the commissioning value and its bound");
+    }
+    {
+        auto options = enabled(); options.manual_servo_rate_s = 1.5; string message;
+        try { Rig invalid_rig(options); } catch (const invalid_argument& e) { message = e.what(); }
+        expect(message == "invalid raw commissioning limits; outside candidate bounds: commissioning.manual_servo_rate_s=1.5 outside 0 < x <= 1",
+               "exact refusal message for a servo rate above its bound");
     }
     Rig r; r.prime();
     expect(!r.start(nomad::RawAxis::Motor, 1000, 0.5, 3.01), "requested duration cannot exceed configured cap");
