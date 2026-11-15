@@ -210,7 +210,7 @@ python3 src/nomad_control_cpp/scripts/test_record_control_trials.py
 
 이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다.
 
-ROS 환경에서는 `colcon test`로 20개 시험이 돕니다(ROS 통합시험은 약 75~80초, 제한 150초, 자체 DDS domain 226). 알려진 실패: `rpm_running_floor_ros`의 100 ERPM 경계 기대값 2건은 의도적으로 예전 값을 유지해 실패하고, `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관). 'stale telemetry cannot save measurement'도 PC 부하 때 한 번 실패해 11-15에 대기를 0.6초로 늘렸습니다.
+ROS 환경에서는 `colcon test`로 20개 시험이 돕니다(ROS 통합시험은 약 95초, 제한 150초, 자체 DDS domain 226). `rpm_running_floor_ros`는 11-15에 제어기에 없던 100 ERPM 요청 데드존(`planning.stop_request_erpm`) 검사 2개를 빼서 이제 통과합니다(그 전 기록의 '의도된 실패 2건'이 이것). 알려진 가끔 실패: `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관). 'stale telemetry cannot save measurement'도 PC 부하 때 한 번 실패해 11-15에 대기를 0.6초로 늘렸습니다.
 
 ## 작업 내역 (2026-11-11 ~ 11-13, BAE)
 
@@ -255,7 +255,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | acf3b15 | (11-15) 리팩토링: `controlTick()`에서 상태 발행을 `publishStatus()`로 옮김. 플래닝을 끈 빌드가 `[REVERSAL]` 변수 때문에 컴파일 안 되던 것 수정 |
 | 7cd79ba | (11-15) 리팩토링: 감속 정지 끝 속도를 노드가 `raw_trial`과 `StopOutput`에 같은 값으로 넘김(경사 작업에서 한쪽만 바뀌어 내리막 판정이 꺼지는 일 방지) |
 | 398c9a8 | (11-15) 설정 범위 오류에 값 이름 표시(예: `commissioning.manual_servo_rate_s=1.5 outside 0 < x <= 1`). 검사 조건은 그대로, 시험 없던 범위 9개 추가 |
-| (이 커밋) | (11-15) 리팩토링 기록, ROS 시험 'stale telemetry' 대기 0.4 → 0.6초(부하 때 한 번 실패) |
+| 5e59e26 | (11-15) 리팩토링 기록, ROS 시험 'stale telemetry' 대기 0.4 → 0.6초(부하 때 한 번 실패) |
+| (이 커밋) | (11-15) `test_rpm_floor_ros.cpp`에서 제어기에 없던 100 ERPM 데드존 검사 2개와 그 설정을 뺌(사용자 결정). 나머지 검사(STOP·과속·만료 때 해제 등)는 그대로, 이제 통과 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 

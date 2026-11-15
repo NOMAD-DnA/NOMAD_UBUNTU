@@ -39,7 +39,7 @@ public:
    {"commissioning.overspeed_erpm",2500.0},{"commissioning.stall_watchdog_enabled",false},
    {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
    {"planning.measured_speed_control",true},{"planning.start_hold_s",0.0},{"planning.restart_cooldown_s",0.0},
-   {"planning.minimum_running_erpm",550.0},{"planning.stop_request_erpm",100.0},{"planning.feedback_limit_erpm",1200.0},{"planning.startup_boost_enabled",false},
+   {"planning.minimum_running_erpm",550.0},{"planning.feedback_limit_erpm",1200.0},{"planning.startup_boost_enabled",false},
    {"planning.erpm_per_mps",4000.0},{"planning.servo_per_rad",.5},{"planning.max_mps",.25},{"planning.max_rad",.3},
    {"telemetry_topic",prefix_+"/telemetry"},{"motor_speed_topic",prefix_+"/speed"},{"motor_current_topic",prefix_+"/current"},
    {"servo_topic",prefix_+"/servo"},{"motor_duty_topic",prefix_+"/duty"},{"motor_brake_topic",prefix_+"/brake"},
@@ -60,15 +60,12 @@ public:
  }
  void run(){
   pump(.8);expect(ready_,"fake hardware is ready independently of a positive planner request");expect(outputs_.empty(),"idle does not synthesize minimum motion");
-  send_=true;request_=100;pump(.22);
-  expect(outputs_.empty(),"initial request at the inclusive 100 ERPM boundary does not synthesize motion");
-  request_=101;pump(.22);expect(!outputs_.empty(),"101 request just above the deadzone produces fake speed output");
+  // 11-15: the two checks of a 100 ERPM request deadzone (planning.stop_request_erpm) were removed. The controller
+  // never had that parameter: any positive LPP request is raised to the running minimum.
+  send_=true;request_=101;pump(.22);expect(!outputs_.empty(),"a small positive request produces fake speed output");
   if(!outputs_.empty())expect(abs(outputs_.front()-550.)<1e-6,"first 101 request is transmitted as 550 without a low-ERPM ramp");
   const auto normal_begin=outputs_.size();request_=200;pump(.22);
   expect(all_since(normal_begin,550.,550.),"normal 200 request remains at 550");
-  request_=100;pump(.12);const auto boundary_end=outputs_.size();const int boundary_releases=releases_;pump(.12);
-  expect(outputs_.size()==boundary_end&&releases_>boundary_releases,"returning to inclusive 100 boundary releases instead of retaining 550");
-  request_=200;pump(.22);expect(outputs_.size()>boundary_end&&abs(outputs_.back()-550.)<1e-6,"fresh 200 request resumes at 550 after boundary stop");
   const auto high_begin=outputs_.size();request_=700;pump(.35);expect(outputs_.size()>high_begin&&abs(outputs_.back()-700.)<1e-6,"700 request is preserved above the running minimum");
   request_=0;pump(.12);const auto zero_end=outputs_.size();const int zero_releases=releases_;pump(.12);
   expect(outputs_.size()==zero_end&&releases_>zero_releases,"zero target releases and never becomes minimum motion");
