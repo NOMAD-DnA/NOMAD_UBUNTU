@@ -65,12 +65,6 @@ int main(){
     check(table.servoFor(0)==.5,"neutral exact");
     check(table.servoFor(-.4)==0&&table.servoFor(.4)==1,"table endpoint exact");
     check(isnan(table.servoFor(.401)),"no extrapolation");
-    // 11-16: radFor (GUI/log display) is the inverse of servoFor inside the table and NAN outside it.
-    for(const double rad:{-.4,-.3,-.1,0.0,.05,.25,.4})check(abs(table.radFor(table.servoFor(rad))-rad)<1e-9,"radFor inverts servoFor");
-    check(table.radFor(.5)==0&&abs(table.radFor(.6)-.05)<1e-9,"radFor neutral and interpolation");
-    check(isnan(table.radFor(1.01))&&isnan(table.radFor(-.01))&&isnan(table.radFor(NAN)),"radFor outside the table is NAN");
-    {auto linear=table;linear.steering_rads.clear();linear.steering_servos.clear();linear.servo_per_rad=.5;linear.max_rad=.3;
-     check(abs(linear.radFor(.6)-.2)<1e-9,"radFor without a table uses the linear servo_per_rad");}
     for(int fault=0;fault<6;++fault){
         auto invalid=table;
         if(fault==0)invalid.steering_servos.pop_back();

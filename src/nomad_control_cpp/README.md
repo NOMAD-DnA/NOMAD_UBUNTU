@@ -31,7 +31,6 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 - 전류 기준(`commissioning.yaml`): **모터 전류 55 A**(`motor_current_limit_a`), **배터리 입력 전류 30 A**(`current_limit_a`), 즉시 잠금 60 A(`overcurrent_hard_a`), 지속 0.3초(`overcurrent_sustain_s`), 반복 10초에 3회(`overcurrent_spike_limit`, `overcurrent_spike_window_s`). 저속 출발은 모터 전류만 크고(30~35 A) 입력 전류는 2~3 A라 두 기준을 나눴습니다.
 - 정지 출력은 VESC 브레이크 20 A → 거의 멈추면 핸드브레이크 유지입니다(2026-11-12). 유지 전류는 정지 직전 안정 주행의 모터 전류(구동 부하)에 맞춰 12.5~30 A입니다(11-13, 후보값). VESC가 고장 코드를 보내 잠기면 0 A로 풉니다(11-13). 경사 정차가 보장되지는 않습니다. 아래 '정지 출력'을 보세요.
 - GUI 수동 조종 후진(11-15, 팀원 키보드 조종용): `commissioning.manual_reverse_max_erpm` 800 ERPM까지. LPP 자율주행은 항상 전진만입니다. Pi4 드라이버 yaml `speed_min`도 −800으로 맞춰야 합니다(아래 '수동 후진').
-- 서보 표시(11-16): 바퀴 각도 센서가 없어 제어기가 서보에 보내는 명령을 보여 줍니다. `status_json`의 `commanded_servo_position`(지금 출력)·`requested_servo_position`(목표)·`servo_moving`, `steering_estimate_deg`·`steering_target_estimate_deg`(LPP 조향표로 환산한 각도, 실측 아님, 표가 없으면 null). 1초마다 찍히는 `control_trace` 끝에 `servo_target= servo_out= steer_est_deg=`. 제어기 웹 GUI(8765) '차량 상태' 카드에 조향 게이지(현재 출력·목표·환산 각도, 움직이는 중 표시). 장치 없이 보려면 `nomad_gui_preview`(8766)가 서보 왕복을 흉내 냅니다.
 - 서보 변화율: MANUAL 축(수동 조종과 LPP 자율주행 모두) 1.0/s(`commissioning.manual_servo_rate_s`, 11-15 팀 합의로 0.40에서 올림, 서보 0~1 끝에서 끝 약 1초·중앙에서 끝 약 0.5초).
 - ESC MOSFET 온도 보호: 65 ℃ 경고, 80 ℃ 이상이면 자율주행 출력 정지·수동 조종 세션 종료(11-15부터), 70 ℃ 미만에서 재출발·새 세션 허용. 아래 'ESC 온도 보호'를 보세요.
 - `VehicleState.speed_valid`와 `steering_valid`는 현재 false입니다. 값 0을 실측 정지·직진으로 해석하지 마세요. ERPM·전류·전압·오류는 별도로 제공합니다. IMU 경사·전복 보호는 현재 활성화하지 않습니다.
@@ -260,7 +259,7 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | c74bad9 | (11-15) `test_rpm_floor_ros.cpp`에서 제어기에 없던 100 ERPM 데드존 검사 2개와 그 설정을 뺌(사용자 결정). 나머지 검사(STOP·과속·만료 때 해제 등)는 그대로, 이제 통과 |
 | 22760dc | (11-16) 리팩토링: 'headless 자율주행은 대기, 나머지는 잠금' 규칙을 `pauseOrLatch()` 하나로(6곳·3가지 모양이던 것), 제어 주기 지연 검사도 `timerStalled()` 하나로 |
 | 230259c | (11-16) 컴파일 경고 `-Wall -Wextra` 켬(제어 코드·ROS 빌드 경고 0), 시험 경고 3곳 정리, 시험에 남은 없는 설정 `planning.startup_boost_enabled` 삭제 |
-| (이 커밋) | (11-16) 서보(조향) 표시: `status_json` `servo_moving`·`steering_estimate_deg`·`steering_target_estimate_deg`, `control_trace`에 서보 목표·출력·환산 각도, 웹 GUI 조향 게이지, 미리보기 서보 왕복, `PlanningCalibration::radFor()`(표시용 역변환) |
+| (이 커밋) | (11-16) 4d48523 서보(조향) 표시를 사용자 결정으로 되돌림: `status_json`의 `servo_moving`·`steering_estimate_deg`·`steering_target_estimate_deg`, `control_trace`의 서보 값, 웹 GUI 조향 게이지, 미리보기 서보 왕복, `PlanningCalibration::radFor()`와 그 시험을 모두 뺌(코드는 230259c와 같음) |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 

@@ -810,10 +810,6 @@ public:
         pump(.70);
         expect(status_.value("manual_reverse_max_erpm",-1.0)==600.0&&!status_.value("manual_reversal_wait",true),
                "status reports the manual reverse limit and no reversal wait");
-        // 11-16: servo movement fields for the GUIs (estimates are null without a valid planning steering table).
-        expect(status_.contains("servo_moving")&&status_.at("servo_moving").is_boolean()&&
-               status_.contains("steering_estimate_deg")&&status_.contains("steering_target_estimate_deg"),
-               "status reports servo movement and the LPP-equivalent steering estimate fields");
         expect(commission(1,3,active,1,0.0,.5,0.0),"reverse fixture: manual session starts at zero");
         const auto first=observed_motor_erpm_.size();
         expect(commission(2,3,active,2,-300.0,.5,0.0),"GUI MANUAL accepts a reverse target within the limit");
