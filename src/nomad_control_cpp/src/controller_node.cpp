@@ -44,6 +44,7 @@ using namespace std;
 
 namespace nomad {
 namespace {
+constexpr double kRadToDeg = 57.29577951308232;
 // 하나의 출력 소유자가 수동/LPP 입력을 중재합니다. monitor는 장치 publisher를 만들지 않습니다.
 class ControllerNodeImpl final : public ControllerNode {
 public:
@@ -1253,6 +1254,18 @@ private:
             data["commanded_motor_erpm"] = raw_controller_->commandedMotorErpm();
             data["target_motor_erpm"] = raw_controller_->targetMotorErpm();
             data["requested_servo_position"] = raw_controller_->requestedServoPosition();
+            // 11-16: servo movement for the GUIs. The output follows the target at servo_rate_s (no angle sensor).
+            data["servo_moving"] = abs(raw_controller_->requestedServoPosition() -
+                                       raw_controller_->commandedServoPosition()) > 1e-4;
+#ifdef NOMAD_ENABLE_PLANNING
+            // LPP-equivalent steering angle of the servo command via the planning steering table (not measured).
+            const auto steeringDeg = [&](double servo) {
+                const double rad = planning_calibration_.radFor(servo);
+                return isfinite(rad) ? nlohmann::json(rad * kRadToDeg) : nlohmann::json(nullptr);
+            };
+            data["steering_estimate_deg"] = steeringDeg(raw_controller_->commandedServoPosition());
+            data["steering_target_estimate_deg"] = steeringDeg(raw_controller_->requestedServoPosition());
+#endif
             data["servo_rate_s"] = raw_options_.manual_servo_rate_s;
             data["motor_control_mode"] = "vesc_speed_pid";
             data["speed_pid_min_erpm"] = speed_pid_min_erpm_;
@@ -1328,13 +1341,16 @@ private:
             const auto requested=planning_guard_->target(ros_now,steady_now);
             data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
             RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
-                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s stop=%s stop_a=%.1f erpm_valid=%d start_gate=%s reset_required=%d",
+                "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s stop=%s stop_a=%.1f erpm_valid=%d start_gate=%s reset_required=%d"
+                " servo_target=%.3f servo_out=%.3f steer_est_deg=%.1f",
                 supervisor_.active()?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
                 thermal_.temp_c(),thermal_.state().c_str(),
                 stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none",stop_output_.last()?stop_output_.last()->current_a:0.0,
                 static_cast<int>(stop_output_.erpmValid()),
-                planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()));
+                planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()),
+                raw_controller_->requestedServoPosition(),raw_controller_->commandedServoPosition(),
+                planning_calibration_.radFor(raw_controller_->commandedServoPosition())*kRadToDeg);
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
         data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);

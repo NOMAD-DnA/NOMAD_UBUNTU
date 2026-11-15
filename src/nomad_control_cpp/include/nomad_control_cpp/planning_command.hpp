@@ -44,6 +44,18 @@ struct PlanningCalibration {
         const double t=(rad-steering_rads[i-1])/(steering_rads[i]-steering_rads[i-1]);
         return steering_servos[i-1]+t*(steering_servos[i]-steering_servos[i-1]);
     }
+    // 11-16: the inverse of servoFor for display (GUI, logs): the LPP-equivalent steering angle of a servo command.
+    // Not a measured wheel angle (there is no angle sensor). NAN outside the verified table.
+    double radFor(double servo) const {
+        if(!std::isfinite(servo)||!validSteering())return NAN;
+        if(steering_rads.empty())return (servo-servo_zero)/servo_per_rad;
+        for(std::size_t i=1;i<steering_servos.size();++i){
+            const double a=steering_servos[i-1],b=steering_servos[i];
+            if(servo>=std::min(a,b)-1e-12&&servo<=std::max(a,b)+1e-12)
+                return steering_rads[i-1]+(servo-a)/(b-a)*(steering_rads[i]-steering_rads[i-1]);
+        }
+        return NAN;
+    }
 };
 struct PlanningTarget {double erpm=0,servo=.5;};
 

@@ -9,6 +9,14 @@
 <style>
 :root{font-family:"Segoe UI","Malgun Gothic",sans-serif;background:#0b1019;color:#eaf0f8}main{max-width:1180px;padding:24px 32px}.brand{font-size:21px;letter-spacing:4px}.sub{font-size:11px;letter-spacing:1px}.badge{color:#82e6cd;background:#122822;border-color:#2e5b50}header{margin-bottom:22px;padding:12px 0;gap:20px}header>div:last-child{display:flex;align-items:center;gap:12px}.quick-stop{width:auto;margin:0;padding:11px 20px}.hero{display:flex;justify-content:space-between;align-items:center;gap:24px;margin:18px 0 24px}.eyebrow{color:#79dcca;font-size:11px;letter-spacing:2px;font-weight:700}h1{font-size:30px;margin:8px 0}.hero p{margin:0;font-size:13px;color:#9eafc3}.mode-pill{border:1px solid #394963;border-radius:8px;padding:10px 14px;white-space:nowrap;font-size:12px;color:#b8c8df}.grid{grid-template-columns:minmax(0,1.25fr) minmax(300px,.85fr);gap:20px}.card{padding:25px;border-radius:18px;background:#131c29;border-color:#26354a}.card h2{font-size:16px}.number-tag{color:#6bcfbb;font-size:11px;letter-spacing:2px;margin-right:9px}.status-banner{background:#162638;border:1px solid #304961;border-radius:12px;padding:17px 20px;margin-bottom:20px}.status-banner strong{display:block;font-size:17px}.status-banner p{font-size:13px;color:#b7c8dd;margin:5px 0 0}.start{padding:17px;font-size:17px;margin:0 0 8px}.control{margin:24px 0 10px;padding:19px;background:#0d1521;border:1px solid #26364b;border-radius:12px}.control label{font-size:15px}input[type=number]{font-size:22px;text-align:right;width:128px}input[type=range]{height:36px;margin:20px 0 8px}.range-labels{font-variant-numeric:tabular-nums}.unit-readout{font-size:16px;color:#82e6cd;line-height:1.8;margin:10px 0 4px;font-variant-numeric:tabular-nums}.small{font-size:12px}.metrics{gap:12px}.metric{border:1px solid #26354a;padding:16px}.metric strong{font-size:29px}.checks{border-top:1px solid #2b3a4e;padding-top:15px}.stop{margin-top:15px}.notice{font-size:12px;padding:10px 14px;margin:12px 0}.reason{margin:12px 0;font-size:12px}details{border-top:1px solid #2a3a4d;margin-top:18px;padding-top:14px}summary{cursor:pointer;color:#afc2db;font-size:13px;font-weight:600}details p{margin:10px 0}.guide{border:0;background:transparent;padding:0}.presets{gap:8px}.presets button{padding:11px 6px}.actions{margin-top:12px}.network-panel{padding:16px;border:1px solid #bb7654;border-radius:10px;background:#332218}.network-panel a{color:#87e6d2}.footer-note{padding:16px 0;color:#8ca0ba;font-size:12px}#stabilityHelp{color:#e7c48e}#message:empty{min-height:0;margin:0}@media(max-width:760px){main{padding:16px}.grid{grid-template-columns:1fr}.hero{display:block}.mode-pill{display:inline-block;margin-top:12px}header>div:last-child{gap:6px}.badge{padding:8px;font-size:11px}.quick-stop{padding:10px}.card{padding:18px}h1{font-size:25px}}
 </style>
+<style>
+.steer{margin-top:18px}.steer-track{position:relative;height:18px;margin:8px 0 4px;border-radius:9px;background:#16202d;border:1px solid #2a3a4d}
+.steer-center{position:absolute;top:-4px;bottom:-4px;width:2px;margin-left:-1px;left:50%;background:#5c6f85}
+.steer-mark{position:absolute;top:2px;width:12px;height:12px;margin-left:-6px;border-radius:50%;transition:left .1s linear}
+.steer-mark.target{border:2px solid #f2c94c}.steer-mark.output{background:#82e6cd;box-shadow:0 0 6px #82e6cd88}
+.steer-legend{display:inline-flex;gap:12px}.steer-legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:5px;vertical-align:-1px;box-sizing:border-box}
+.steer-moving{color:#f2c94c}
+</style>
 <main>
 <header><div><div class="brand">NOMAD</div><div class="sub">VEHICLE CONTROL</div></div><div><div class="badge" id="connection">연결 확인 중</div><button id="quickStop" class="quick-stop">STOP · Esc</button></div></header>
 <div class="hero"><div><div class="eyebrow">MANUAL CONTROL</div><h1>차량 조종</h1><p>시작을 누른 뒤 슬라이더로 조종하세요. 종료할 때는 STOP.</p></div><span class="mode-pill">NOMAD CONTROL</span></div>
@@ -58,6 +66,10 @@
 </section>
 <section class="card"><h2><span class="number-tag">02</span>차량 상태 <span class="badge" id="state">—</span></h2>
 <div class="metrics"><div class="metric"><span>현재 VESC 회전수 · ERPM</span><strong id="erpm">—</strong></div><div class="metric"><span id="speedMetricLabel">제어기 속도 명령 · ERPM</span><strong id="measuredSpeed">—</strong></div><div class="metric"><span>입력 전압 · V</span><strong id="voltage">—</strong></div><div class="metric"><span>모터 전류 · A</span><strong id="current">—</strong></div></div>
+<div class="steer" id="steerPanel"><div class="row small"><span>조향 서보 명령 · 0~1</span><span id="steerText">—</span></div>
+<div class="steer-track" aria-hidden="true"><div class="steer-center" id="steerCenterMark"></div><div class="steer-mark target" id="steerTargetMark" hidden></div><div class="steer-mark output" id="steerOutputMark" hidden></div></div>
+<div class="row small"><span id="steerAngle">LPP 환산 조향각 —</span><span class="steer-legend"><span><i style="background:#82e6cd"></i>현재 출력</span><span><i style="border:2px solid #f2c94c"></i>목표</span></span></div>
+<p class="small" style="margin:4px 0 0">바퀴 각도 센서가 없어 제어기가 서보에 보내는 명령을 보여 줍니다. 각도는 LPP 조향표로 환산한 값이며 실측이 아닙니다.</p></div>
 <div class="row small" style="margin-top:20px"><span id="remainingLabel">수동 제어 상태</span><span id="remaining">대기</span></div><progress id="progress" max="5" value="0"></progress>
 <button class="stop" id="stop">STOP · 구동 해제</button><p class="small" id="stopHelp">STOP은 구동 해제입니다. 정지 브레이크·유지는 제어기 설정을 따릅니다.</p>
 <details><summary>연결 및 제어 설정</summary><p id="stabilityHelp" class="small"></p><div class="checks" id="checks">telemetry 대기 중</div><p class="reason" id="reason">제어기를 기다리고 있습니다.</p><p id="networkProfileHelp" class="notice" hidden></p><div class="metrics"><div class="metric" id="servoTargetMetric" hidden><span>조향 목표</span><strong id="servoTarget">—</strong></div><div class="metric" id="servoCommandMetric" hidden><span>조향 출력 명령</span><strong id="servoCommand">—</strong></div></div><p id="servoCommandHelp" class="small" hidden></p><p id="notice" class="small">보정 상태 확인 중</p><p id="measurementNote" class="small"></p></details>
@@ -86,6 +98,19 @@ const timingSamples={post:0,status:0};
 const updateIntervalMs=50;
 const statusIntervalMs=100;
 const number=(value,digits=1)=>typeof value==='number'&&Number.isFinite(value)?value.toFixed(digits):'—';
+const signed=(value,digits=1)=>typeof value==='number'&&Number.isFinite(value)?(value>0?'+':'')+value.toFixed(digits):'—';
+// 11-16: servo output (follows the target at servo_rate_s) and target on a 0~1 gauge, plus the LPP-equivalent angle.
+function renderSteering(data,live){
+  const lo=Number.isFinite(data.servo_min)?data.servo_min:0,hi=Number.isFinite(data.servo_max)?data.servo_max:1,span=hi-lo;
+  const at=value=>live&&typeof value==='number'&&Number.isFinite(value)&&span>0?Math.min(100,Math.max(0,(value-lo)/span*100))+'%':null;
+  const out=data.commanded_servo_position,target=data.requested_servo_position;
+  for(const [id,value] of [['steerOutputMark',out],['steerTargetMark',target],['steerCenterMark',data.servo_center]]){
+    const left=at(value);if(id!=='steerCenterMark')$(id).hidden=!left;if(left)$(id).style.left=left;}
+  const moving=live&&data.servo_moving===true;
+  setText('steerText',live&&Number.isFinite(out)?'출력 '+number(out,3)+' · 목표 '+number(target,3)+(moving?' · 움직이는 중':''):'—');
+  $('steerText').classList.toggle('steer-moving',moving);
+  setText('steerAngle',live&&Number.isFinite(data.steering_estimate_deg)?'LPP 환산 조향각 '+signed(data.steering_estimate_deg)+'° (목표 '+signed(data.steering_target_estimate_deg)+'°)':'LPP 환산 조향각 —');
+}
 const presets=[['servoLow','servo_min',-1],['servoCenter','servo_center',0],['servoHigh','servo_max',1]];
 function message(text){setText('message',text);}
 function setValue(name,value){$(name).value=value;$(name+'Number').value=value;if(name==='speed'){refreshLowSpeedWarning();refreshSpeedUnits();}}
@@ -470,6 +495,7 @@ function render(data){
   setText('connection',data.preview?'미리보기 · 장치 미연결':connected?'제어기 연결됨':'제어기 연결 끊김');setText('state',data.state||'DISCONNECTED');
   setText('notice',data.preview?'화면 미리보기입니다. 실제 차량 명령은 보낼 수 없습니다.':!connected?'제어기 연결을 확인하세요. 연결이 복구되어도 직접 시작해야 합니다.':data.state==='MONITOR'?'MONITOR · 실제 telemetry 수신 전용입니다.':raw?'보정 전 공중 수동 제어 · 조향 입력 ±'+number(rawAngleLimit(data),3)+' rad를 서보 명령에 임시 환산합니다. 실제 바퀴 각도와 속도 m/s는 미보정입니다.':!data.calibration_verified?'보정 미확인: 실측값을 설정해야 차량을 구동할 수 있습니다.':'실차 단기 시험 · 차량 고정과 실제 정지 수단을 확인하세요.');
   setText('speedMetricLabel',raw?'제어기 속도 명령 · ERPM':'환산 속도 · m/s');
+  renderSteering(data,connected||data.preview===true);
   for(const [id,key,digits] of [['erpm','raw_erpm',0],['measuredSpeed',raw?'commanded_motor_erpm':'speed_mps',raw?0:3],['voltage','voltage_v',1],['current','current_a',2]])setText(id,fresh?number(data[key],digits):'—');
   if(directServo(data)){setText('degrees','서보 '+number(Number($('steeringNumber').value),3));setText('notice','조향 범위 0~1');}
   setText('servoCommand',connected?number(data.commanded_servo_position,4):'—');setText('servoTarget',number(raw?rawAngleToServo(Number($('steeringNumber').value)):Number($('steeringNumber').value),4));
