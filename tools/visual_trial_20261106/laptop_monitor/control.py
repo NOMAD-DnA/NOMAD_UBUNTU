@@ -250,7 +250,7 @@ def _jetson_recording_check(jetson_host, password):
 
 
 def stop_boards(pi_host, jetson_host, password, progress_callback: Callable | None = None,
-                timeout_s=18, only=None) -> dict:
+                timeout_s=30, only=None) -> dict:
     """Stop both current trial runs concurrently; board power stays on.
 
     only: boards to stop (e.g. {"pi5"} when retrying after a partial stop).
@@ -280,7 +280,7 @@ def stop_boards(pi_host, jetson_host, password, progress_callback: Callable | No
     # reported as STOPPED merely because its SSH connection has disappeared.
     with ThreadPoolExecutor(max_workers=2) as executor:
         pending = {executor.submit(run_remote, host, BASE_DIR / "remote/stop_trial.sh", password,
-                                   min(float(timeout_s), 18)): board
+                                   min(float(timeout_s), 30)): board
                    for board, host in hosts.items() if board not in boards}
         for future in as_completed(pending):
             board = pending[future]

@@ -17,6 +17,7 @@ found=0
 swept=0
 kept=0
 board=""
+lidar_hardware=not_checked
 recording_marker=/mnt/ssd/bags/RECORDING
 current_uid=$(id -u)
 boot_id=$(cat /proc/sys/kernel/random/boot_id)
@@ -26,7 +27,7 @@ result() {
   for pid in "${!survivors[@]}"; do
     (( n++ < 12 )) && list+="${list:+,}${survivors[$pid]}:$pid"
   done
-  printf 'NOMAD_STOP_RESULT={"state":"%s","reason":"%s","targets":%s,"remaining":%s,"rejected":%s,"swept":%s,"kept":%s,"recording":%s,"survivors":"%s"}\n' "$1" "$2" "${found:-0}" "${remaining:-0}" "${rejected:-0}" "${swept:-0}" "${kept:-0}" "$( (recording_active || (( kept ))) && echo true || echo false)" "$list"
+  printf 'NOMAD_STOP_RESULT={"state":"%s","reason":"%s","targets":%s,"remaining":%s,"rejected":%s,"swept":%s,"kept":%s,"recording":%s,"survivors":"%s","lidar_hardware":"%s"}\n' "$1" "$2" "${found:-0}" "${remaining:-0}" "${rejected:-0}" "${swept:-0}" "${kept:-0}" "$( (recording_active || (( kept ))) && echo true || echo false)" "$list" "$lidar_hardware"
 }
 
 # 2026-11-16: a Jetson sensor recording is running; its sensors must stay up.
@@ -360,6 +361,76 @@ stop_captured() {
   wait_gone 3
 }
 
+
+# Process shutdown alone does not stop a spinning YDLIDAR. Use the installed
+# SDK's FORCE_STOP/STOP + active-high DTR motor-off sequence for this CP2102 unit.
+# No start command, USB power operation, or Python runs on the board.
+stop_lidar_hardware() {
+  [[ "$board" == jetson ]] || { lidar_hardware=not_applicable; return 0; }
+  recording_active && { lidar_hardware=recording_active; return 1; }
+  local port=/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0
+  local work rc
+  [[ -e "$port" ]] || { lidar_hardware=not_present; return 0; }
+  lidar_hardware=failed
+  # Do not write to an in-use port, including a driver outside the module list.
+  command -v fuser >/dev/null && command -v g++ >/dev/null || return 1
+  fuser -s "$port" && { lidar_hardware=port_busy; return 1; }
+  mountpoint -q /mnt/ssd && [[ "$(readlink -f "$ws/log")" == /mnt/ssd/* ]] || return 1
+  work=$(mktemp -d "$ws/log/lidar-stop.XXXXXXXX") || return 1
+  cat > "$work/stop.cpp" <<'NOMAD_LIDAR_CPP'
+#include <cerrno>
+#include <cstdio>
+#include <fcntl.h>
+#include <poll.h>
+#include <sys/file.h>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
+// This unit uses 230400 baud and DTR=0 for motor off, verified against its SDK.
+int main(int argc, char** argv) {
+  if (argc != 2) return 2;
+  int fd = open(argv[1], O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) { perror("lidar open"); return 2; }
+  auto fail = [&](const char* why) { perror(why); close(fd); return 2; };
+  if (flock(fd, LOCK_EX | LOCK_NB) || ioctl(fd, TIOCEXCL)) return fail("lidar exclusive");
+  termios t{};
+  if (tcgetattr(fd, &t)) return fail("lidar termios");
+  cfmakeraw(&t);
+  t.c_cflag &= ~(CSIZE | PARENB | CSTOPB | CRTSCTS);
+  t.c_cflag |= CS8 | CREAD | CLOCAL | HUPCL;
+  t.c_cc[VMIN] = 0; t.c_cc[VTIME] = 0;
+  if (cfsetispeed(&t, B230400) || cfsetospeed(&t, B230400) || tcsetattr(fd, TCSANOW, &t)) return fail("lidar baud");
+  const unsigned char force_stop[] = {0xa5, 0x00}, stop[] = {0xa5, 0x65};
+  if (write(fd, force_stop, 2) != 2 || tcdrain(fd)) return fail("lidar force stop");
+  usleep(50000);
+  if (write(fd, stop, 2) != 2 || tcdrain(fd)) return fail("lidar stop");
+  int dtr = TIOCM_DTR;
+  if (ioctl(fd, TIOCMBIC, &dtr)) return fail("lidar motor off");
+  usleep(600000);
+  int bits = 0;
+  if (ioctl(fd, TIOCMGET, &bits)) return fail("lidar motor readback");
+  if (bits & TIOCM_DTR) { close(fd); return 3; }
+  if (tcflush(fd, TCIFLUSH)) return fail("lidar flush");
+  pollfd input{fd, POLLIN, 0};
+  int ready;
+  do { ready = poll(&input, 1, 1000); } while (ready < 0 && errno == EINTR);
+  if (ready < 0 || (ready > 0 && (input.revents & (POLLERR | POLLHUP | POLLNVAL)))) return fail("lidar readback");
+  char data[4096];
+  ssize_t bytes = ready > 0 ? read(fd, data, sizeof(data)) : 0;
+  close(fd);
+  if (bytes < 0 || bytes > 0) return 4;
+  puts("NOMAD_LIDAR_STOP={\"commands\":[\"a500\",\"a565\"],\"motor_dtr_enabled\":false,\"received_bytes_after_stop_1s\":0}");
+  return 0;
+}
+NOMAD_LIDAR_CPP
+  timeout 5 g++ -std=c++11 -O0 "$work/stop.cpp" -o "$work/stop" &&
+    timeout 4 "$work/stop" "$port"
+  rc=$?
+  rm -rf -- "$work"
+  (( rc == 0 )) || return 1
+  lidar_hardware=stop_commands_verified
+}
+
 main() {
   local user model pointer run file name pid state count group member_group member_uid
   user=$(id -un)
@@ -410,18 +481,23 @@ main() {
   sweep_and_report pointer
 }
 
-# Time budget (run_remote 18 s): pid-file stop <= 4.3 s + sweep <= 5.3 s + scans.
+# Stop transport budget 30 s: PID stop <= 4.3 s + sweep <= 5.3 s,
+# SSD helper compile <= 5 s + hardware command/readback <= 4 s, plus scans.
 sweep_and_report() {
   local mode=$1
   each_module_process sweep_capture sweep_label
   (( swept )) && stop_captured 30
   collect_survivors
   # A running sensor recording wins over leftovers: never let it look power-off-safe.
-  if (( kept )); then
+  if (( kept )) || recording_active; then
+    lidar_hardware=recording_active
     result FAILED recording_active; return 2
   fi
   if (( remaining || rejected )); then
     result FAILED owned_cleanup_incomplete; return 2
+  fi
+  if ! stop_lidar_hardware; then
+    result FAILED lidar_hardware_stop_failed; return 2
   fi
   if [[ "$mode" == no_pointer ]]; then
     if (( swept )); then result STOPPED orphan_modules_stopped_board_power_on

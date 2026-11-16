@@ -378,7 +378,7 @@ class Launcher(QtWidgets.QMainWindow):
         self.log.setMaximumBlockCount(800)
         self.log.setPlaceholderText("검색 결과와 실행 진행 상황")
         layout.addWidget(self.log, 1)
-        footer = QtWidgets.QLabel("‘시험 종료’는 두 보드의 센서·모듈을 종료합니다. 보드 전원과 결과 기록은 유지합니다.")
+        footer = QtWidgets.QLabel("‘시험 종료’는 센서 프로그램과 LiDAR 회전을 정지합니다. 보드와 USB 전원, 결과 기록은 유지합니다.")
         footer.setObjectName("muted")
         footer.setWordWrap(True)
         layout.addWidget(footer)
