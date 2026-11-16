@@ -117,8 +117,13 @@ public:
                 msg.state.speed = telemetry_erpm_;
                 msg.state.current_motor = 0.0;
                 msg.state.avg_iq = telemetry_iq_;
-                msg.state.current_input = 0.0;
+                msg.state.current_input = 1.5;
                 msg.state.voltage_input = 12.0;
+                // Display-only values (status_json / vesc_trace); no control decision uses them.
+                msg.state.duty_cycle = 0.05; msg.state.avg_id = 0.25; msg.state.avg_vd = -0.5; msg.state.avg_vq = 1.5;
+                msg.state.charge_drawn = 0.125; msg.state.charge_regen = 0.0625; msg.state.energy_drawn = 2.5;
+                msg.state.energy_regen = 1.25; msg.state.displacement = 1234; msg.state.distance_traveled = 4321;
+                msg.state.controller_id = 111;
                 msg.state.fault_code = telemetry_fault_;
                 msg.state.ntc_temp_mos1 = msg.state.ntc_temp_mos2 = msg.state.ntc_temp_mos3 = telemetry_temp_c_;
                 pub_->publish(msg);
@@ -850,6 +855,25 @@ public:
         pump(0.7);
         expect(status_.value("control_units", "") == "raw" && status_.value("commissioning", false), "raw status labels device units");
         expect(status_.at("speed_mps").is_null() && !status_.value("calibration_verified", true), "raw status never invents calibrated speed");
+        // 2026-11-16 VESC display values for the team GUI (fake VESC: 12 V, input 1.5 A).
+        expect(status_.value("input_current_a", 0.0) == 1.5 && status_.value("input_power_w", 0.0) == 18.0 &&
+               status_.value("duty", 0.0) == 0.05 && status_.value("id_a", 0.0) == 0.25 &&
+               status_.value("vd_v", 0.0) == -0.5 && status_.value("vq_v", 0.0) == 1.5 &&
+               status_.at("iq_a").is_number(), "raw status reports VESC input current, power, duty and d/q values");
+        expect(status_.value("charge_drawn_ah", 0.0) == 0.125 && status_.value("charge_regen_ah", 0.0) == 0.0625 &&
+               status_.value("energy_drawn_wh", 0.0) == 2.5 && status_.value("energy_regen_wh", 0.0) == 1.25 &&
+               status_.value("tacho", 0) == 1234 && status_.value("tacho_abs", 0) == 4321 &&
+               status_.value("vesc_controller_id", 0) == 111, "raw status reports VESC counters and id");
+        expect(status_.at("esc_mos_temps_c").is_array() && status_.at("esc_mos_temps_c").size() == 3 &&
+               status_.value("fault_name", string()) == "NONE", "raw status reports per-MOSFET temperatures and the fault name");
+        {
+            const double age = status_.value("telemetry_age_s", -1.0);
+            expect(age >= 0.0 && age < 0.2, "raw status reports a fresh telemetry age");
+        }
+#ifdef NOMAD_ENABLE_PLANNING
+        expect(status_.contains("estimated_speed_mps") && !status_.value("estimated_speed_verified", true),
+               "raw status labels the ERPM speed estimate as unverified");
+#endif
         expect(!call("start_test") && !manual(1, a), "commission rejects both calibrated start paths");
         expect(commission(3, 0, a), "raw STOP with no axis/goals accepted");
         expect(!commission(1, 1, a), "raw delayed START after STOP rejected");

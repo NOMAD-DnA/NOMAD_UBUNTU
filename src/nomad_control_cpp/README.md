@@ -138,6 +138,29 @@ GUI 팀원이 노트북 '키보드 조종'(공유폴더 GUI `keyboard_drive.py`,
 - 70~80 ℃는 `derate`로 표시되지만 ERPM 제어기는 출력을 줄이지 않습니다(출력 감쇄는 VIO duty 제어기만).
 - 11-12 야지 시험 최고 31.4 ℃. 온도 정지 중에도 정지 출력(핸드브레이크)은 계속 나갑니다.
 
+### 팀 GUI용 VESC 값 (2026-11-16)
+
+VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 표시용으로 내보냅니다. 어떤 제어 판단에도 쓰지 않습니다. 첫 상태값이 오기 전에는 `null`입니다.
+
+- **`status_json` 추가 키**(키보드·수동 모드는 GUI가 HTTP `/api/status`로 받음):
+  - `input_current_a`: 배터리(입력) 전류 A. 상 전류로 계산한 VESC 추정값입니다(75_300에는 직류 전류 측정 저항이 없음).
+  - `input_power_w`: 배터리 전력 W(전압 × 입력 전류, 회생이면 음수).
+  - `iq_a`·`id_a`: 토크·자속 전류 A(VESC `avg_iq`·`avg_id`). `iq_a`가 모터 힘을 가장 잘 보여 줍니다. HFI에서는 `id_a`가 0 근처입니다.
+  - `duty`: −1~1. 절댓값이 VESC 최대 0.95에 가까우면 그 배터리 전압에서 낼 수 있는 최고 속도입니다.
+  - `vd_v`·`vq_v`: d·q축 전압 V(진단용).
+  - `esc_mos_temps_c`: MOSFET 온도 3개 각각(`esc_temp_c`는 그중 최고).
+  - `charge_drawn_ah`·`charge_regen_ah`·`energy_drawn_wh`·`energy_regen_wh`: VESC를 켠 뒤 누적 사용량. 모터 전류가 1 A를 넘을 때만 세고, VESC를 다시 켜면 0입니다.
+  - `tacho`·`tacho_abs`: VESC 타코미터(전기 1회전에 6, 방향 반영·절댓값 누적). HFI 추정 각도로 세므로 핸드브레이크 중에는 멈추고, 거리 환산(극수·기어비·바퀴)은 확인되지 않았습니다.
+  - `vesc_controller_id`: VESC 앱 ID(지금 111).
+  - `fault_name`: `fault_code`의 펌웨어 5.03 이름(`NONE`, `UNDER_VOLTAGE`, `ABS_OVER_CURRENT`, …, 상태값 전이면 `NO_TELEMETRY`).
+  - `telemetry_age_s`: 마지막 VESC 상태값을 받은 뒤 지난 시간.
+  - `estimated_speed_mps`·`estimated_speed_verified`: ERPM ÷ `planning.erpm_per_mps`(3721.88)로 계산한 바퀴 속도. 지면 속도가 아니고 환산값도 실측 검증 전이라 `estimated_speed_verified`는 지금 false입니다. 핸드브레이크 중에는 0으로 고정됩니다(`erpm_valid` false).
+- **`vesc_trace` 로그 줄**(1초에 1번, `control_trace` 바로 뒤): 자율주행 모드에는 HTTP 상태가 없어 GUI가 제어기 로그를 읽으므로, 거기서 볼 값을 따로 남깁니다. `control_trace`는 GUI·로그 분석 도구가 읽는 형식이라 그대로 두고, 각 줄이 GUI 로그 읽기의 400자 제한 안에 들어가도록 나눴습니다.
+  `vesc_trace voltage_v= input_current_a= power_w= iq_a= duty= fault_code= fault= servo_cmd= servo_target= hold_basis= telemetry_age_ms=`
+  `servo_cmd`는 실제로 보낸 서보 명령(0~1), `servo_target`은 변화율을 적용하기 전 목표입니다. 둘 다 명령값이며 조향 측정값이 아닙니다(서보 피드백 없음). `telemetry_age_ms`는 상태값이 없으면 −1입니다.
+- 이미 있던 값: `raw_erpm`, `current_a`, `voltage_v`, `fault_code`, `esc_temp_c`·`esc_temp_state`, `erpm_valid`, `stop_output`·`stop_output_a`·`stop_hold_basis`, `commanded_servo_position`·`requested_servo_position`, `commanded_motor_erpm`·`target_motor_erpm`, `telemetry_fresh`, `driver_ready`. `control_trace`에는 `esc_temp_c`, `thermal`, `stop`, `stop_a`, `erpm_valid`가 이미 있습니다.
+- VESC는 알지만 지금 드라이버가 넘기지 않는 값(드라이버 수정 필요): VESC 명령 타임아웃 상태(응답 마지막 바이트), 가동 시간(재부팅 감지), 펌웨어·하드웨어 이름. 드라이버는 `temp_fet`·`temp_motor`를 읽고도 메시지에 넣지 않아 늘 0입니다(모터 온도 센서는 원래 없음).
+
 현재 설정은 이 README와 YAML을 기준으로 확인하세요. 날짜가 붙은 기존 `.ko.txt` 문서는 당시 시험·배포 기록이며 최신 실행 설정과 다를 수 있습니다.
 
 ## VESC 설정 (2026-11-12, HFI)
@@ -260,7 +283,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 22760dc | (11-16) 리팩토링: 'headless 자율주행은 대기, 나머지는 잠금' 규칙을 `pauseOrLatch()` 하나로(6곳·3가지 모양이던 것), 제어 주기 지연 검사도 `timerStalled()` 하나로 |
 | 230259c | (11-16) 컴파일 경고 `-Wall -Wextra` 켬(제어 코드·ROS 빌드 경고 0), 시험 경고 3곳 정리, 시험에 남은 없는 설정 `planning.startup_boost_enabled` 삭제 |
 | 4e64c7e | (11-16) 4d48523 서보(조향) 표시를 사용자 결정으로 되돌림: `status_json`의 `servo_moving`·`steering_estimate_deg`·`steering_target_estimate_deg`, `control_trace`의 서보 값, 웹 GUI 조향 게이지, 미리보기 서보 왕복, `PlanningCalibration::radFor()`와 그 시험을 모두 뺌(코드는 230259c와 같음) |
-| (이 커밋) | (11-16) 4e64c7e Pi4 배포 기록(`92523911…`) |
+| 8d90802 | (11-16) 4e64c7e Pi4 배포 기록(`92523911…`) |
+| (이 커밋) | (11-16) 팀 GUI용 VESC 값: `status_json`에 입력 전류·전력·iq·id·duty·vd/vq·MOSFET 3개·Ah/Wh·타코·VESC ID·고장 이름·상태값 나이·추정 속도, 자율주행용 1초 `vesc_trace` 로그 줄, 시험 `vesc_telemetry_display`와 ROS 시험 검사. 표시 전용(제어 판단 바뀜 없음), Pi4 미배포 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 

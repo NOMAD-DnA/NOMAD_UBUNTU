@@ -8,6 +8,7 @@
 #include "nomad_control_cpp/planning_speed_feedback.hpp"
 #include "nomad_control_cpp/control_limits.hpp"
 #include "nomad_control_cpp/stop_output.hpp"
+#include "nomad_control_cpp/vesc_telemetry.hpp"
 #include "nomad_thermal/thermal_guard.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
@@ -982,6 +983,11 @@ private:
         last_current_ = s.current_motor;
         last_iq_ = s.avg_iq;
         last_fault_ = s.fault_code;
+        // Display only (status_json, vesc_trace): no control decision uses these.
+        vesc_display_ = {true, s.current_input, s.duty_cycle, s.avg_id, s.avg_iq, s.avg_vd, s.avg_vq,
+                         {s.ntc_temp_mos1, s.ntc_temp_mos2, s.ntc_temp_mos3},
+                         s.charge_drawn, s.charge_regen, s.energy_drawn, s.energy_regen,
+                         s.displacement, s.distance_traveled, s.controller_id};
         // Drive current and speed for the load-sized hold (StopOutput ignores them outside a drive).
         if (driving_) stop_output_.observeDrive(*last_telemetry_rx_, s.avg_iq, s.speed);
         if (thermal_.update({s.ntc_temp_mos1, s.ntc_temp_mos2, s.ntc_temp_mos3}))
@@ -1276,6 +1282,29 @@ private:
         data["autonomous_active"]=supervisor_.active();
         data["esc_temp_c"]=thermal_.valid()?nlohmann::json(thermal_.temp_c()):nlohmann::json(nullptr);
         data["esc_temp_state"]=thermal_.state();
+        // 2026-11-16: more VESC values for the team GUI (display only; null before the first telemetry sample).
+        // input_current_a is the VESC estimate (no DC-bus shunt); Ah/Wh/tacho count from VESC power-up.
+        data["fault_name"]=vescFaultName(last_fault_);
+        data["telemetry_age_s"]=last_telemetry_rx_?nlohmann::json(max(0.0,steady_now-*last_telemetry_rx_)):nlohmann::json(nullptr);
+        {
+            const auto& v=vesc_display_;
+            const auto shown=[&](auto value){return v.received?nlohmann::json(value):nlohmann::json(nullptr);};
+            data["input_current_a"]=shown(v.input_current_a);
+            data["input_power_w"]=shown(inputPowerW(last_voltage_,v.input_current_a));
+            data["iq_a"]=shown(v.iq_a);
+            data["id_a"]=shown(v.id_a);
+            data["duty"]=shown(v.duty);
+            data["vd_v"]=shown(v.vd_v);
+            data["vq_v"]=shown(v.vq_v);
+            data["esc_mos_temps_c"]=v.received?nlohmann::json(v.mos_temp_c):nlohmann::json(nullptr);
+            data["charge_drawn_ah"]=shown(v.charge_drawn_ah);
+            data["charge_regen_ah"]=shown(v.charge_regen_ah);
+            data["energy_drawn_wh"]=shown(v.energy_drawn_wh);
+            data["energy_regen_wh"]=shown(v.energy_regen_wh);
+            data["tacho"]=shown(v.tacho);
+            data["tacho_abs"]=shown(v.tacho_abs);
+            data["vesc_controller_id"]=shown(v.controller_id);
+        }
         // Stop output configured on this node (0 = not used); see releaseMotor for how it is chosen.
         data["stop_brake_current_a"]=brake_pub_?stop_output_.config().brake_current_a:0.0;
         data["stop_handbrake_current_a"]=handbrake_pub_?stop_output_.config().hold_current_a:0.0;
@@ -1321,6 +1350,11 @@ private:
         data["planning_feedback_reducing"]=planning_feedback_reducing_;
         data["planning_minimum_start_erpm"]=planning_measured_speed_control_?0:planning_min_start_erpm_;
         data["planning_minimum_start_mps"]=!planning_measured_speed_control_&&planning_calibration_.erpm_per_mps>0?planning_min_start_erpm_/planning_calibration_.erpm_per_mps:0;
+        // Wheel speed from the VESC ERPM estimate and planning.erpm_per_mps (not ground speed; frozen at 0 while
+        // the handbrake holds, see erpm_valid). estimated_speed_verified mirrors the planning calibration flag.
+        data["estimated_speed_mps"]=planning_calibration_.erpm_per_mps>0?
+            nlohmann::json(last_raw_erpm_/planning_calibration_.erpm_per_mps):nlohmann::json(nullptr);
+        data["estimated_speed_verified"]=planning_calibration_.verified;
         data["planning_feedback_limit_erpm"]=planning_feedback_limit_erpm_;
         data["planning_stop_ramp_s"]=planning_stop_ramp_s_;
         data["stop_ramp_active"]=raw_controller_&&raw_controller_->stopRampActive();
@@ -1335,11 +1369,22 @@ private:
                 stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none",stop_output_.last()?stop_output_.last()->current_a:0.0,
                 static_cast<int>(stop_output_.erpmValid()),
                 planningStartReason(steady_now).c_str(),static_cast<int>(supervisor_.blocked()));
+            // 2026-11-16: VESC values for the team GUI in autonomy (no HTTP status there; the GUI tails this log).
+            // A separate line: control_trace stays as the GUI and log tools parse it, and each line stays under
+            // the GUI tail's 400-character cut. servo_cmd is the command sent, not a measured steering position.
+            const auto& v=vesc_display_;
+            RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
+                "vesc_trace voltage_v=%.2f input_current_a=%.2f power_w=%.1f iq_a=%.2f duty=%.3f fault_code=%d fault=%s servo_cmd=%.3f servo_target=%.3f hold_basis=%s telemetry_age_ms=%.0f",
+                last_voltage_,v.input_current_a,inputPowerW(last_voltage_,v.input_current_a),v.iq_a,v.duty,last_fault_,
+                vescFaultName(last_fault_),raw_controller_->commandedServoPosition(),raw_controller_->requestedServoPosition(),
+                holdBasisName(stop_output_.holdBasis()),
+                last_telemetry_rx_?1000.0*max(0.0,steady_now-*last_telemetry_rx_):-1.0);
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
         data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
 #else
         data["planning_supported"]=false;data["planning_ready"]=false;
+        data["estimated_speed_mps"]=nullptr;data["estimated_speed_verified"]=false;
 #endif
         status.data = data.dump();
         status_json_pub_->publish(status);
@@ -1419,6 +1464,7 @@ private:
     double last_status_at_ = 0.0;
     double last_raw_erpm_ = 0.0, last_voltage_ = 0.0, last_current_ = 0.0;
     int last_fault_ = -1;
+    VescDisplay vesc_display_;
 };
 } // namespace
 
