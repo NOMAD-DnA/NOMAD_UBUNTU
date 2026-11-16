@@ -503,7 +503,8 @@ class MapPanel(QtWidgets.QWidget):
         layout.addWidget(self.canvas, 1)
         legend = ("Slope | green 0° · yellow 15° · red ≥30° | gray: unknown"
                   if slope else "Cost | green 0 · yellow 50 · red 100 | gray: unknown")
-        key = QtWidgets.QLabel(legend + "\nCyan: position / traveled path · arrow: " + heading_note)
+        self._heading_note = heading_note
+        self.legend = key = QtWidgets.QLabel(legend + "\nCyan: position / traveled path · arrow: " + heading_note)
         key.setWordWrap(True)
         key.setStyleSheet("color:#cbd5e1; font-size:11px;")
         layout.addWidget(key)
@@ -559,6 +560,8 @@ class MapPanel(QtWidgets.QWidget):
     def clear_data(self):
         """A backward replay seek must never retain a future map or vehicle."""
         self.event, self.planning = {}, {}
+        from slope_k import display_legend
+        self.legend.setText(display_legend({}, slope=self.slope) + "\nCyan: position / traveled path / arrow: " + self._heading_note)
         self.pixels = self._last_pixels = None
         self.history, self.pose_age, self.selected_goal = [], None, None
         self._geometry_key = self._planning_key = self._pose_key = self._goal_key = None
@@ -603,6 +606,9 @@ class MapPanel(QtWidgets.QWidget):
             # Keep the last located map visible; do not place an unpaired image
             # using another capture's origin. The status line explains the wait.
             return
+        from slope_k import display_legend
+        legend = display_legend(event, slope=self.slope)
+        self.legend.setText(legend + "\nCyan: position / traveled path / arrow: " + self._heading_note)
         cache_key = image.cacheKey()
         geometry_changed = grid_geometry(event) != grid_geometry(self.event)
         self.event = event
@@ -1789,7 +1795,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                     raise ValueError()
                 if not finite_number(event.get("t")) or not isinstance(event.get("data"), str):
                     raise ValueError()
-                self.images[source] = {k: event.get(k) for k in ("t", "encoding", "data", "width", "height", "grid", "georeferenced", "georeference_reason")}
+                self.images[source] = {k: event.get(k) for k in ("t", "encoding", "data", "width", "height", "grid", "georeferenced", "georeference_reason", "slope_display")}
                 self._image_packet_cache[source] = (board, dict(event))
                 self.image_dirty.add(source)
             elif kind == "log":
