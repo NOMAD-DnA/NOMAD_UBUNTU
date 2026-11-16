@@ -41,6 +41,8 @@ class Tests(unittest.TestCase):
         marker = json.loads((current / li.MARKER).read_text())
         self.assertEqual(marker['source'], str(self.source))
         self.assertEqual(marker['version'], li.tree_version(self.source))
+        self.assertTrue(marker['share_relative'].endswith('NOMAD_실물시험앱_20261106'))
+        self.assertTrue((current / 'laptop_monitor' / 'share_servers.json').is_file())
         self.assertTrue((current / 'laptop_monitor' / 'launcher.py').is_file())
         self.assertTrue((current / 'config').is_dir())
         self.assertIn('수정 금지', (root / 'AGENTS.md').read_text())
@@ -97,6 +99,66 @@ class Tests(unittest.TestCase):
         with mock.patch.object(li, '_bounded', return_value=(None, '')):
             self.assertIsNone(li.source_version(self.source))
 
+    def test_quick_fingerprint_skips_content_read(self):
+        self.run_installer()
+        info = li.installed_info((self.home / 'nomad_gui/current/laptop_monitor'))
+        self.assertEqual(info['fingerprint'], li.tree_fingerprint(self.source))
+        calls = []
+        real = li._bounded
+
+        def spy(args, timeout):
+            calls.append([a for a in args if a in ('version', '--quick')] + [timeout])
+            return real(args, timeout)
+        with mock.patch.object(li, '_bounded', spy):
+            self.assertEqual(li.update_check(info), (None, 'same'))
+        self.assertEqual(calls[1:], [['version', '--quick', 30]])   # no full content hash
+        (self.source / 'laptop_monitor' / 'README.md').write_text('changed\n')
+        newer, why = li.update_check(info)
+        self.assertEqual((newer, why), (li.tree_version(self.source), 'newer'))
+        # old marker without fingerprint still works through the full hash
+        legacy = {k: v for k, v in info.items() if k != 'fingerprint'}
+        self.assertEqual(li.update_check(legacy)[1], 'newer')
+
+    def test_update_check_reasons(self):
+        info = {'version': 'aaaaaaaaaaaa', 'fingerprint': 'bbbbbbbbbbbb', 'source': str(self.source)}
+        self.assertEqual(li.update_check(dict(info, source=str(self.source / 'gone'))), (None, 'unreachable'))
+        answers = iter([(0, ''), (None, '')])
+        with mock.patch.object(li, '_bounded', lambda a, t: next(answers)):
+            self.assertEqual(li.update_check(info), (None, 'timeout'))
+        answers = iter([(0, ''), (0, 'cccccccccccc\n'), (1, '')])
+        with mock.patch.object(li, '_bounded', lambda a, t: next(answers)):
+            self.assertEqual(li.update_check(info), (None, 'error'))
+
+    def test_offer_tells_result_after_password(self):
+        from PyQt5 import QtWidgets
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        import share_mount
+        info = {'feature': li.FEATURE, 'version': 'aaaaaaaaaaaa', 'source': '/gone', 'root': str(self.home)}
+        shown = []
+
+        def resolve(i, ask):
+            ask({'server': '10.42.0.1', 'reason': 'password_needed'})
+            return {'ok': True, 'reason': 'mounted', 'source': str(self.source), 'server': '10.42.0.1', 'message': ''}
+        with mock.patch.object(li, 'installed_info', return_value=info), \
+                mock.patch.object(share_mount, 'resolve_source', resolve), \
+                mock.patch.object(share_mount, 'ask_password_dialog', return_value=('x', False)), \
+                mock.patch.object(li, 'update_check', return_value=(None, 'same')), \
+                mock.patch.object(li, 'pending_uploads', return_value=[]), \
+                mock.patch.object(QtWidgets.QMessageBox, 'information', lambda *a: shown.append(a[2])):
+            li.offer(None)
+        self.assertEqual(len(shown), 1)
+        self.assertIn('최신 버전', shown[0])
+        self.assertIn('10.42.0.1', shown[0])
+        shown.clear()
+        with mock.patch.object(li, 'installed_info', return_value=info), \
+                mock.patch.object(share_mount, 'resolve_source', resolve), \
+                mock.patch.object(share_mount, 'ask_password_dialog', return_value=('x', False)), \
+                mock.patch.object(li, 'update_check', return_value=(None, 'timeout')), \
+                mock.patch.object(li, 'pending_uploads', return_value=[]), \
+                mock.patch.object(QtWidgets.QMessageBox, 'warning', lambda *a: shown.append(a[2])):
+            li.offer(None)
+        self.assertIn('시간이 초과', shown[0])
+
     def test_shared_folder_run_uses_shared_recordings(self):
         out = subprocess.run([sys.executable, '-I', '-c',
                               'import sys;sys.path.insert(0,sys.argv[1]);import session_recording;'
@@ -119,7 +181,7 @@ class Tests(unittest.TestCase):
         fresh.write_bytes(b'z')
         pending = li.pending_uploads(info)
         self.assertEqual([p.name for p in pending], ['a.nomad'])
-        self.assertEqual(li.upload(info, pending), ['a.nomad'])
+        self.assertEqual(li.upload(info, pending), (['a.nomad'], []))
         self.assertTrue((self.integration / '주행기록' / 'a.nomad').is_file())
         self.assertTrue(old.is_file())
         self.assertEqual(li.pending_uploads(info), [])

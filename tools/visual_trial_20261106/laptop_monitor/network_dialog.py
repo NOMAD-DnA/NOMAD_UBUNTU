@@ -77,12 +77,15 @@ class BoardWorker(QtCore.QThread):
                     kind = self.action[5:]
                     values[board] = control.time_request(board, host, self.passwords[board], kind,
                                                          timeout_s=700 if kind == 'install' else 40)
-                    if (kind == 'status' and board != 'pi5' and self.targets.get('pi5')
+                    if (kind in ('status', 'install') and board != 'pi5' and self.targets.get('pi5')
                             and not values[board].get('ok') and 'servers' in values[board]):
                         # Follower still polls an old Pi5 address: give it the one this window uses.
                         import clock_sync
                         values[board] = clock_sync._learn_pi5(values[board], board, host, self.passwords[board],
                                                               self.targets['pi5'])
+                    if kind in ('status', 'install'):
+                        import clock_sync
+                        values[board] = clock_sync.repair_time(values[board], host, self.passwords[board])
                     values[board]['time'] = True
                 else:
                     timeout = 90 if self.action == 'install' else 40
@@ -200,6 +203,18 @@ class NetworkDialog(QtWidgets.QDialog):
         form.addWidget(self.new_ssid, 2, 0, 1, 2)
         form.addWidget(self.new_password, 2, 2, 1, 2)
         form.addWidget(self.create_button, 2, 4)
+        self.share_info = QtWidgets.QLabel('')
+        self.share_info.setWordWrap(True)
+        self.share_info.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        form.addWidget(self.share_info, 3, 0, 1, 5)
+        self.share_connect = QtWidgets.QPushButton('공유폴더 연결')
+        self.share_connect.setToolTip('교실은 이름(.local), 야지는 공유폴더 노트북 핫스팟(10.42.0.1)으로 찾아 연결합니다.')
+        self.share_connect.clicked.connect(self.connect_share)
+        self.share_status = QtWidgets.QLabel('')
+        self.share_status.setWordWrap(True)
+        self.share_status.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        form.addWidget(self.share_connect, 4, 0)
+        form.addWidget(self.share_status, 4, 1, 1, 4)
         layout.addWidget(self.hotspot_section)
 
         self.register_section = Section('보드에 노트북 핫스팟 등록 (예비 Wi-Fi)', expanded=False)
@@ -308,6 +323,7 @@ class NetworkDialog(QtWidgets.QDialog):
         return [self.find_button, self.subnet, self.status_button, self.install_button, self.refresh_button,
                 self.time_install_button, self.time_status_button,
                 self.hotspot_on, self.hotspot_off, self.create_button, self.fill_button, self.register_button,
+                self.share_connect,
                 self.remove_button, self.watchdog_button, self.indoor_button, self.classroom_button,
                 self.apply_laptop, self.apply_classroom, self.load_classroom, self.ssh_password,
                 *self.hosts.values(), *self.selected.values(), *self.passwords.values()]
@@ -526,6 +542,38 @@ class NetworkDialog(QtWidgets.QDialog):
                 self.hotspot_combo.setCurrentIndex(i)
         self.hotspot_combo.blockSignals(False)
         self.show_hotspot()
+        self.show_share()
+
+    def connect_share(self):
+        """2026-11-12: mount the team shared folder by name or hotspot address (gio, no sudo)."""
+        import share_mount
+        if control.local_share_addresses():
+            self.share_status.setText('이 PC가 공유폴더를 띄우고 있습니다. 연결할 필요가 없습니다.')
+            return
+        self.share_status.setText('공유폴더를 찾는 중입니다…')
+        QtWidgets.QApplication.processEvents()
+        result = share_mount.connect(interactive=False)
+        if result['reason'] in ('password_needed', 'auth_failed'):
+            answer = share_mount.ask_password_dialog(self, result)
+            if answer:
+                self.share_status.setText('공유폴더에 연결하는 중입니다…')
+                QtWidgets.QApplication.processEvents()
+                result = share_mount.connect(password=answer[0], save=answer[1])
+        if result['ok']:
+            self.share_status.setText('연결됨: smb://{}/ → {}'.format(result['server'], result['source']))
+        else:
+            self.share_status.setText('연결 안 됨: ' + result['message'])
+
+    def show_share(self):
+        """Shared folder address of this PC (Samba listens on every network)."""
+        share = control.local_share_addresses()
+        if not share:
+            self.share_info.setText('')
+            return
+        text = '공유폴더 주소: {} (핫스팟 켜기·끄기와 상관없이 같음)'.format(share['name'])
+        if share.get('ip'):
+            text += ' / 지금 IP로는 {}'.format(share['ip'])
+        self.share_info.setText(text)
 
     def show_hotspot(self):
         item = self.current_hotspot()

@@ -63,14 +63,85 @@ def validate_targets(pi_host, jetson_host):
 
 
 def parse_discovery(text):
-    found = {"pi": [], "jetson": []}
+    # find_ssh_boards.sh also reports "Pi 4: ssh user@..." (planner board); keep it.
+    found = {"pi": [], "jetson": [], "pi4": []}
     for line in text.splitlines():
-        match = re.fullmatch(r"(Pi 5|Jetson):\s+ssh\s+(\S+)", line.strip())
+        match = re.fullmatch(r"(Pi 5|Jetson|Pi 4):\s+ssh\s+(\S+)", line.strip())
         if match:
-            board = "pi" if match[1] == "Pi 5" else "jetson"
+            board = {"Pi 5": "pi", "Jetson": "jetson", "Pi 4": "pi4"}[match[1]]
             if match[2] not in found[board]:
                 found[board].append(match[2])
     return found
+
+
+def choose_pi4(current, values):
+    """Planner (Pi4) address after a scan: keep the current one if it was found again,
+    otherwise the single/first found one. None when no Pi4 answered."""
+    if not values:
+        return None
+    return current if current in values else values[0]
+
+
+POWER_NAMES = {"pi4": "Pi4", "pi5": "Pi5", "jetson": "Jetson"}
+POWER_REASONS = {"scheduled": "꺼짐 예약", "scheduled_shutdown": "꺼짐 예약", "wrong_board": "기종 불일치·거부",
+                 "sudo_failed": "sudo 인증 실패", "ssh_unreachable": "접속 실패", "timeout": "응답 시간 초과",
+                 "authentication_failed": "SSH 인증 실패", "local_address_refused": "노트북 주소·거부",
+                 "invalid_board_address": "주소 오류", "duplicate_address": "주소 중복"}
+
+
+def poweroff_dialog(parent, hosts):
+    """Confirmation with one checkbox per board. Pi4 (teammate board) starts unchecked."""
+    dialog = QtWidgets.QDialog(parent)
+    dialog.setWindowTitle("보드 전원 끄기")
+    layout = QtWidgets.QVBoxLayout(dialog)
+    text = QtWidgets.QLabel("먼저 시험 모듈을 종료하고, 고른 보드를 Pi4 → Pi5 → Jetson 순으로 끕니다.\n"
+                            "노트북은 꺼지지 않습니다. 다시 켜려면 보드 전원을 직접 넣어야 합니다.\n"
+                            "센서 녹화 중이면 끄지 않습니다. 차가 멈춰 있는지 확인하세요.")
+    text.setWordWrap(True)
+    layout.addWidget(text)
+    boxes = {}
+    for board in ("pi4", "pi5", "jetson"):
+        box = QtWidgets.QCheckBox(f"{POWER_NAMES[board]}: {hosts.get(board) or '—'}" +
+                                  (" (팀원 보드)" if board == "pi4" else ""))
+        box.setChecked(board != "pi4" and bool(hosts.get(board)))
+        box.setEnabled(bool(hosts.get(board)))
+        layout.addWidget(box)
+        boxes[board] = box
+    buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+    buttons.button(QtWidgets.QDialogButtonBox.Ok).setText("전원 끄기")
+    buttons.button(QtWidgets.QDialogButtonBox.Cancel).setText("취소")
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    layout.addWidget(buttons)
+    return dialog, boxes
+
+
+def poweroff_summary(output, finished_ok):
+    """One short Korean line from control.py poweroff JSON output."""
+    result = None
+    for line in reversed(output.splitlines()):
+        try:
+            candidate = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(candidate, dict) and isinstance(candidate.get("boards"), dict):
+            result = candidate
+            break
+    if result is None:
+        return "보드 전원 끄기 결과를 확인하지 못했습니다."
+    if result.get("reason") == "recording_active":
+        return "센서 녹화 중이라 전원을 끄지 않았습니다. 녹화를 먼저 정지하세요."
+    if result.get("reason") == "recording_check_failed":
+        return "Jetson 녹화 상태를 확인하지 못해 전원을 끄지 않았습니다."
+    if result.get("reason") == "sudo_password_required":
+        return "보드 전원 끄기는 sudo 비밀번호가 필요합니다."
+    parts = []
+    for board in ("pi4", "pi5", "jetson"):
+        value = result["boards"].get(board)
+        if isinstance(value, dict):
+            parts.append(POWER_NAMES[board] + " " + POWER_REASONS.get(value.get("reason"), "실패: " + str(value.get("reason"))))
+    tail = " · 노트북은 켜져 있습니다." if finished_ok and result.get("ok") else " · 실패한 보드는 주소·비밀번호를 확인하세요."
+    return "전원 끄기: " + (" · ".join(parts) or "대상 없음") + tail
 
 
 def private_directory(path):
@@ -185,6 +256,65 @@ class Launcher(QtWidgets.QMainWindow):
         help_text.setWordWrap(True)
         layout.addWidget(help_text)
 
+        # 2026-11-12: everything chosen before Start (a small dialog); remembered on this laptop.
+        import trial_settings
+        saved_settings = trial_settings.load(STATE_ROOT)
+        self.settings_dialog = QtWidgets.QDialog(self)
+        self.settings_dialog.setWindowTitle("시험 설정 · 시작 전에 고르면 그대로 켭니다")
+        dialog_layout = QtWidgets.QVBoxLayout(self.settings_dialog)
+        settings_form, self.setting_combos = trial_settings.form(
+            self.settings_dialog, saved_settings, keys=("semantic_model", "cloud_source", "oak_cloud_hz", "slope_mode", "control_mode", "placement", "mapper"))
+        dialog_layout.addWidget(settings_form)
+        dialog_note = QtWidgets.QLabel("인지 모델·OAK 점군·경사 계산은 보드를 켤 때, 제어 방식·플래너 위치는 플래너 연결 때 적용됩니다.\n"
+                                       "시험 중에는 실시간 화면의 '설정 변경'에서 바꿉니다.")
+        dialog_note.setWordWrap(True)
+        dialog_layout.addWidget(dialog_note)
+        # 2026-11-13: new mapper (mapper2) detailed settings, per part with descriptions.
+        self.mapper2_button = QtWidgets.QPushButton("새 매퍼 세부 설정…")
+        self.mapper2_button.setToolTip("Jetson에 저장된 새 매퍼 값(공통·A 높이·B 의미·C 점수)을 보고 바꿉니다. Jetson에 저장되고 시작할 때 적용됩니다. 프리셋 저장·불러오기 가능.")
+        self.mapper2_button.clicked.connect(self.edit_mapper2_settings)
+        dialog_layout.addWidget(self.mapper2_button)
+        # 2026-11-13: improved legacy mapper (단일 프로세스) settings.
+        self.terrain_button = QtWidgets.QPushButton("기존 매퍼 개선 설정…")
+        self.terrain_button.setToolTip("Jetson에 저장된 '기존 매퍼 개선' 값(지도 크기·경사 각도 기준·경사 고정·의미분할 누적·경사 점수 계수·클래스 경계 px·초기 안전영역)을 보고 바꿉니다. Jetson에 저장되고 시작할 때 적용됩니다. 프리셋 저장·불러오기 가능.")
+        self.terrain_button.clicked.connect(self.edit_terrain_settings)
+        dialog_layout.addWidget(self.terrain_button)
+        # 2026-11-16: mapper3 v3 values (class-boundary px / initial safe area / slope k), next to the other
+        # per-mapper buttons. (The separate '매퍼 설정' window was folded into the per-mapper dialogs.)
+        self.mapper3_button = QtWidgets.QPushButton("새 매퍼3 v3 설정…")
+        self.mapper3_button.setToolTip("Jetson에 저장된 '새 매퍼3 v3' 값(클래스 경계 px·초기 안전영역 반경·경사 점수 계수)을 보고 바꿉니다. Jetson에 저장되고 시작할 때 실행별 사본에 적용됩니다. 프리셋 저장·불러오기 가능.")
+        self.mapper3_button.clicked.connect(self.edit_mapper3_settings)
+        dialog_layout.addWidget(self.mapper3_button)
+        self.planning_settings_button = QtWidgets.QPushButton("플래너 세부 설정…")
+        self.planning_settings_button.setToolTip("Jetson에 저장된 플래너 값(차량·비용·따라가기·안전)을 보고 바꿉니다. Jetson에 저장되고 플래너 연결 때 적용됩니다. 프리셋 저장·불러오기 가능.")
+        self.planning_settings_button.clicked.connect(self.edit_planning_settings)
+        dialog_layout.addWidget(self.planning_settings_button)
+        # 2026-11-16: 모듈 세부 설정 (module_params.py) — stored on the module's own board, next Start only.
+        module_row = QtWidgets.QHBoxLayout()
+        module_row.addWidget(QtWidgets.QLabel("모듈 세부 설정"))
+        self.module_param_buttons = {}
+        for key, text, tip in (("vio", "VIO(Basalt)…", "Pi5 Basalt VIO 값 (다음 시작·VIO 재시작부터)"),
+                               ("fusion", "위치 융합…", "Pi5 VIO+GNSS 융합 값 (다음 시작부터)"),
+                               ("gnss", "GNSS 수신…", "Pi5 GNSS 수신기 값 (다음 시작부터)"),
+                               ("oak", "OAK·점군…", "Jetson OAK 큐·점군 값 (다음 시작부터)"),
+                               ("perception", "인지…", "Jetson 의미분할 주기 (다음 시작부터)")):
+            button = QtWidgets.QPushButton(text)
+            button.setToolTip(tip + ". 바꾼 값만 보드에 저장되고 보드 원래 설정 파일은 그대로입니다.")
+            button.clicked.connect(lambda _checked=False, key=key: self.edit_module_params(key))
+            module_row.addWidget(button)
+            self.module_param_buttons[key] = button
+        dialog_layout.addLayout(module_row)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.settings_dialog.accept)
+        buttons.rejected.connect(self.settings_dialog.reject)
+        dialog_layout.addWidget(buttons)
+        self.settings_button = QtWidgets.QPushButton("시험 설정")
+        self.settings_button.setToolTip("인지 모델·OAK 점군·경사 계산·제어 방식·플래너 위치를 시작 전에 고릅니다.")
+        self.settings_button.clicked.connect(self.edit_trial_settings)
+        self.settings_summary = QtWidgets.QLabel("")
+        self.settings_summary.setObjectName("muted")
+        self.settings_summary.setWordWrap(True)
+
         action_row = QtWidgets.QHBoxLayout()
         self.start_button = QtWidgets.QPushButton("시험 시작")
         self.start_button.setObjectName("primary")
@@ -194,13 +324,38 @@ class Launcher(QtWidgets.QMainWindow):
         self.stop_button = QtWidgets.QPushButton("시험 종료")
         self.stop_button.setObjectName("stop")
         self.stop_button.clicked.connect(self.stop_trial)
+        # 2026-11-16: 보드 전원 끄기 (시험 종료 후 Pi4 → Pi5 → Jetson 순, 노트북은 끄지 않음).
+        self.poweroff_button = QtWidgets.QPushButton("보드 전원 끄기")
+        self.poweroff_button.setObjectName("stop")
+        self.poweroff_button.setToolTip("시험 종료 후 고른 보드의 전원을 끕니다. 노트북은 꺼지지 않습니다.")
+        self.poweroff_button.clicked.connect(self.poweroff_boards)
         self.replay_button = QtWidgets.QPushButton("기록 열기")
         self.replay_button.clicked.connect(self.open_recording)
+        self.front_button = QtWidgets.QPushButton("전방 녹화")
+        self.front_button.setToolTip("Pi5에 저장된 시험별 전방 영상 목록을 보고 노트북으로 받습니다. Pi5가 켜져 있어야 합니다.")
+        self.front_button.clicked.connect(self.open_front_recordings)
+        # 2026-11-15: 키보드 조종(Pi4, 누름 유지형) + 센서 녹화(Jetson SSD, Pi5 GPS 포함) 창.
+        self.drive_record_button = QtWidgets.QPushButton("조종·녹화")
+        self.drive_record_button.setToolTip("키보드로 Pi4 제어기를 조종하고(누르는 동안만 전진, 떼면 정지), "
+                                            "Jetson SSD에 센서 원본과 Pi5 GPS를 녹화합니다.")
+        self.drive_record_button.clicked.connect(self.open_drive_record)
+        self.drive_record_dialog = None
+        self.no_gnss = QtWidgets.QCheckBox("GNSS 사용 안 함")
+        self.no_gnss.setToolTip("체크하면 '시험 시작' 때 Pi5 GNSS를 켜지 않습니다. 위치는 VIO만으로 계산합니다.")
+        self.no_gnss.setChecked(saved_settings["gnss"] == "off")
+        self.no_gnss.toggled.connect(lambda _checked: self.show_trial_settings())
+        action_row.addWidget(self.settings_button)
+        action_row.addWidget(self.no_gnss)
         action_row.addWidget(self.start_button)
         action_row.addWidget(self.connect_button)
         action_row.addWidget(self.stop_button)
+        action_row.addWidget(self.poweroff_button)
         action_row.addWidget(self.replay_button)
+        action_row.addWidget(self.front_button)
+        action_row.addWidget(self.drive_record_button)
         layout.addLayout(action_row)
+        layout.addWidget(self.settings_summary)
+        self.show_trial_settings()
         note = QtWidgets.QLabel(
             "시험 시작: 센서·위치추정·인지·지도를 기동하고 화면을 엽니다.\n"
             "화면 연결: 이미 실행 중인 모듈의 화면만 엽니다. 모터 제어는 포함하지 않습니다.\n"
@@ -212,6 +367,12 @@ class Launcher(QtWidgets.QMainWindow):
         self.status.setWordWrap(True)
         self.status.setObjectName("status")
         layout.addWidget(self.status)
+        # 2026-11-12: team shared folder state (filled by local_install.offer at start).
+        self.share_label = QtWidgets.QLabel("공유폴더: 확인 전")
+        self.share_label.setWordWrap(True)
+        self.share_label.setObjectName("muted")
+        self.share_label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+        layout.addWidget(self.share_label)
         self.log = QtWidgets.QPlainTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumBlockCount(800)
@@ -349,9 +510,12 @@ class Launcher(QtWidgets.QMainWindow):
         self.network_button.setEnabled(available and not spectator)
         self.subnet.setEnabled(available and not spectator)
         self.start_button.setEnabled(available and not spectator)
+        self.no_gnss.setEnabled(available and not spectator)
+        self.settings_button.setEnabled(available and not spectator)
         self.connect_button.setEnabled(not busy and not viewer_running)
         self.connect_button.setText("관전 연결" if spectator else "화면 연결 · 중계")
         self.stop_button.setEnabled(not busy and not spectator and self.viewer_kind != "replay")
+        self.poweroff_button.setEnabled(available and not spectator and self.viewer_kind != "replay")
         self.replay_button.setEnabled(available)
         for combo in self.hosts.values():
             combo.setEnabled(available and not spectator)
@@ -378,6 +542,40 @@ class Launcher(QtWidgets.QMainWindow):
         self.process.errorOccurred.connect(self.process_error)
         self.process.start(program, arguments)
         self.update_buttons()
+
+    def open_front_recordings(self):
+        try:
+            from control import validate_host
+            pi = validate_host(self.hosts["pi"].currentText().strip())
+            if pi.split("@", 1)[0] != "user":
+                raise ValueError("Pi5 account")
+        except (ValueError, ImportError):
+            self.status.setText("Pi5 주소를 user@주소 형식으로 입력해 주세요.")
+            return
+        try:
+            import board_address
+            jetson = self.hosts["jetson"].currentText().strip()
+            board_address.register(pi5=pi, **({"jetson": jetson} if jetson.startswith("nvidia@") else {}))
+        except Exception:
+            pass
+        from front_recording_dialog import open_dialog
+        self.front_dialog = open_dialog(pi, self.password.text() or None, self)
+
+    def open_drive_record(self):
+        if self.is_spectator():
+            self.status.setText("관전 모드에서는 조종·녹화를 쓸 수 없습니다.")
+            return
+        from drive_record_dialog import open_dialog
+        pi = self.hosts["pi"].currentText().strip() or None
+        jetson = self.hosts["jetson"].currentText().strip() or None
+        try:
+            import board_address
+            board_address.register(**{k: v for k, v in (("pi5", pi), ("jetson", jetson), ("pi4", self.network_pi4))
+                                      if v})
+        except Exception:
+            pass
+        self.drive_record_dialog = open_dialog(self.network_pi4, jetson, pi, self.password.text() or None, self,
+                                               existing=self.drive_record_dialog)
 
     def discover(self):
         if self.process is not None or self.is_spectator():
@@ -468,6 +666,19 @@ class Launcher(QtWidgets.QMainWindow):
         process.deleteLater()
         if kind == "discover":
             found = parse_discovery(output)
+            pi4_values = found.pop("pi4", [])
+            pi4_note = ""
+            chosen = choose_pi4(self.network_pi4, pi4_values)
+            if chosen:
+                try:
+                    from control import validate_host
+                    chosen = validate_host(chosen)
+                    self.network_pi4 = chosen
+                    pi4_note = (" Pi4(플래닝): " + chosen + (" (여러 대 중 첫 번째, 확인 필요)" if len(pi4_values) > 1 else ""))
+                except ValueError:
+                    pi4_note = " Pi4 주소 형식이 올바르지 않아 기존 값을 유지합니다."
+            else:
+                pi4_note = " Pi4를 찾지 못해 플래닝 주소는 기존 값(" + self.network_pi4 + ")입니다. 확인해 주세요."
             for board, values in found.items():
                 if values:
                     previous = self.hosts[board].currentText()
@@ -481,6 +692,7 @@ class Launcher(QtWidgets.QMainWindow):
             count = sum(len(values) for values in found.values())
             if self.cancel_reason:
                 self.status.setText(self.cancel_reason)
+                pi4_note = ""
             elif found["pi"] and found["jetson"]:
                 self.status.setText("같은 종류의 보드가 여러 개입니다. 사용할 주소를 선택해 주세요." if
                                     any(len(values) > 1 for values in found.values()) else
@@ -489,6 +701,8 @@ class Launcher(QtWidgets.QMainWindow):
                 self.status.setText("일부 보드만 찾았습니다. 누락된 보드 주소를 직접 입력해 주세요.")
             else:
                 self.status.setText("보드를 찾지 못했습니다. 같은 네트워크·SSH·보드 전원을 확인해 주세요.")
+            if pi4_note:
+                self.status.setText(self.status.text() + pi4_note)
         elif kind == "start":
             if exit_code == 0 and exit_status == QtCore.QProcess.NormalExit:
                 self.append_log("[시작] 기동 명령 완료. 실제 데이터 수신 상태는 실시간 화면에서 확인합니다.")
@@ -511,6 +725,7 @@ class Launcher(QtWidgets.QMainWindow):
                        "host_key_check_failed": "SSH 호스트 키 확인 필요"}
             messages = []
             all_stopped = exit_code == 0 and exit_status == QtCore.QProcess.NormalExit
+            reasons["recording_active"] = "센서 녹화 중 · 센서 유지"
             for key, name in (("pi5", "Pi5"), ("jetson", "Jetson")):
                 board = boards.get(key, {})
                 stopped = board.get("ok") is True and board.get("state") == "STOPPED"
@@ -519,11 +734,15 @@ class Launcher(QtWidgets.QMainWindow):
                     messages.append(name + " 종료 확인")
                 else:
                     reason = reasons.get(board.get("reason"), "종료 확인 불가")
+                    if board.get("survivors"):
+                        reason += " · 남은 모듈 " + str(board["survivors"])[:120]
                     messages.append(name + " 미확인(" + reason + ")")
             if all_stopped:
                 self.status.setText(" · ".join(messages) + ". 보드 전원과 기록은 유지합니다.")
             else:
                 self.status.setText(" · ".join(messages) + ". 주소와 연결을 확인한 뒤 종료를 다시 시도해 주세요.")
+        elif kind == "poweroff":
+            self.status.setText(poweroff_summary(output, exit_code == 0 and exit_status == QtCore.QProcess.NormalExit))
         self.update_buttons()
 
     def new_run(self):
@@ -570,10 +789,14 @@ class Launcher(QtWidgets.QMainWindow):
         self.run_dir = self.new_run()
         self.save_hosts(targets)
         self.status.setText("센서와 모듈을 순서대로 켜고 있습니다. 진행이 끝나면 화면이 열립니다.")
-        self.append_log("[시작] " + " / ".join(targets))
-        self.begin_process("start", sys.executable,
-                           [str(script), "--pi-host", targets[0], "--jetson-host", targets[1]],
-                           self.child_environment(self.run_dir))
+        settings = self.trial_settings(save=True)
+        import trial_settings
+        arguments = [str(script), "--pi-host", targets[0], "--jetson-host", targets[1],
+                     *trial_settings.start_arguments(settings)]
+        if self.network_pi4:  # 2026-11-16: Pi4 Wi-Fi power saving is turned off at Start too
+            arguments += ["--pi4-host", self.network_pi4]
+        self.append_log("[시작] " + " / ".join(targets) + " · " + trial_settings.summary(settings))
+        self.begin_process("start", sys.executable, arguments, self.child_environment(self.run_dir))
 
     def connect_viewer(self):
         if self.is_spectator():
@@ -613,6 +836,118 @@ class Launcher(QtWidgets.QMainWindow):
                            [str(script), "stop", "--pi-host", targets[0], "--jetson-host", targets[1],
                             "--state-dir", str(run_dir)], self.child_environment(run_dir))
 
+    def ask_poweroff_targets(self, targets):
+        """Confirmation dialog; returns the chosen boards (e.g. ["pi5", "jetson"]) or None."""
+        dialog, boxes = poweroff_dialog(self, {"pi4": self.network_pi4, "pi5": targets[0], "jetson": targets[1]})
+        if dialog.exec_() != QtWidgets.QDialog.Accepted:
+            return None
+        return [board for board, box in boxes.items() if box.isChecked()] or None
+
+    def poweroff_boards(self):
+        """2026-11-16: trial stop, then power off the chosen boards over SSH. Never this laptop."""
+        if self.process is not None or self.is_spectator() or self.viewer_kind == "replay" or (
+                self.viewer is not None and self.viewer.poll() is None):
+            return
+        targets = self.targets()
+        if not targets:
+            return
+        if not self.password.text():
+            self.status.setText("보드 전원 끄기는 sudo 비밀번호가 필요합니다. SSH 비밀번호를 입력해 주세요.")
+            return
+        boards = self.ask_poweroff_targets(targets)
+        if not boards:
+            return
+        run_dir = self.run_dir or self.new_run()
+        self.run_dir = run_dir
+        arguments = [str(BASE_DIR / "control.py"), "poweroff", "--pi-host", targets[0], "--jetson-host", targets[1],
+                     "--boards", ",".join(boards), "--state-dir", str(run_dir)]
+        if "pi4" in boards:
+            arguments += ["--pi4-host", self.network_pi4]
+        self.save_hosts(targets)
+        self.status.setText("시험 종료 후 보드 전원을 끄는 중… (" + ", ".join(POWER_NAMES[b] for b in boards) + ")")
+        self.append_log("[전원 끄기] " + ", ".join(POWER_NAMES[b] for b in boards))
+        self.begin_process("poweroff", sys.executable, arguments, self.child_environment(run_dir))
+
+    def edit_trial_settings(self):
+        import trial_settings
+        before = self.trial_settings()
+        if self.settings_dialog.exec_() == QtWidgets.QDialog.Accepted:
+            self.trial_settings(save=True)
+        else:
+            for key, combo in self.setting_combos.items():   # cancel: back to the previous choice
+                combo.setCurrentIndex(combo.findData(before[key]))
+        self.show_trial_settings()
+
+    def board_settings_store(self, module_key):
+        """2026-11-13: settings dialogs read/save the board's values (board_settings.py).
+        2026-11-16: Pi5 modules (모듈 세부 설정) use the Pi5 address (run_remote follows its wired route)."""
+        import board_settings
+        index, field = (0, "pi") if board_settings.module_board(module_key) == "pi5" else (1, "jetson")
+        try:
+            host = validate_targets(self.hosts["pi"].currentText(), self.hosts["jetson"].currentText())[index]
+        except (ValueError, ImportError):
+            host = self.hosts[field].currentText().strip()
+        return board_settings.BoardStore(module_key, host, self.password.text() or None, STATE_ROOT)
+
+    def edit_module_params(self, key):
+        import module_params
+        module_params.SettingsDialog(self.settings_dialog, STATE_ROOT, key,
+                                     board=self.board_settings_store(key)).exec_()
+
+    def edit_planning_settings(self):
+        import planning_settings
+        planning_settings.SettingsDialog(self.settings_dialog, STATE_ROOT,
+                                         board=self.board_settings_store("planner")).exec_()
+        self.show_trial_settings()
+
+    def edit_mapper2_settings(self):
+        import mapper2_settings
+        mapper2_settings.SettingsDialog(self.settings_dialog, STATE_ROOT,
+                                        board=self.board_settings_store("mapper2")).exec_()
+        self.show_trial_settings()
+
+    def edit_terrain_settings(self):
+        import terrain_settings
+        terrain_settings.SettingsDialog(self.settings_dialog, STATE_ROOT,
+                                        board=self.board_settings_store("terrain")).exec_()
+        self.show_trial_settings()
+
+    def edit_mapper3_settings(self):
+        import mapper_settings
+        mapper_settings.SettingsDialog(self.settings_dialog, STATE_ROOT,
+                                       board=self.board_settings_store("mapper_overrides")).exec_()
+        self.show_trial_settings()
+
+    def show_trial_settings(self):
+        import trial_settings
+        text = "시험 설정: " + trial_settings.summary(self.trial_settings())
+        if self.trial_settings()["mapper"] == "mapper2":
+            import mapper2_settings
+            text += " · " + mapper2_settings.summary(mapper2_settings.load(STATE_ROOT))
+        if self.trial_settings()["mapper"] == "terrain":
+            import terrain_settings
+            terrain_configs = terrain_settings.load(STATE_ROOT)
+            text += " · " + terrain_settings.summary(terrain_configs) + " · " + terrain_settings.gui_summary(terrain_configs)
+        if self.trial_settings()["mapper"] == "mapper3":
+            import mapper_settings
+            text += " · " + mapper_settings.summary(mapper_settings.load(STATE_ROOT))
+        if self.trial_settings()["placement"] == "jetson":
+            import planning_settings
+            text += " · " + planning_settings.summary(planning_settings.load(STATE_ROOT))
+        self.settings_summary.setText(text)
+
+    def trial_settings(self, save=False):
+        """Current choices in the settings box (+ GNSS checkbox); optionally remembered."""
+        import trial_settings
+        values = trial_settings.read_form(self.setting_combos)
+        values["gnss"] = "off" if self.no_gnss.isChecked() else "on"
+        if save:
+            try:
+                values = trial_settings.save(values, STATE_ROOT)
+            except OSError:
+                pass
+        return trial_settings.validate(values)
+
     def monitor_arguments(self, targets, run_dir):
         if self.is_spectator():
             return [sys.executable, str(BASE_DIR / "monitor.py"),
@@ -627,13 +962,15 @@ class Launcher(QtWidgets.QMainWindow):
                 "--jetson-command", "bash /home/nvidia/nomad_ws/tools/visual_trial_20261106/run_monitor.sh",
                 "--preview-heading-calibration", str(BASE_DIR.parent / "config/oak_basalt_calib.json"),
                 "--enable-trial-control", "--state-file", str(run_dir / "live_state.json"),
-                "--ssh-progress-file", str(run_dir / "live_ssh.json")]
+                "--ssh-progress-file", str(run_dir / "live_ssh.json"),
+                *__import__("trial_settings").monitor_arguments(self.trial_settings(save=True))]
 
     def open_recording(self):
         if self.process is not None or self.viewer is not None:
             return
-        filename, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self, "NOMAD 시험 기록 열기", str(recording_directory()), "NOMAD 시험 기록 (*.nomad)")
+        # 2026-11-12: same chooser as the monitor; opens the shared 주행기록 when connected.
+        from session_ui import choose_recording
+        filename = choose_recording(self)
         if filename:
             self.launch_replay(Path(filename))
 
@@ -701,9 +1038,9 @@ class Launcher(QtWidgets.QMainWindow):
             self.update_buttons()
 
     def closeEvent(self, event):
-        if self.process_kind in ("start", "stop") and self.process is not None:
-            action = "시작" if self.process_kind == "start" else "종료"
-            self.status.setText("시험 " + action + " 작업이 진행 중입니다. 완료 후 창을 닫아 주세요.")
+        if self.process_kind in ("start", "stop", "poweroff") and self.process is not None:
+            action = {"start": "시험 시작", "stop": "시험 종료", "poweroff": "보드 전원 끄기"}[self.process_kind]
+            self.status.setText(action + " 작업이 진행 중입니다. 완료 후 창을 닫아 주세요.")
             event.ignore()
             return
         if self.process_kind == "discover":

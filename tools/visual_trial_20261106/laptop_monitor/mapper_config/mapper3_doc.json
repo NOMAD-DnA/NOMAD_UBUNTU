@@ -1,0 +1,17 @@
+{
+ "erode_px": {
+  "title": "클래스 경계 px",
+  "description": "바닥 클래스 라벨을 이 픽셀만큼 깎아서(침식) 경계 근처 점을 바닥으로 보지 않아요(sem_fit.erode_px, 코드 기본 3). 의미 기반 경사 맞춤(sem_fit)이나 의미 게이트가 켜져 있을 때만 효과가 있어요. 비우면 Jetson mapper3.json 값을 써요.",
+  "unit": "px", "min": 0, "max": 20, "default": null
+ },
+ "start_free_radius_m": {
+  "title": "초기 안전영역 반경",
+  "description": "첫 자세에서 한 번, 이 반경 안의 장애물·단차 칸을 비우고 빈칸으로 표시해요(lidar.start_free_radius_m). 경사는 비우지 않아요. 비우면 Jetson mapper3.json 값을 써요. 0이면 끔.",
+  "unit": "m", "min": 0.0, "max": 5.0, "default": null
+ },
+ "slope_k": {
+  "title": "경사 점수 계수",
+  "description": "다른 매퍼의 '경사 점수 계수'와 같은 뜻이에요(4 = 지금 동작). mapper3은 경사 비용 꺾임 각도(cost.slope_free/mid/high_deg, 코드 기본 8/20/25°, 마지막 각도 이상 100)를 4 ÷ 계수 배로 줄이거나 늘려요. 예: 8이면 4/10/12.5°, 2면 16/40/50°. 비우거나 4면 Jetson mapper3.json 값을 그대로 써요. 실행 때마다 사본에만 적용해요.",
+  "unit": "점/도", "min": 1.78, "max": 16.0, "default": null
+ }
+}

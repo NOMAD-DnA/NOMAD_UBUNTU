@@ -106,6 +106,80 @@ class Controls(unittest.TestCase):
         self.assertEqual(result["boards"]["jetson"]["reason"], "ssh_unreachable")
         self.assertLess(time.monotonic() - started, 0.27)
 
+    def test_unreachable_board_is_looked_for_and_retried_there(self):
+        calls = []
+        def once(host, script, password, timeout_s=18, **kw):
+            calls.append((host, kw.get("via"), kw.get("host_key_alias")))
+            if host == "user@192.168.3.164":
+                return dict(ok=False, reason="ssh_unreachable", state="FAILED", stdout="")
+            return dict(ok=True, reason="ok", state="STOPPED", stdout="", returncode=0)
+        found = dict(host="user@10.77.0.2", via="nvidia@192.168.1.152", alias="192.168.3.164", method="wired")
+        import board_address
+        with patch.object(control, "_run_remote_once", side_effect=once), \
+                patch.object(board_address, "recover", return_value=found) as recover, \
+                patch.object(board_address, "learn"), \
+                patch.object(board_address, "route", side_effect=lambda h: dict(host=h, via=None, alias=None, method=None)):
+            result = control.stop_boards("user@192.168.3.164", "nvidia@192.168.1.152", "pw")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["boards"]["pi5"]["route"], "wired")
+        self.assertIn(("user@10.77.0.2", "nvidia@192.168.1.152", "192.168.3.164"), calls)
+        recover.assert_called_once_with("user@192.168.3.164")
+
+    def test_slow_script_on_reachable_board_is_not_rerun_elsewhere(self):
+        import board_address
+        with patch.object(control, "_run_remote_once", return_value=dict(ok=False, reason="timeout", stdout="")), \
+                patch.object(board_address, "_ssh_open", return_value=True), \
+                patch.object(board_address, "recover") as recover, \
+                patch.object(board_address, "route", side_effect=lambda h: dict(host=h, via=None, alias=None, method=None)):
+            result = control.run_remote("nvidia@192.168.1.152", control.BASE_DIR / "remote/stop_trial.sh", "pw")
+        self.assertEqual(result["reason"], "timeout")
+        recover.assert_not_called()
+
+    def test_cleanup_failure_is_not_treated_as_a_moved_board(self):
+        import board_address
+        with patch.object(control, "_run_remote_once",
+                          return_value=dict(ok=False, reason="remote_cleanup_incomplete", stdout="")), \
+                patch.object(board_address, "recover") as recover, \
+                patch.object(board_address, "route", side_effect=lambda h: dict(host=h, via=None, alias=None, method=None)):
+            control.run_remote("user@192.168.3.164", control.BASE_DIR / "remote/stop_trial.sh", "pw")
+        recover.assert_not_called()
+
+    def test_retry_only_unconfirmed_board(self):
+        seen = []
+        def fake(host, script, password, timeout_s=18, **kw):
+            seen.append(host)
+            return dict(ok=True, reason="ok", state="STOPPED", stdout="")
+        with patch.object(control, "run_remote", side_effect=fake):
+            result = control.stop_boards("user@192.168.3.163", "nvidia@192.168.1.152", "pw", only={"pi5"})
+        self.assertEqual(seen, ["user@192.168.3.163"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(set(result["boards"]), {"pi5"})
+
+    def test_hop_and_host_key_alias_reach_ssh_arguments(self):
+        captured = {}
+        class FakeSSH:
+            def __init__(self, args, **kw):
+                captured["args"] = args
+                self.returncode = 0
+                self.pid = 0
+            def communicate(self, payload=None, timeout=None):
+                return ("NOMAD_STOP_RESULT={\"state\":\"STOPPED\"}\n", "")
+        with tempfile.TemporaryDirectory() as state, patch.dict(os.environ, {"XDG_STATE_HOME": state}), \
+                patch.object(control.subprocess, "Popen", FakeSSH):
+            result = control.run_remote(control.PI5_WIRED_HOST, control.BASE_DIR / "remote/stop_trial.sh", None,
+                                        via="nvidia@192.168.1.152", host_key_alias="192.168.3.164")
+        self.assertTrue(result["ok"])
+        args = captured["args"]
+        proxy = [a for a in args if a.startswith("ProxyCommand=")]
+        self.assertEqual(len(proxy), 1)
+        self.assertIn("-W %h:%p nvidia@192.168.1.152", proxy[0])
+        self.assertIn("StrictHostKeyChecking=accept-new", proxy[0])
+        self.assertIn("HostKeyAlias=192.168.3.164", args)
+        self.assertEqual(args[-2], control.PI5_WIRED_HOST)
+        for bad in ("nvidia@x;reboot", "nvidia@1.2.3"):
+            self.assertFalse(control.run_remote(control.PI5_WIRED_HOST, control.BASE_DIR / "remote/stop_trial.sh",
+                                                None, via=bad)["ok"])
+
     def test_wrong_accounts_never_run(self):
         with patch.object(control, "run_remote") as remote:
             result = control.stop_boards("root@192.168.3.144", "root@192.168.1.152", "offline")

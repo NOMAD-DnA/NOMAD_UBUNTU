@@ -1,0 +1,15 @@
+{
+  "lidar": {"enabled": true, "max_range_m": 10.0, "sigma_m": 0.02},
+  "oak": {"enabled": true, "min_range_m": 0.3, "max_range_m": 5.0, "sigma_base_m": 0.02, "sigma_per_m2": 0.005, "sor_voxel": true},
+  "elevation_source": "kalman",
+  "outlier": {"enabled": true, "gate_sigma": 3.0, "confirm_up": 2, "confirm_down": 3, "min_obs": 3},
+  "clearing": {"enabled": true, "margin_m": 0.03, "min_hits": 2, "protect_recent_s": 0.3, "keep_frozen_slope": false},
+  "forgetting": {"enabled": true, "variance_growth_m2_per_s": 0.0001},
+  "expiry": {"enabled": true, "max_unseen_s": 30.0, "keep_frozen_slope": false},
+  "step": {"confirm": true, "threshold_m": 0.05, "max_sigma_m": 0.03, "confirm_s": 0.5, "release_s": 1.0},
+  "semantic_points": {"enabled": true, "label_lead_s": 0.1, "label_window_s": 3.0, "label_wait_s": 2.0, "veto_previous_label": true, "previous_label_max_s": 1.5, "person_ray_clear": true, "dynamic_retention_s": 1.0},
+  "slope": {"enabled": true, "points": "all", "update_hz": 0.0, "frame_bucket_s": 0.2, "oak_lidar_height_gate": false, "freeze_first_valid": false, "kalman_fallback": {"enabled": true, "max_sigma_m": 0.05, "max_age_s": 5.0}},
+  "publish_hz": 0.0,
+  "tf_wait_s": 0.5,
+  "status_timeout_s": 1.0
+}

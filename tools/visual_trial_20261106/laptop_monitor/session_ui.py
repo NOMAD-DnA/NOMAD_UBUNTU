@@ -13,6 +13,50 @@ from session_recording import SessionReader, SessionRecorder, recording_director
 from recording_state import display_metadata, replay_display, comparison_baseline
 
 
+def shared_recordings_folder():
+    """Shared 주행기록 when this local GUI copy can reach the team share now, else None."""
+    try:
+        import local_install
+        return local_install.reachable_shared_recordings()
+    except Exception:
+        return None
+
+
+def choose_recording(parent, shared=None):
+    """2026-11-12: open dialog; when the shared folder is connected it opens there and
+    lists both folders (shared + this laptop) in the side panel."""
+    local = recording_directory()
+    shared = shared_recordings_folder() if shared is None else shared
+    if not shared:
+        # Not connected: the same native chooser as before, in this laptop's folder.
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent, "주행 기록 열기", str(local), "NOMAD 주행 기록 (*.nomad)")
+        return path
+    dialog = QtWidgets.QFileDialog(parent, "주행 기록 열기", str(shared or local), "NOMAD 주행 기록 (*.nomad)")
+    dialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+    if shared:
+        # Qt's own dialog: the native one ignores the side panel entries.
+        dialog.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
+        dialog.setSidebarUrls([QtCore.QUrl.fromLocalFile(str(shared)), QtCore.QUrl.fromLocalFile(str(local))])
+        # Both folders are named 주행기록; labelled buttons say which is which.
+        row = QtWidgets.QHBoxLayout()
+        for text, folder in (("공유폴더 주행기록", shared), ("이 노트북 주행기록", local)):
+            button = QtWidgets.QPushButton(text)
+            button.setToolTip(str(folder))
+            button.clicked.connect(lambda _=False, f=str(folder): dialog.setDirectory(f))
+            row.addWidget(button)
+        layout = dialog.layout()
+        if isinstance(layout, QtWidgets.QGridLayout):
+            layout.addLayout(row, layout.rowCount(), 0, 1, layout.columnCount())
+        dialog.setLabelText(QtWidgets.QFileDialog.LookIn, "공유폴더 연결됨")
+        dialog.setWindowTitle("주행 기록 열기 · 공유폴더: " + str(shared))
+    try:
+        if dialog.exec_() != QtWidgets.QDialog.Accepted or not dialog.selectedFiles():
+            return ""
+        return dialog.selectedFiles()[0]
+    finally:
+        dialog.deleteLater()
+
+
 def timestamp_label(seconds):
     seconds = max(0., float(seconds))
     minutes, seconds = divmod(seconds, 60.)
@@ -87,7 +131,7 @@ class RecordingMixin:
         bar = QtWidgets.QHBoxLayout()
         if not self.replay_mode:
             self.record_button = QtWidgets.QPushButton("기록 시작")
-            self.record_button.setToolTip("이미 받은 영상·지도·궤적·상태·로그를 이 PC에 저장합니다.")
+            self.record_button.setToolTip("이미 받은 영상·지도·궤적·상태·로그·보드 CPU/메모리를 이 PC에 저장합니다.")
             self.record_button.clicked.connect(self.toggle_recording)
             bar.addWidget(self.record_button)
             self.open_record_button = QtWidgets.QPushButton("기록 열기")
@@ -141,6 +185,8 @@ class RecordingMixin:
                 entry["_record_received_offset_s"] = received - self._record_started
             cpu_history[mode] = entry
         return {"kind": "view", "source": "gui", "selected_goal": self.selected_goal,
+                "selected_goal_source": (getattr(self, "selected_goal_source", None)
+                                         if self.selected_goal is not None else None),
                 "active_model": self.active_model, "model_switch_result": self.model_switch_result,
                 "active_cloud_source": getattr(self, "active_cloud_source", None),
                 "active_slope_mode": getattr(self, "active_slope_mode", None),
@@ -199,7 +245,9 @@ class RecordingMixin:
                 "active_slope_mode": getattr(self, "active_slope_mode", None),
                 "scope": "accepted_gui_packets_after_ingress_coalescing",
                 "initial_history": "bounded history already visible at recording start; offset zero",
-                "streams": "images,poses,status,rates,telemetry,module logs,selected goal"}
+                "resource_schema_version": 1,
+                "resource_scope": "1Hz board CPU and bounded process samples; not execution deadlines",
+                "streams": "images,poses,status,rates,telemetry,module logs,selected goal,board resources"}
             baseline = self.recording_baseline()
             # Check every initial object before creating a file/writer thread.
             for _, event in baseline:
@@ -434,8 +482,7 @@ class RecordingMixin:
         self.record_label.setStyleSheet("color:#fca5a5;" if failed else "color:#7dd3fc;")
 
     def open_recording_file(self):
-        root = str(recording_directory())
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "주행 기록 열기", root, "NOMAD 주행 기록 (*.nomad)")
+        path = choose_recording(self)
         if not path:
             return
         args = argparse.Namespace(**vars(self.args))
@@ -494,6 +541,8 @@ class RecordingMixin:
         if record["board"] == "gui" and event.get("kind") == "view":
             goal = event.get("selected_goal")
             self.selected_goal = tuple(goal) if isinstance(goal, list) and len(goal) == 3 else None
+            source = event.get("selected_goal_source")
+            self.selected_goal_source = source if source in ("manual", "click") else None
             self.active_model = event.get("active_model")
             self.model_switch_result = event.get("model_switch_result")
             self.trial_stop_result = event.get("trial_stop_result")
@@ -591,11 +640,14 @@ class RecordingMixin:
         self.capture_order = CaptureOrder()
         self.accepted_events = self.invalid_events = 0
         self.selected_goal = None
+        self.selected_goal_source = None
         self.active_model = self.reader.metadata.get("active_model")
         self.active_cloud_source = self.reader.metadata.get("active_cloud_source")
         self.active_slope_mode = self.reader.metadata.get("active_slope_mode")
         self.cloud_switch_result = self.slope_switch_result = None
         self.slope_cpu_history = {}
+        from resource_metrics import ResourceHistory
+        self.resource_history = ResourceHistory()
         self.trial_stop_result = self.model_switch_result = None
         self.ssh_progress = {board: {"phase": "recording"} for board in ("pi", "jetson")}
         self.planning_message.setText("기록 재생 · 이 시각의 플래너 데이터 대기")

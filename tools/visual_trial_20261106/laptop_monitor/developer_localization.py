@@ -10,11 +10,12 @@ from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
 from matplotlib.figure import Figure
 
 from magnetometer_panel import MagnetometerPanel
-from localization_state import localization_summary
+from localization_state import FORWARD_TRUNCATED_TEXT, forward_truncated, localization_summary
 from heading_control import REASON_LABELS as HEADING_REASONS
 from vio_control import REASON_LABELS as VIO_REASONS
 from module_logs import attach_module_logs, update_module_logs
 from render_utils import HistorySampler, history_signature, fit_axes_3d, set_text, set_style, stable_metadata
+import developer_debug as dbg
 
 
 SOURCES = ("gnss", "vio_compare", "public", "fusion", "vio")
@@ -240,7 +241,7 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         super().__init__(parent)
         self.setWindowFlag(QtCore.Qt.Window, True)
         self.setWindowTitle("NOMAD | 위치추정 개발")
-        self.resize(1280, 830)
+        self.resize(1360, 900)
         self.setMinimumSize(880, 600)
         self.setStyleSheet("""
             QMainWindow, QWidget { background:#111827; color:#e2e8f0; }
@@ -399,9 +400,154 @@ class LocalizationWindow(QtWidgets.QMainWindow):
         root.addWidget(note)
         self.setCentralWidget(central)
         attach_module_logs(self)
+        self._feature_samples = []
+        self.transitions = dbg.TransitionLog(maxlen=60)
+        self.debug = dbg.DebugTools(self, "localization", "NOMAD 위치추정 개발", (
+            {"key": "pose:vio", "label": "원본 VIO 위치", "limit": 1., "rate": ("pi", "vio")},
+            {"key": "pose:fusion", "label": "내부 융합 위치", "limit": 1., "rate": ("pi", "fusion")},
+            {"key": "pose:public", "label": "공용 위치 (플래너 입력)", "limit": 1., "rate": ("pi", "public")},
+            {"key": "telemetry:fusion", "label": "융합 진단", "limit": 2., "rate": ("pi", "fusion_diagnostics")},
+            {"key": "telemetry:gnss", "label": "GNSS", "limit": 2.5, "rate": ("pi", "gnss_fix")},
+            {"key": "telemetry:vio_features", "label": "VIO 특징점", "limit": 2., "rate": ("pi", "vio_features")},
+            {"key": "image:vio_tracking", "label": "VIO 추적 영상", "limit": 1.5, "rate": ("pi", "vio_tracking")},
+            {"key": "telemetry:magnetometer", "label": "지자계", "limit": 2.},
+            {"key": "status:localization", "label": "위치 모듈 상태", "limit": 2., "rate": ("pi", "localization")},
+        ), log_dock=self.log_dock)
+        self.debug.clear_hooks.append(self._clear_debug)
 
     def append_module_log(self, event):
         return self.log_panel.append_event(event)
+
+    def _clear_debug(self):
+        self._feature_samples = []
+        self.transitions.clear()
+
+    def _observe(self, snapshot):
+        now = snapshot.get("now")
+        if not dbg.finite(now):
+            return
+        if self._feature_samples and now < self._feature_samples[-1][0] - .5:
+            self._clear_debug()
+        vio = _flatten(snapshot.get("telemetry", {}).get("vio_features", {}))
+        count = _number(_pick(vio, "feature_count", "tracked_features", "tracked_feature_count",
+                              "num_features", "n_features", "count"))
+        received = snapshot.get("received", {}).get("telemetry:vio_features")
+        if count is not None and vio.get("received") is not False and (
+                not self._feature_samples or self._feature_samples[-1][2] != received):
+            self._feature_samples.append((now, count, received))
+        self._feature_samples = [row for row in self._feature_samples if row[0] >= now - dbg.WINDOW_S][-2000:]
+        state = localization_summary(snapshot)
+        fusion = _flatten(snapshot.get("telemetry", {}).get("fusion", {}))
+        status = snapshot.get("statuses", {}).get("localization", {})
+        self.transitions.update(now, {"위치 모드": state.get("mode"), "출력 판정": state.get("state"),
+                                      "위치 유효": state.get("position_valid"), "방향 유효": state.get("orientation_valid"),
+                                      "방향 기준": state.get("orientation_text"), "모듈 상태": status.get("state") if status else None,
+                                      "융합 사유": fusion.get("reason")}, time.strftime("%H:%M:%S"))
+
+    def _debug_checks(self, snapshot):
+        state = localization_summary(snapshot)
+        level = {"READY": "ok", "WAITING": "unknown", "STALE": "fail", "INVALID": "fail"}.get(state.get("state"), "unknown")
+        checks = [("위치 출력 판정", level, f"{state.get('state')} · {state.get('label')} · {state.get('detail')}"),
+                  dbg.status_check("위치 모듈 상태 (READY 사유)", snapshot.get("statuses", {}).get("localization", {}),
+                                   _age(snapshot, "status", "localization"), 2.)]
+        for source, name in (("vio", "원본 VIO 위치"), ("fusion", "내부 융합 위치"), ("public", "공용 위치 (플래너 입력)")):
+            checks.append(dbg.freshness(name + " 수신", _age(snapshot, "pose", source), 1., 3.))
+        checks.append(dbg.freshness("융합 진단 수신", _age(snapshot, "telemetry", "fusion"), 2., 5.))
+        for key, name in (("position_valid", "위치 유효"), ("orientation_valid", "방향 유효")):
+            value = state.get(key)
+            checks.append((name, "ok" if value is True else "fail" if value is False else "unknown",
+                           {True: "true", False: "false"}.get(value, "보고 없음")))
+        checks.append(("방향 기준", "ok" if state.get("orientation_text") in ("전역 방향 유효", "로컬 방향 유효 · 전역 방위 미확정") else "warn"
+                       if state.get("orientation_text") not in ("방향 상태 미확인",) else "unknown", state.get("orientation_text") or "—"))
+        gnss = _flatten(snapshot.get("telemetry", {}).get("gnss", {}))
+        gnss_age = _age(snapshot, "telemetry", "gnss")
+        if not gnss:
+            checks.append(("GNSS", "unknown", "미수신 (GNSS 미사용 시험일 수 있음)"))
+        else:
+            fix_valid = gnss.get("fix_valid")
+            level = "ok" if fix_valid is not False and gnss_age is not None and gnss_age <= 2.5 else "warn"
+            checks.append(("GNSS", level, f"Fix 유효 {_text(fix_valid)} · 위성 {_text(_pick(gnss, 'satellites', 'satellites_used', 'num_sv'))}"
+                                         f" · {dbg.age_text(gnss_age)} 전"))
+        count = self._feature_samples[-1][1] if self._feature_samples else None
+        feature_age = _age(snapshot, "telemetry", "vio_features")
+        if count is None:
+            checks.append(("VIO 추적 특징점", "unknown", "미수신"))
+        else:
+            level = "fail" if count <= 0 else "warn" if count < 20 or (feature_age or 0) > 2. else "ok"
+            checks.append(("VIO 추적 특징점", level, f"{count:.0f}개 · {dbg.age_text(feature_age)} 전 (20개 미만 주의 · 화면 기준)"))
+        checks.append(dbg.freshness("지자계 수신", _age(snapshot, "telemetry", "magnetometer"), 2., 5., missing="unknown"))
+        reset_text = _control_reason(state.get("reset_reason"), HEADING_REASONS)
+        fusion_event = snapshot.get("telemetry", {}).get("fusion", {})
+        truncated = forward_truncated(fusion_event)
+        if truncated and "heading_reset_available" not in _flatten(fusion_event) and "전달 안 됨" not in reset_text:
+            reset_text = "알 수 없음(전달 안 됨) · " + reset_text
+        checks.append(("방향 초기화 가능", "ok" if state.get("can_reset_heading") else "unknown", reset_text))
+        if truncated:
+            checks.append(("GNSS 비교 좌표", "warn", FORWARD_TRUNCATED_TEXT))
+        checks.append(dbg.log_check(self.log_panel))
+        return checks
+
+    @staticmethod
+    def _pose_stats(history):
+        points = [p for p in history if all(_number(p.get(k)) is not None for k in ("t", "x", "y", "z"))]
+        if not points:
+            return None
+        latest = points[-1]["t"]
+        recent = [p for p in points if p["t"] >= latest - dbg.WINDOW_S]
+        distance, jumps, largest = 0., 0, 0.
+        for a, b in zip(recent, recent[1:]):
+            step = math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]))
+            dt = b["t"] - a["t"]
+            distance += step
+            largest = max(largest, step)
+            if step > .5 and (dt <= 0 or step / dt > 5.):
+                jumps += 1
+        speed = None
+        window = [p for p in recent if p["t"] >= latest - 1.]
+        if len(window) >= 2 and window[-1]["t"] > window[0]["t"]:
+            speed = math.dist((window[0]["x"], window[0]["y"]), (window[-1]["x"], window[-1]["y"])) / (window[-1]["t"] - window[0]["t"])
+        zs = [p["z"] for p in recent]
+        span = recent[-1]["t"] - recent[0]["t"] if len(recent) > 1 else 0.
+        return {"count": len(recent), "rate": (len(recent) - 1) / span if span > 0 else None, "distance": distance,
+                "jumps": jumps, "largest": largest, "speed": speed, "z": (min(zs), max(zs)), "last": recent[-1]}
+
+    def _debug_sections(self, snapshot):
+        histories = snapshot.get("histories", {})
+        pose_rows = []
+        for source in SOURCES:
+            result = self._pose_stats(histories.get(source, ()))
+            if result is None:
+                pose_rows.append([SOURCE_LABELS[source], "미수신", "—", "—", "—", "—", "—", "—"])
+                continue
+            last = result["last"]
+            pose_rows.append([SOURCE_LABELS[source], f"{result['count']}개 · {dbg.number_text(result['rate'], 1, ' Hz')}",
+                              f"({last['x']:.2f}, {last['y']:.2f}, {last['z']:.2f}) · {last.get('frame_id') or '—'}",
+                              dbg.number_text(result["speed"], 2, " m/s"), f"{result['distance']:.2f} m",
+                              f"{result['largest']:.2f} m", str(result["jumps"]),
+                              f"{result['z'][0]:.2f} ~ {result['z'][1]:.2f} m"])
+        features = [row[1] for row in self._feature_samples]
+        feature_rows = [["현재", dbg.number_text(features[-1], 0) if features else "—"],
+                        ["최근 60초 최소 / 평균 / 최대", dbg.stats_text(features, 0)],
+                        ["20개 미만 비율", f"{sum(1 for v in features if v < 20)/len(features)*100:.0f}%" if features else "—"],
+                        ["표본 수 (새로 받은 값만)", str(len(features))]]
+        rates = snapshot.get("rates", {}).get("pi", {})
+        return {
+            "위치 소스별 통계 · 최근 60초 (보드 시각 기준)": (["소스", "표본 · 평균 Hz", "마지막 위치 · 좌표계", "현재 속도 (1초)",
+                                                  "이동 거리", "최대 한 번 이동", "점프", "높이 범위"], pose_rows,
+                "점프 = 한 번에 0.5 m 넘게, 초속 5 m보다 빠르게 움직인 횟수 (이 차량이 낼 수 없는 이동). 받은 위치 기록에서 이 PC가 계산합니다."),
+            "VIO 특징점 수 · 최근 60초": (["항목", "값"], feature_rows, ""),
+            "상태 변화 기록 · 최근 60건": (["PC 시각", "항목", "이전", "현재"], self.transitions.table(),
+                                     "받은 상태가 바뀔 때만 한 줄 추가합니다. 위가 최신입니다."),
+            "융합 진단 원본 값 · 받은 필드 전체": (["필드", "값"],
+                [list(row) for row in dbg.flat_scalars(snapshot.get("telemetry", {}).get("fusion", {}))],
+                "공분산·품질·사유 등 보드가 보낸 필드를 그대로 보여 줍니다. 없는 필드는 표시하지 않습니다."),
+            "GNSS 원본 값": (["필드", "값"], [list(row) for row in dbg.flat_scalars(snapshot.get("telemetry", {}).get("gnss", {}))], ""),
+            "VIO 특징점 원본 값": (["필드", "값"],
+                [list(row) for row in dbg.flat_scalars(snapshot.get("telemetry", {}).get("vio_features", {}))], ""),
+            "Pi5 보고 Hz 전체": (["토픽 이름 (보드 집계)", "Hz"],
+                [[str(k), dbg.number_text(v, 2)] for k, v in sorted(rates.items())] if isinstance(rates, Mapping) else [],
+                "보드 수신 프로그램이 1초마다 센 콜백 수입니다."),
+        }
 
     def _press(self, event):
         if event.inaxes is self.ax:
@@ -601,6 +747,23 @@ class LocalizationWindow(QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(dict)
     def update_snapshot(self, snapshot):
+        self.debug.observe(snapshot)
+        self._observe(snapshot)
+        if self.debug.frozen:
+            # Remote actions keep their live gates; only the display is frozen.
+            self._last_snapshot = snapshot
+            state = localization_summary(snapshot)
+            enabled, reason = self._heading_gate(snapshot, state)
+            self.heading_reset.setEnabled(enabled)
+            self.heading_reset.setToolTip(reason)
+            enabled, reason = self._vio_restart_gate(snapshot)
+            self.vio_restart.setEnabled(enabled)
+            self.vio_restart.setToolTip(reason)
+            return
+        self._update_view(snapshot)
+        self.debug.publish(snapshot, self._debug_checks(snapshot), self._debug_sections(snapshot))
+
+    def _update_view(self, snapshot):
         update_module_logs(self, snapshot, "localization")
         self._last_snapshot = snapshot
         self._plot(snapshot)

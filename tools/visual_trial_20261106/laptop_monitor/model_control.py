@@ -11,7 +11,7 @@ from pathlib import Path
 from control import run_remote, validate_host
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_NAMES = {"b2": "B2 · 기존", "fcn": "FCN · 실내"}
+MODEL_NAMES = {"b2": "SegFormer · 야지", "fcn": "FCN · 실내", "indoor": "SegFormer · 실내"}
 RESULT_MARKER = "NOMAD_MODEL_SWITCH_RESULT="
 
 

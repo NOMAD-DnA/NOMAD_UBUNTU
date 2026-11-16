@@ -125,8 +125,12 @@ class ControlDeveloperTest(unittest.TestCase):
         self.assertEqual(child.telemetry_values['armed'].text(), 'true')
         self.assertEqual(child.telemetry_values['actuator_enabled'].text(), 'false')
         self.assertEqual(child.telemetry_values['output_inhibit'].text(), 'LOCALIZATION_NOT_READY')
-        self.assertEqual(child.findChildren(QtWidgets.QPushButton)[0].text(), '비우기')
-        self.assertEqual(len(child.findChildren(QtWidgets.QPushButton)), 1)
+        # Only display tools plus the existing confirmed controller-latch reset;
+        # no drive/arm/goal command exists here, and the reset is off for spectators.
+        buttons = {button.text(): button for button in child.findChildren(QtWidgets.QPushButton)}
+        self.assertEqual(set(buttons), {'비우기', '화면 멈춤', '현재 상태 복사', 'JSON으로 저장',
+                                        '로그 숨기기', '기록 초기화', '제어기 복구'})
+        self.assertFalse(buttons['제어기 복구'].isEnabled())
 
     def test_log_display_is_incremental_and_limited_to_one_update_per_second(self):
         child = self.child()

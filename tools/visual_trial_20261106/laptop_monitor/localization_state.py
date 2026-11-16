@@ -7,6 +7,11 @@ from collections.abc import Mapping
 
 FRESHNESS_S = 2.0
 RESET_FRESHNESS_S = 1.0
+# Pi5 monitor_probe forwards at most this many /fusion/status keys; later
+# keys (viewer_*, heading_reset_*) are silently dropped before the GUI.
+FORWARD_KEY_LIMIT = 64
+FORWARD_TRUNCATED_TEXT = "GNSS 비교 좌표 미수신: Pi5 전달기 키 상한(64)"
+HEADING_UNKNOWN_TEXT = "알 수 없음(전달 안 됨): Pi5 전달기 키 상한(64)"
 COLORS = {"ready": "#34d399", "warning": "#fbbf24", "stale": "#fb7185", "waiting": "#94a3b8"}
 MODE_LABELS = {
     "FUSED": "VIO·GNSS 융합",
@@ -79,6 +84,18 @@ def _status_values(status):
     return result
 
 
+def forward_truncated(event):
+    """True when fusion values look cut at the forwarder limit (no viewer_frame)."""
+    values = event.get("values") if isinstance(event, Mapping) else None
+    if isinstance(values, Mapping):
+        keys = set(values)
+    elif isinstance(values, (list, tuple)):
+        keys = {item.get("key") for item in values if isinstance(item, Mapping)}
+    else:
+        return False
+    return len(keys) >= FORWARD_KEY_LIMIT and "viewer_frame" not in keys
+
+
 def localization_summary(snapshot):
     """Describe measured mode, separately from public-output health.
 
@@ -130,6 +147,7 @@ def localization_summary(snapshot):
     if mode == "FUSED":
         detail = "VIO·GNSS 입력 유효 · 최적화 성공 여부는 별도 표시" + (" · " + reason if reason else "")
     if via == "status": detail = "공용 상태 기준 · " + detail
+    if diag_received and forward_truncated(event): detail += " · " + FORWARD_TRUNCATED_TEXT
     if bool(status) and not status_fresh and mode != "STALE": detail += " · 후단 출력 상태 오래됨"
     if mode == "GNSS_ONLY" or orientation is False:
         orientation_text = "방향 미확정 · 마지막 방향 유지"
@@ -146,6 +164,8 @@ def localization_summary(snapshot):
         reset_reason = "최신 융합 상태를 기다립니다."
     elif diagnostic_mode != "VIO_ONLY":
         reset_reason = "VIO 단독 모드에서만 방향을 초기화할 수 있습니다."
+    elif explicit is None and forward_truncated(event):
+        reset_reason = HEADING_UNKNOWN_TEXT
     elif explicit is not None:
         can_reset = explicit is True
         reset_reason = ("현재 위치를 유지하며 지자계로 방향 초기화" if can_reset else

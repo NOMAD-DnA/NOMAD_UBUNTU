@@ -20,6 +20,12 @@ from typing import Callable
 
 BASE_DIR = Path(__file__).resolve().parent
 RESULT_MARKER = "NOMAD_STOP_RESULT="
+# Fixed wired Pi5 address behind the Jetson (oak_fastdds_wired.xml 10.77.0.1/30).
+# Used only when the Pi5 Wi-Fi address cannot be reached, e.g. after DHCP moved it.
+PI5_WIRED_HOST = "user@10.77.0.2"
+# A changed host key or login refusal at the old Wi-Fi address can mean another
+# device now holds it; the wired retry still verifies the stored Pi5 host key.
+DIRECT_UNREACHABLE = frozenset({"ssh_unreachable", "timeout", "host_key_check_failed", "authentication_failed"})
 
 # The transport wrapper ALWAYS consumes the password line itself. Passing
 # password+script directly to `sudo -S bash -s` is unsafe when sudo credentials
@@ -66,10 +72,75 @@ def _failure(reason: str, stdout: str = "", returncode=None) -> dict:
             "returncode": returncode, "state": "FAILED"}
 
 
-def run_remote(host, script_path, password, timeout_s=18, *, sudo=False) -> dict:
-    """Run one shipped shell script, bounded by timeout_s wall clock seconds."""
+def run_remote(host, script_path, password, timeout_s=18, *, sudo=False, via=None, host_key_alias=None,
+               follow=True) -> dict:
+    """Run one shipped shell script, bounded by timeout_s wall clock seconds.
+
+    via: optional user@address of a board to hop through (ssh -W). host_key_alias:
+    verify the target against this known board address instead of the hop-side one.
+    follow: use the board's recovered route (board_address) and, if the board is
+    unreachable, look for it once and retry there. The result then carries
+    "route" (mac, mdns or wired) and "target".
+    """
+    if not follow or via is not None or host_key_alias is not None:
+        return _run_remote_once(host, script_path, password, timeout_s, sudo=sudo, via=via,
+                                host_key_alias=host_key_alias)
+    try:
+        import board_address
+        configured = validate_host(host)
+    except (ImportError, ValueError):
+        return _run_remote_once(host, script_path, password, timeout_s, sudo=sudo)
+    target = board_address.route(configured)
+    value = _run_remote_once(target["host"], script_path, password, timeout_s, sudo=sudo,
+                             via=target.get("via"), host_key_alias=target.get("alias"))
+    still_there = value.get("reason") == "timeout" and board_address._ssh_open(target["host"].split("@", 1)[1])
+    # A slow script on a reachable board is never re-run on another route.
+    if value.get("reason") in DIRECT_UNREACHABLE and not still_there:
+        found = board_address.recover(configured)
+        if found:
+            target = found
+            value = _run_remote_once(target["host"], script_path, password, timeout_s, sudo=sudo,
+                                     via=target.get("via"), host_key_alias=target.get("alias"))
+    if target.get("method"):
+        value["route"] = target["method"]
+        value["target"] = target["host"] + (" via " + target["via"] if target.get("via") else "")
+    if value.get("reason") == "ok" or value.get("returncode") == 0:
+        board_address.learn(configured, target)
+    return value
+
+
+def _connection_reuse_options(state_home):
+    """2026-11-12: reuse one authenticated SSH connection per board for 60 s (startup
+    runs ~7 scripts per board; each new login costs about 0.5-1.5 s). The socket must
+    fit the 108-byte Unix path limit (%C = 40 characters); otherwise no reuse."""
+    candidates = []
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    if runtime:
+        candidates.append(Path(runtime) / "nomad-ssh")
+    candidates.append(Path(state_home))
+    for directory in candidates:
+        try:
+            if len(str(directory / "cm-")) + 40 >= 100:
+                continue
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            info = directory.stat()
+            if info.st_uid != os.getuid() or info.st_mode & 0o077:
+                continue  # never share a control socket folder with other users
+            return ["-o", "ControlMaster=auto", "-o", "ControlPersist=60",
+                    "-o", "ControlPath=" + str(directory / "cm-%C")]
+        except OSError:
+            continue
+    return []
+
+
+def _run_remote_once(host, script_path, password, timeout_s=18, *, sudo=False, via=None,
+                     host_key_alias=None) -> dict:
     try:
         host = validate_host(host)
+        if via is not None:
+            via = validate_host(via)
+        if host_key_alias is not None:
+            host_key_alias = validate_host("x@" + str(host_key_alias)).split("@", 1)[1]
         script = Path(script_path).read_text(encoding="utf-8")
         timeout_s = float(timeout_s)
         if not 0 < timeout_s <= 300:
@@ -94,11 +165,19 @@ def run_remote(host, script_path, password, timeout_s=18, *, sudo=False) -> dict
                 env.update(SSH_ASKPASS=str(askpass), SSH_ASKPASS_REQUIRE="force",
                            NOMAD_SSH_PASSWORD=password)
                 env.setdefault("DISPLAY", ":0")
-            args = ["ssh", "-T", "-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1",
-                    "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=1",
-                    "-o", "NumberOfPasswordPrompts=1", "-o", "StrictHostKeyChecking=accept-new",
-                    "-o", 'UserKnownHostsFile="' + str(state_home / "known_hosts") + '"',
-                    "-o", "LogLevel=ERROR", "-o", "BatchMode=" + ("no" if password else "yes"),
+            common = ["-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1",
+                      "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=1",
+                      "-o", "NumberOfPasswordPrompts=1", "-o", "StrictHostKeyChecking=accept-new",
+                      "-o", 'UserKnownHostsFile="' + str(state_home / "known_hosts") + '"',
+                      "-o", "LogLevel=ERROR", "-o", "BatchMode=" + ("no" if password else "yes"),
+                      *_connection_reuse_options(state_home)]
+            route = []
+            if via is not None:
+                hop = " ".join(shlex.quote(part) for part in ["ssh", *common, "-W", "%h:%p", via])
+                route += ["-o", "ProxyCommand=" + hop]
+            if host_key_alias is not None:
+                route += ["-o", "HostKeyAlias=" + host_key_alias]
+            args = ["ssh", "-T", *common, *route,
                     host, "bash -c " + shlex.quote(SUDO_WRAPPER) if sudo else "bash -s"]
             payload = ((password + "\n") if sudo else "") + script + "\n"
             process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -150,10 +229,43 @@ def run_remote(host, script_path, password, timeout_s=18, *, sudo=False) -> dict
         return _failure("local_ssh_failed")
 
 
+def _stop_details(value):
+    """2026-11-16: carry the board's survivor list and recording guard to the GUI."""
+    remote = value.get("remote") if isinstance(value, dict) else None
+    if isinstance(remote, dict):
+        survivors = remote.get("survivors")
+        if isinstance(survivors, str) and survivors:
+            value["survivors"] = survivors[:300]
+        if remote.get("reason") == "recording_active" and not value.get("ok"):
+            value["reason"] = "recording_active"
+        if remote.get("recording") is True:      # recording marker or kept recording sensors
+            value["recording_active"] = True
+    return value
+
+
+def _jetson_recording_check(jetson_host, password):
+    """Read-only Jetson sensor-recording status (remote/record_status_jetson.sh)."""
+    import sensor_record
+    return sensor_record.status(jetson_host, password)
+
+
 def stop_boards(pi_host, jetson_host, password, progress_callback: Callable | None = None,
-                timeout_s=18) -> dict:
-    """Stop both current trial runs concurrently; board power stays on."""
+                timeout_s=18, only=None) -> dict:
+    """Stop both current trial runs concurrently; board power stays on.
+
+    only: boards to stop (e.g. {"pi5"} when retrying after a partial stop).
+    A board that does not answer at its address is looked for again by
+    run_remote (board_address: same MAC + host key, host name, or the
+    Jetson <-> Pi5 wired link) and the stop is retried there.
+    """
     hosts = {"pi5": pi_host, "jetson": jetson_host}
+    try:
+        import board_address
+        board_address.register(pi5=pi_host, jetson=jetson_host)
+    except Exception:
+        pass
+    if only is not None:
+        hosts = {board: host for board, host in hosts.items() if board in only}
     boards = {}
     expected_users = {"pi5": "user", "jetson": "nvidia"}
     for board, host in hosts.items():
@@ -173,7 +285,7 @@ def stop_boards(pi_host, jetson_host, password, progress_callback: Callable | No
         for future in as_completed(pending):
             board = pending[future]
             try:
-                boards[board] = future.result()
+                boards[board] = _stop_details(future.result())
                 if boards[board].get("ok") and boards[board].get("state") != "STOPPED":
                     boards[board] = _failure("invalid_remote_stop_result")
             except Exception:
@@ -184,22 +296,161 @@ def stop_boards(pi_host, jetson_host, password, progress_callback: Callable | No
                 except Exception:
                     pass
     count = sum(bool(value.get("ok")) for value in boards.values())
-    state = "STOPPED" if count == 2 else "PARTIAL_FAILURE" if count else "FAILED"
-    return {"ok": count == 2, "state": state, "boards": boards}
+    total = len(boards)
+    state = "STOPPED" if count == total else "PARTIAL_FAILURE" if count else "FAILED"
+    return {"ok": count == total, "state": state, "boards": boards}
+
+
+POWER_MARKER = "NOMAD_POWER_RESULT="
+POWER_BOARDS = ("pi4", "pi5", "jetson")   # Jetson last: Pi5 may only be reachable through it
+POWER_USERS = {"pi4": "user", "pi5": "user", "jetson": "nvidia"}
+
+
+def _is_local_address(address):
+    """True for this laptop's own names/addresses: the GUI must never power it off."""
+    import socket
+    name = address.lower().rstrip(".")
+    if name in ("localhost", "localhost.localdomain") or name.endswith(".localhost"):
+        return True
+    try:
+        if name in (socket.gethostname().lower(), socket.getfqdn().lower()):
+            return True
+    except OSError:
+        pass
+    try:
+        parsed = ipaddress.ip_address(address)
+    except ValueError:
+        return False
+    if parsed.is_loopback or parsed.is_unspecified:
+        return True
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.bind((str(parsed), 0))   # succeeds only for an address of this machine
+        return True
+    except OSError:
+        return False
+
+
+def _power_one(board, host, password, timeout_s=25):
+    """Ship remote/poweroff_board.sh with the expected board kind; sudo, no route retry."""
+    with tempfile.TemporaryDirectory(prefix="nomad-power-") as folder:
+        script = Path(folder) / "poweroff_board.sh"
+        script.write_text(f"EXPECTED={board}\n" + (BASE_DIR / "remote/poweroff_board.sh").read_text(encoding="utf-8"),
+                          encoding="utf-8")
+        value = run_remote(host, script, password, timeout_s, sudo=True, follow=False)
+    stdout = value.get("stdout", "") if isinstance(value.get("stdout", ""), str) else ""
+    markers = [line[len(POWER_MARKER):] for line in stdout.splitlines() if line.startswith(POWER_MARKER)]
+    remote = None
+    if markers:
+        try:
+            remote = json.loads(markers[-1])
+        except ValueError:
+            remote = None
+    if not isinstance(remote, dict):
+        reason = value.get("reason") or "missing_result"
+        if reason in ("ok", "remote_script_failed"):
+            reason = "sudo_failed"      # sudo refused the password before the script ran
+        return {"ok": False, "reason": reason}
+    ok = remote.get("ok") is True
+    return {"ok": ok, "reason": str(remote.get("reason") or ("scheduled" if ok else "failed"))}
+
+
+def poweroff_boards(pi_host, jetson_host, password, pi4_host=None, boards=("pi5", "jetson"),
+                    progress_callback: Callable | None = None, stop=None, recording_check=None) -> dict:
+    """2026-11-16 '보드 전원 끄기': trial stop first, then Pi4 -> Pi5 -> Jetson (last).
+
+    Refused while a Jetson sensor recording is running: checked read-only before the
+    trial stop (whenever a Jetson address is given, even if the Jetson is not chosen;
+    an unreadable status refuses), and again from the stop results. Each board checks its own
+    model before scheduling poweroff (remote/poweroff_board.sh), so a wrong address
+    is refused there; this laptop's own addresses are refused here. The laptop never
+    runs poweroff/shutdown: the command only travels to the board inside SSH stdin.
+    """
+    stop = stop or stop_boards
+    recording_check = recording_check or _jetson_recording_check
+    hosts = {"pi4": pi4_host, "pi5": pi_host, "jetson": jetson_host}
+    chosen = [board for board in POWER_BOARDS if board in set(boards or ())]
+    results, valid = {}, {}
+    for board in chosen:
+        try:
+            normalized = validate_host(hosts[board] or "")
+            user, address = normalized.split("@", 1)
+            if user != POWER_USERS[board]:
+                raise ValueError("Wrong board account")
+            if _is_local_address(address):
+                results[board] = {"ok": False, "reason": "local_address_refused"}
+                continue
+            if normalized in valid.values():
+                results[board] = {"ok": False, "reason": "duplicate_address"}
+                continue
+            valid[board] = normalized
+        except ValueError:
+            results[board] = {"ok": False, "reason": "invalid_board_address"}
+    if not chosen:
+        return {"ok": False, "state": "FAILED", "reason": "no_board_selected", "boards": {}}
+    if results:
+        return {"ok": False, "state": "REFUSED", "reason": "invalid_board_address", "boards": results}
+    if not password:
+        return {"ok": False, "state": "REFUSED", "reason": "sudo_password_required", "boards": {}}
+    if jetson_host:
+        try:
+            status = recording_check(jetson_host, password)
+        except Exception:
+            status = {"ok": False, "reason": "local_control_error"}
+        status = status if isinstance(status, dict) else {}
+        if status.get("ok") and status.get("recording") is True:
+            return {"ok": False, "state": "REFUSED", "reason": "recording_active", "boards": {}}
+        # No SSD means no recording can run there.
+        if not (status.get("ok") and status.get("recording") is False) and status.get("reason") != "no_ssd":
+            return {"ok": False, "state": "REFUSED", "reason": "recording_check_failed",
+                    "check": str(status.get("reason") or "unknown")[:60], "boards": {}}
+    stop_targets = {board for board in ("pi5", "jetson") if board in valid}
+    stopped = None
+    if stop_targets:
+        stopped = stop(pi_host, jetson_host, password, only=stop_targets)
+        if progress_callback:
+            try:
+                progress_callback("stop", dict(stopped))
+            except Exception:
+                pass
+        if any(value.get("reason") == "recording_active" or value.get("recording_active")
+               for value in stopped.get("boards", {}).values()):
+            return {"ok": False, "state": "REFUSED", "reason": "recording_active", "stop": stopped, "boards": {}}
+    for board in chosen:
+        try:
+            results[board] = _power_one(board, valid[board], password)
+        except Exception:
+            results[board] = {"ok": False, "reason": "local_control_error"}
+        if progress_callback:
+            try:
+                progress_callback(board, dict(results[board]))
+            except Exception:
+                pass
+    count = sum(bool(value.get("ok")) for value in results.values())
+    state = "SCHEDULED" if count == len(results) else "PARTIAL_FAILURE" if count else "FAILED"
+    return {"ok": count == len(results), "state": state, "stop": stopped, "boards": results}
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Stop only the current NOMAD visual trial; keep board power on")
-    parser.add_argument("action", choices=("stop",))
+    parser = argparse.ArgumentParser(description="Stop the NOMAD visual trial (board power stays on), "
+                                                 "or power off chosen boards (never this laptop)")
+    parser.add_argument("action", choices=("stop", "poweroff"))
     parser.add_argument("--pi-host", required=True)
     parser.add_argument("--jetson-host", required=True)
+    parser.add_argument("--pi4-host")
+    parser.add_argument("--boards", default="pi5,jetson", help="poweroff only: comma list of pi4,pi5,jetson")
     parser.add_argument("--state-dir")
     args = parser.parse_args()
-    result = stop_boards(args.pi_host, args.jetson_host, os.environ.get("NOMAD_BOARD_PASSWORD1"))
+    if args.action == "poweroff":
+        boards = [name for name in args.boards.split(",") if name in POWER_BOARDS]
+        result = poweroff_boards(args.pi_host, args.jetson_host, os.environ.get("NOMAD_BOARD_PASSWORD1"),
+                                 pi4_host=args.pi4_host, boards=boards)
+    else:
+        result = stop_boards(args.pi_host, args.jetson_host, os.environ.get("NOMAD_BOARD_PASSWORD1"))
     if args.state_dir:
         target = Path(args.state_dir)
         target.mkdir(parents=True, exist_ok=True)
-        output = target / "stop_result.json"
+        output = target / ("poweroff_result.json" if args.action == "poweroff" else "stop_result.json")
         temporary = output.with_suffix(".tmp")
         temporary.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         os.replace(temporary, output)

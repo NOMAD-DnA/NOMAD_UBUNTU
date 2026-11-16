@@ -1,0 +1,4 @@
+{
+ "planning_hz": 5.0,
+ "command_hz": 20.0
+}

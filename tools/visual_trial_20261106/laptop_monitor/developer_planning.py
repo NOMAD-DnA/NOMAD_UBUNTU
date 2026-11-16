@@ -11,6 +11,7 @@ import numpy as np
 from module_logs import attach_module_logs, update_module_logs
 from render_utils import HistorySampler, history_signature, stable_metadata, set_text
 from planning_footprint import load_footprint, cell_polygons
+import developer_debug as dbg
 
 
 def finite(value):
@@ -422,6 +423,20 @@ class PlanningWindow(QtWidgets.QMainWindow):
         self.connect_button = QtWidgets.QPushButton('플래너 연결')
         self.connect_button.clicked.connect(lambda: self._action('connect_planner'))
         row.addWidget(self.connect_button)
+        row.addWidget(QtWidgets.QLabel('odom x/y'))
+        self.goal_x_input, self.goal_y_input = QtWidgets.QDoubleSpinBox(), QtWidgets.QDoubleSpinBox()
+        for spin in (self.goal_x_input, self.goal_y_input):
+            spin.setRange(-1000., 1000.)
+            spin.setDecimals(2)
+            spin.setSingleStep(.1)
+            spin.setSuffix(' m')
+            spin.setToolTip('현재 odom 기준 목표 좌표. VIO 재시작·방향 초기화 뒤에는 다시 확인하세요.')
+            row.addWidget(spin)
+        self.manual_button = QtWidgets.QPushButton('좌표로 목표 지정')
+        self.manual_button.setToolTip('입력한 odom x/y를 선택 목표로 지정합니다. 전송은 ‘선택 목표 보내기’로 따로 합니다.')
+        self.manual_button.clicked.connect(self._manual_goal)
+        row.addWidget(self.manual_button)
+        self._shown_goal = None
         self.send_button = QtWidgets.QPushButton('선택 목표 보내기')
         self.send_button.clicked.connect(lambda: self._action('send_goal'))
         row.addWidget(self.send_button)
@@ -486,6 +501,14 @@ class PlanningWindow(QtWidgets.QMainWindow):
         self.footprint_toggle.toggled.connect(self.cells_toggle.setEnabled)
         footprint_controls.addWidget(self.footprint_toggle)
         footprint_controls.addWidget(self.cells_toggle)
+        self.layer_toggles = {}
+        for name, title in (('global', 'GPP 경로'), ('local', 'LPP 궤적'), ('history', '이동 경로')):
+            check = QtWidgets.QCheckBox(title)
+            check.setChecked(True)
+            check.setToolTip('이미 받은 겹침 표시만 켜고 끕니다. 플래너에는 아무것도 보내지 않습니다.')
+            check.toggled.connect(lambda checked, key=name: self.map.set_layer_visible(key, checked))
+            footprint_controls.addWidget(check)
+            self.layer_toggles[name] = check
         self.closeup_button = QtWidgets.QPushButton('차량 근접 보기 · 2m')
         self.closeup_button.clicked.connect(self.map.closeup_vehicle)
         footprint_controls.addWidget(self.closeup_button)
@@ -519,9 +542,157 @@ class PlanningWindow(QtWidgets.QMainWindow):
         self._image_key = None
         self._shown_received = None
         self._readonly = True
+        self.transitions = dbg.TransitionLog(maxlen=60)
+        self._gpp_stamps = []
+        self._exec_samples = []
+        self.debug = dbg.DebugTools(self, 'planning', 'NOMAD 플래닝 개발', (
+            {'key': 'telemetry:planning', 'label': '플래너 상태', 'limit': 3.},
+            {'key': 'image:costmap', 'label': '전역 지도 (코스트맵)', 'limit': 2., 'rate': ('jetson', 'costmap')},
+            {'key': 'pose:public', 'label': '공용 위치', 'limit': 1., 'rate': ('pi', 'public')},
+        ), log_dock=self.log_dock)
+        self.debug.clear_hooks.append(self._clear_debug)
 
     def append_module_log(self, event):
         return self.log_panel.append_event(event)
+
+    def _clear_debug(self):
+        self.transitions.clear()
+        self._gpp_stamps, self._exec_samples = [], []
+
+    def _observe_planning(self, snapshot):
+        """History of received planner fields; runs even while the display is frozen."""
+        now = snapshot.get('now')
+        if not dbg.finite(now):
+            return
+        if self._exec_samples and now < self._exec_samples[-1][0] - .5:
+            self._clear_debug()
+        report = snapshot.get('telemetry', {}).get('planning', {})
+        received = snapshot.get('received', {}).get('telemetry:planning')
+        if not report or not dbg.finite(received):
+            return
+        self.transitions.update(now, {
+            '주행 상태': report.get('state'), 'GPP': report.get('gpp_state'), 'LPP': report.get('lpp_state'),
+            '경로 유효': report.get('path_valid'), '실행 후보': report.get('executable'),
+            'armed': report.get('armed'), 'actuator_enabled': report.get('actuator_enabled'),
+            '출력 차단 사유': report.get('output_inhibit') or '없음', 'LPP 사유': report.get('lpp_reason'),
+            '목표': '—' if not report.get('goal') else f"({report['goal'][0]:.2f}, {report['goal'][1]:.2f})"},
+            dbg.wall_clock(report.get('t')))
+        stamp = report.get('gpp_stamp_ns')
+        if isinstance(stamp, int) and stamp > 0 and (not self._gpp_stamps or self._gpp_stamps[-1][1] != stamp):
+            self._gpp_stamps.append((now, stamp))
+        if not self._exec_samples or self._exec_samples[-1][2] != received:
+            self._exec_samples.append((now, report.get('executable'), received))
+        cutoff = now - dbg.WINDOW_S
+        self._gpp_stamps = [row for row in self._gpp_stamps if row[0] >= cutoff][-400:]
+        self._exec_samples = [row for row in self._exec_samples if row[0] >= cutoff][-2000:]
+
+    def _debug_checks(self, snapshot):
+        ui = snapshot.get('planning_ui', {})
+        report = snapshot.get('telemetry', {}).get('planning', {})
+        received = snapshot.get('received', {})
+        now = snapshot.get('now', time.monotonic())
+        planning_age = None if received.get('telemetry:planning') is None else max(0., now-received['telemetry:planning'])
+        checks = [dbg.freshness('플래너 상태 수신', planning_age, 1., 3.)]
+        if snapshot.get('replay'):
+            checks.append(('플래너 연결', 'unknown', '기록 재생 · 연결 없음'))
+        elif ui.get('spectator'):
+            checks.append(('플래너 연결', 'unknown', '관전 · 운용 PC의 연결을 공유'))
+        else:
+            checks.append(('플래너 연결', 'ok' if ui.get('client_active') else 'warn',
+                           '연결됨' if ui.get('client_active') else '이 PC에서 플래너 미연결'))
+        if not report:
+            checks.append(('주행 상태', 'fail', '플래너 상태 미수신'))
+        else:
+            state = str(report.get('state', '—'))
+            level = ('fail' if any(word in state.upper() for word in ('FAULT', 'ERROR', 'ESTOP', 'STOP'))
+                     else 'ok' if state.upper() in ('DRIVING', 'TRACKING', 'MOVING', 'ARRIVED', 'IDLE') else 'warn')
+            checks.append(('주행 상태', level, f"{state} · {dbg.plain(report.get('reason'))}"))
+            valid = report.get('path_valid')
+            checks.append(('GPP 전역 경로', 'ok' if valid is True else 'fail' if valid is False else 'unknown',
+                           f"{report.get('gpp_state', '상태 미제공')} · {dbg.plain(report.get('gpp_reason'))}"))
+            executable = report.get('executable')
+            checks.append(('LPP 실행 후보', 'ok' if executable is True else 'fail' if executable is False else 'unknown',
+                           f"{report.get('lpp_state', '상태 미제공')} · {dbg.plain(report.get('lpp_reason'))}"))
+            path_stamp, stamp = report.get('gpp_stamp_ns'), report.get('t')
+            if isinstance(path_stamp, int) and path_stamp > 0 and dbg.finite(stamp):
+                path_age = max(0., stamp - path_stamp/1e9)
+                checks.append(('GPP 경로 기준 시각', 'ok' if path_age <= 5. else 'warn',
+                               f'플래너 상태 시각보다 {path_age:.1f}초 전 경로 (5초 초과 시 주의)'))
+            from planning_client import output_summary
+            armed, enabled, inhibit = report.get('armed'), report.get('actuator_enabled'), report.get('output_inhibit')
+            level = 'ok' if armed is True and enabled is True and not inhibit else 'warn'
+            if report.get('plan_only', True):
+                level = 'unknown'
+            checks.append(('출력 허용 · 구동', level, output_summary(report)))
+            checks.append(('출력 차단 사유', 'warn' if inhibit else 'ok', inhibit or '없음'))
+        map_received = self._shown_received
+        map_age = None if map_received is None else max(0., now-map_received)
+        frame = self.map._frame()
+        checks.append(dbg.freshness('전역 지도 (표시 중)', map_age, 2., 5., note=f'좌표계 {frame or "—"}'))
+        checks.append(dbg.freshness('공용 위치 수신', None if received.get('pose:public') is None
+                                    else max(0., now-received['pose:public']), 1., 3.))
+        checks.append(dbg.log_check(self.log_panel))
+        return checks
+
+    def _debug_sections(self, snapshot):
+        report = snapshot.get('telemetry', {}).get('planning', {})
+        now = snapshot.get('now', time.monotonic())
+        path, trajectory = report.get('path') or [], report.get('trajectory') or []
+        goal = report.get('goal')
+        pose = self.map._latest()
+        values = []
+        def add(name, value):
+            values.append([name, dbg.plain(value, 400)])
+        for key, name in (('state', '주행 상태'), ('reason', '상태 사유'), ('gpp_state', 'GPP 상태'), ('gpp_reason', 'GPP 사유'),
+                          ('lpp_state', 'LPP 상태'), ('lpp_reason', 'LPP 사유'), ('path_valid', '경로 유효'),
+                          ('executable', '실행 후보 유효'), ('plan_only', '경로 확인 전용'), ('armed', 'armed'),
+                          ('actuator_enabled', 'actuator_enabled'), ('output_inhibit', '출력 차단 사유'),
+                          ('output_mode', '출력 방식'), ('feedback_source', '피드백 출처'), ('prototype_output', '임시 환산 출력')):
+            if report:
+                add(name, report.get(key) if report.get(key) != '' else '없음')
+        if report:
+            add('목표 (odom)', f'({goal[0]:.2f}, {goal[1]:.2f}) m' if goal else '없음')
+            if goal and pose:
+                add('차량→목표 직선 거리', f"{math.hypot(goal[0]-pose['x'], goal[1]-pose['y']):.2f} m")
+            add('GPP 경로 길이 · 점 수', f'{dbg.path_length(path):.2f} m · {len(path)}점 (표시용 최대 600점)')
+            if path and goal:
+                add('GPP 경로 끝 ↔ 목표', f'{math.hypot(path[-1][0]-goal[0], path[-1][1]-goal[1]):.2f} m')
+            if path and pose:
+                add('차량 ↔ GPP 경로 최단 거리', f"{min(math.hypot(p[0]-pose['x'], p[1]-pose['y']) for p in path):.2f} m (경로 점 기준)")
+            add('LPP 궤적 길이 · 점 수', f'{dbg.path_length(trajectory):.2f} m · {len(trajectory)}점')
+            stamp = report.get('t')
+            for key, name in (('gpp_stamp_ns', 'GPP 경로 기준 시각'), ('stamp_ns', '입력 기준 시각'), ('output_stamp_ns', '출력 시각')):
+                value = report.get(key)
+                if isinstance(value, int) and value > 0 and dbg.finite(stamp):
+                    add(name, f'{dbg.wall_clock(value/1e9)} · 상태 시각보다 {stamp-value/1e9:.2f}초 전')
+            add('플래너 상태 시각', dbg.wall_clock(stamp))
+        samples = self._exec_samples
+        blocked = [row for row in samples if row[1] is False]
+        stats = [['GPP 재계획 (새 경로 기준 시각)', f'{max(0, len(self._gpp_stamps)-1)}회'],
+                 ['LPP 실행 후보 없음 비율', f'{len(blocked)/len(samples)*100:.0f}% ({len(blocked)}/{len(samples)} 수신)' if samples else '—'],
+                 ['주행 상태 변화', f"{self.transitions.count_since(now, '주행 상태')}회"],
+                 ['LPP 상태 변화', f"{self.transitions.count_since(now, 'LPP')}회"],
+                 ['출력 차단 사유 변화', f"{self.transitions.count_since(now, '출력 차단 사유')}회"],
+                 ['플래너 상태 수신 (화면 관측)', f'{len(samples)}회 · 화면 갱신보다 빠른 수신은 합쳐 셉니다']]
+        return {
+            '플래너 주요 값': (['항목', '현재 값'], values, '플래너가 보낸 값 그대로입니다. 거리·길이는 받은 경로 점으로 이 PC가 계산합니다.'),
+            '최근 60초 통계': (['항목', '값'], stats, ''),
+            '상태 변화 기록 · 최근 60건': (['플래너 시각', '항목', '이전', '현재'], self.transitions.table(),
+                                     '받은 상태가 바뀔 때만 한 줄 추가합니다. 위가 최신입니다.'),
+            '플래너 프로세스 · 보드 부하 계측': (dbg.PROCESS_HEADERS, dbg.module_processes(snapshot, ('planning_gpp_lpp',)),
+                                         dbg.PROCESS_NOTE),
+        }
+
+    def update_snapshot(self, snapshot):
+        self.debug.observe(snapshot)
+        self._observe_planning(snapshot)
+        if self.debug.frozen:
+            # Command buttons must keep following the live state even while
+            # the map and numbers are frozen (e.g. 출력 정지 stays usable).
+            self._update_controls(snapshot)
+            return
+        self._update_view(snapshot)
+        self.debug.publish(snapshot, self._debug_checks(snapshot), self._debug_sections(snapshot))
 
     def _open_follow_window(self):
         # Opening a shared display is also allowed in replay/spectator mode.
@@ -541,9 +712,13 @@ class PlanningWindow(QtWidgets.QMainWindow):
             self.controller.select_goal(x, y, frame)
             self.update_snapshot(self.controller.developer_snapshot())
 
-    def update_snapshot(self, snapshot):
-        update_module_logs(self, snapshot, "planning")
-        now = snapshot.get('now', time.monotonic())
+    def _manual_goal(self):
+        # No map requirement: a typed goal may be staged before a map arrives.
+        if self.controller is not None and not self._readonly:
+            self.controller.manual_goal(self.goal_x_input.value(), self.goal_y_input.value())
+            self.update_snapshot(self.controller.developer_snapshot())
+
+    def _update_controls(self, snapshot):
         ui = snapshot.get('planning_ui', {})
         self._readonly = bool(ui.get('spectator', True) or ui.get('no_ssh', True))
         host = ui.get('host', '')
@@ -552,6 +727,16 @@ class PlanningWindow(QtWidgets.QMainWindow):
         self.host.setEnabled(not self._readonly and not ui.get('client_active', False))
         self.connect_button.setEnabled(not self._readonly)
         self.connect_button.setText('플래너 종료' if ui.get('client_active') else '플래너 연결')
+        for widget in (self.goal_x_input, self.goal_y_input, self.manual_button):
+            widget.setEnabled(not self._readonly and ui.get('manual_enabled', False))
+        goal = ui.get('selected_goal')
+        if goal != self._shown_goal:
+            self._shown_goal = goal
+            if goal and not (self.goal_x_input.hasFocus() or self.goal_y_input.hasFocus()):
+                for spin, value in ((self.goal_x_input, goal[0]), (self.goal_y_input, goal[1])):
+                    spin.blockSignals(True)
+                    spin.setValue(value)
+                    spin.blockSignals(False)
         self.send_button.setEnabled(not self._readonly and ui.get('send_enabled', False))
         self.cancel_button.setEnabled(not self._readonly and ui.get('cancel_enabled', False))
         self.arm_button.setEnabled(not self._readonly and ui.get('arm_enabled', False))
@@ -563,6 +748,12 @@ class PlanningWindow(QtWidgets.QMainWindow):
             self.reset_result.setText(reset_text)
         self.reset_result.setVisible(bool(reset_text))
         self.status.setText(('관전 · 읽기 전용 | ' if ui.get('spectator') else '') + str(ui.get('message', '플래너 미수신')))
+
+    def _update_view(self, snapshot):
+        update_module_logs(self, snapshot, "planning")
+        now = snapshot.get('now', time.monotonic())
+        ui = snapshot.get('planning_ui', {})
+        self._update_controls(snapshot)
         event = snapshot.get('image_meta', {}).get('costmap', {})
         image = snapshot.get('images', {}).get('costmap')
         received = snapshot.get('received', {})

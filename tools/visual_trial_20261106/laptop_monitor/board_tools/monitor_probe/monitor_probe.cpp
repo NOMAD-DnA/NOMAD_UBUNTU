@@ -454,9 +454,32 @@ class Probe final : public rclcpp::Node {
         for (const auto& item : m->status) {
           if (item.name != "fusion") continue;
           mode = item.message.substr(0, 256); level = item.level;
-          for (const auto& value : item.values) {
-            if (values.size() >= 64) break;
-            values[value.key.substr(0, 64)] = value.value.substr(0, 80);
+          // 2026-11-16: 64 keys cut off viewer_* / heading_reset_* (added last by fusion_node).
+          // Up to 160 keys; viewer_* and heading_reset_* are taken first. Key/value length
+          // limits (64/80) unchanged. Total quoted size of values is capped at 48 KiB so the
+          // line stays under the laptop relay telemetry limit (65536 B) even with escapes.
+          constexpr std::size_t kMaxFusionValues = 160;
+          constexpr std::size_t kMaxFusionValueBytes = 48 * 1024;
+          const auto priority = [](const std::string& key) {
+            return key.rfind("viewer_", 0) == 0 || key.rfind("heading_reset_", 0) == 0;
+          };
+          const auto entry_bytes = [](const std::string& key, const std::string& text) {
+            return quoted(key).size() + quoted(text).size() + 2;
+          };
+          std::size_t value_bytes = 0;
+          for (int pass = 0; pass < 2; ++pass) {
+            for (const auto& value : item.values) {
+              std::string key = value.key.substr(0, 64);
+              if (priority(key) != (pass == 0)) continue;
+              std::string text = value.value.substr(0, 80);
+              const auto found = values.find(key);
+              if (found == values.end() && values.size() >= kMaxFusionValues) continue;
+              const std::size_t old_bytes = found == values.end() ? 0 : entry_bytes(found->first, found->second);
+              const std::size_t new_bytes = entry_bytes(key, text);
+              if (value_bytes - old_bytes + new_bytes > kMaxFusionValueBytes) continue;
+              value_bytes = value_bytes - old_bytes + new_bytes;
+              values[std::move(key)] = std::move(text);
+            }
           }
           break;
         }

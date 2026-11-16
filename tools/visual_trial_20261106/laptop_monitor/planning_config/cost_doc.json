@@ -1,0 +1,112 @@
+{
+ "cost.multi": {
+  "title": "여러 요소 비용",
+  "description": "장애물·경사·인지·미관측을 따로 가중해 칸 비용을 만들어요. 끄면 비용 지도 값만 써요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "cost.obstacle_weight": {
+  "title": "장애물 근처 비용",
+  "description": "막힌 칸 근처일수록 비용을 더하는 크기예요.",
+  "unit": "배",
+  "default": 16.0,
+  "min": 0.0,
+  "max": 100.0
+ },
+ "cost.proximity_radius": {
+  "title": "장애물 근처 범위",
+  "description": "장애물 근처 비용이 퍼지는 거리예요.",
+  "unit": "m",
+  "default": 4.0,
+  "min": 0.1,
+  "max": 10.0
+ },
+ "cost.clearance_weight": {
+  "title": "장애물 여유 비용",
+  "description": "막힌 칸과 가까운 경로를 덜 선호하게 하는 추가 비용이에요(11-11 중간값).",
+  "unit": "배",
+  "default": 27.0,
+  "min": 0.0,
+  "max": 100.0
+ },
+ "cost.clearance_radius": {
+  "title": "장애물 여유 거리",
+  "description": "이 거리 안에서 여유 비용이 붙어요.",
+  "unit": "m",
+  "default": 0.58,
+  "min": 0.05,
+  "max": 3.0
+ },
+ "cost.slope_weight": {
+  "title": "경사 비용 가중치",
+  "description": "경사 비용(0~1)에 곱하는 값이에요.",
+  "unit": "배",
+  "default": 5.0,
+  "min": 0.0,
+  "max": 50.0
+ },
+ "cost.terrain_weight": {
+  "title": "인지 비용 가중치",
+  "description": "인지(지면 종류) 비용(0~1)에 곱하는 값이에요. 11-13에 0.5에서 5.0으로 올림. 경로가 너무 길어지면 2.5.",
+  "unit": "배",
+  "default": 5.0,
+  "min": 0.0,
+  "max": 50.0
+ },
+ "cost.missing_cost": {
+  "title": "모르는 층 비용",
+  "description": "경사·인지 층 값이 비어 있을 때 쓰는 값이에요(1 = 가장 나쁨).",
+  "unit": "0~1",
+  "default": 1.0,
+  "min": 0.0,
+  "max": 1.0
+ },
+ "cost.unknown_surcharge": {
+  "title": "미관측 칸 추가 비용",
+  "description": "비용 지도가 -1(아무것도 모름)인 칸에 더하는 비용이에요.",
+  "unit": "배",
+  "default": 9.0,
+  "min": 0.0,
+  "max": 100.0
+ },
+ "cost.unknown_penalty": {
+  "title": "미관측 칸 비용(단순 모드)",
+  "description": "여러 요소 비용을 끈 모드에서 미관측 칸 비용이에요.",
+  "unit": "배",
+  "default": 9.0,
+  "min": 1.0,
+  "max": 100.0
+ },
+ "cost.cluster_weight": {
+  "title": "장애물 밀집 비용",
+  "description": "막힌 칸이 몰린 곳을 피하게 하는 비용이에요.",
+  "unit": "배",
+  "default": 32.0,
+  "min": 0.0,
+  "max": 100.0
+ },
+ "cost.cluster_radius": {
+  "title": "밀집 판단 범위",
+  "description": "장애물 밀집도를 세는 반경이에요.",
+  "unit": "m",
+  "default": 4.0,
+  "min": 0.1,
+  "max": 10.0
+ },
+ "cost.cluster_influence": {
+  "title": "밀집 영향 거리",
+  "description": "밀집 비용이 퍼지는 거리예요.",
+  "unit": "m",
+  "default": 0.75,
+  "min": 0.0,
+  "max": 5.0
+ },
+ "cost.cluster_saturation": {
+  "title": "밀집 포화",
+  "description": "이 비율 이상 막히면 밀집 비용이 최대가 돼요.",
+  "unit": "0~1",
+  "default": 0.4,
+  "min": 0.01,
+  "max": 1.0
+ }
+}

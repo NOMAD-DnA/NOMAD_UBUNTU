@@ -32,12 +32,13 @@ from heading_indicator import HeadingIndicator
 from localization_state import localization_summary, comparison_samples, flatten as localization_fields
 from relay import CaptureOrder, LatestPacketBuffer, owns_stream
 from module_logs import LogHistory
+from model_control import MODEL_NAMES
 from render_utils import HistorySampler, history_signature, fit_axes_3d, stable_metadata
 
 
 POSE_SOURCES = ("vio", "fusion", "public")
 IMAGE_SOURCES = ("rgb", "semantic", "slope", "costmap", "vio_tracking")
-TELEMETRY_SOURCES = ("gnss", "fusion", "vio_features", "magnetometer", "planning", "slope_cpu")
+TELEMETRY_SOURCES = ("gnss", "fusion", "vio_features", "magnetometer", "planning", "slope_cpu", "rtk", "resources_jetson", "resources_pi4")
 MAX_POSES = 20000
 MAX_LINE_BYTES = 16 * 1024 * 1024
 
@@ -71,6 +72,10 @@ def atomic_json(path, value):
     os.replace(temporary, path)
 
 
+ROUTE_TEXT = {"mac": " (바뀐 주소를 찾아 연결)", "mdns": " (보드 이름으로 찾아 연결)",
+              "wired": " (Pi5–Jetson 유선 경유)"}
+
+
 class Collector(QtCore.QThread):
     progress = QtCore.pyqtSignal(str, dict)
 
@@ -92,8 +97,36 @@ class Collector(QtCore.QThread):
         self.requestInterruption()
 
     def run(self):
+        # Reconnect after the SSH stream ends; if the board stopped answering at
+        # its address, look for it again (board_address) before reconnecting.
+        import board_address
+        known = [RUNTIME_DIR / "known_hosts", board_address.state_dir() / "known_hosts"]
+        while not self.isInterruptionRequested():
+            target = board_address.route(self.host)
+            self.process = None
+            self.stats["error_code"] = None
+            events_before = self.stats["json_events"]
+            self.run_once(target)
+            if self.isInterruptionRequested():
+                break
+            if self.stats["json_events"] > events_before:
+                board_address.learn(self.host, target)
+            if self.stats["error_code"] in ("network_unavailable", "host_key_check_failed",
+                                            "authentication_failed", "ssh_or_collector_error"):
+                found = board_address.recover(self.host, known)
+                if found:
+                    self.stats["route"] = found["method"]
+            self.emit_progress("reconnecting")
+            # 3 s after a stream that delivered data, 10 s after one that did not.
+            for _ in range(30 if self.stats["json_events"] > events_before else 100):
+                if self.isInterruptionRequested():
+                    break
+                time.sleep(0.1)
+
+    def run_once(self, target):
         # Only the local SSH process group is stopped. No board module controls
         # or remote kill commands are issued by this viewer.
+        import board_address
         runtime = tempfile.TemporaryDirectory(prefix=".ssh-runtime-", dir=RUNTIME_DIR)
         selector = selectors.DefaultSelector()
         buffer = b""
@@ -108,12 +141,13 @@ class Collector(QtCore.QThread):
                 askpass.chmod(0o700)
                 env.update(SSH_ASKPASS=str(askpass), SSH_ASKPASS_REQUIRE="force")
                 env.setdefault("DISPLAY", ":0")
-            args = ["ssh", "-T", "-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5",
-                    "-o", "ServerAliveCountMax=2", "-o", "NumberOfPasswordPrompts=1",
-                    "-o", "StrictHostKeyChecking=accept-new", "-o",
-                    'UserKnownHostsFile="' + str(RUNTIME_DIR / "known_hosts") + '"',
-                    "-o", "LogLevel=ERROR", "-o", "BatchMode=" + ("no" if password_present else "yes"),
-                    self.host, self.command]
+            common = ["-o", "ConnectTimeout=10", "-o", "ServerAliveInterval=5",
+                      "-o", "ServerAliveCountMax=2", "-o", "NumberOfPasswordPrompts=1",
+                      "-o", "StrictHostKeyChecking=accept-new", "-o",
+                      'UserKnownHostsFile="' + str(RUNTIME_DIR / "known_hosts") + '"',
+                      "-o", "LogLevel=ERROR", "-o", "BatchMode=" + ("no" if password_present else "yes")]
+            args = ["ssh", "-T", *common, *board_address.ssh_route_options(target, common),
+                    target["host"], self.command]
             self.emit_progress("connecting")
             # monitor_probe treats stdin EOF as a request to leave rclcpp::spin.
             # Keep the pipe's write end alive for this collector's whole life.
@@ -236,18 +270,20 @@ class TrialStopWorker(QtCore.QThread):
     progress = QtCore.pyqtSignal(str)
     result = QtCore.pyqtSignal(dict)
 
-    def __init__(self, pi_host, jetson_host, password, parent=None):
+    def __init__(self, pi_host, jetson_host, password, parent=None, only=None):
         super().__init__(parent)
-        self.pi_host, self.jetson_host, self.password = pi_host, jetson_host, password
+        self.pi_host, self.jetson_host, self.password, self.only = pi_host, jetson_host, password, only
 
     def run(self):
         try:
             from control import stop_boards
             def progress(board, result):
                 name = "Pi5" if board == "pi5" else "Jetson"
-                self.progress.emit(name + (" 종료 확인" if result.get("ok") else " 종료 미확인: " + str(result.get("reason", ""))))
+                via = ROUTE_TEXT.get(result.get("route"), "")
+                self.progress.emit(name + (" 종료 확인" + via if result.get("ok") else
+                                           " 종료 미확인" + via + ": " + str(result.get("reason", ""))))
             value = stop_boards(self.pi_host, self.jetson_host, self.password,
-                                progress_callback=progress)
+                                progress_callback=progress, only=self.only)
         except Exception as error:
             value = {"ok": False, "state": "FAILED", "reason": type(error).__name__, "boards": {}}
         finally:
@@ -320,6 +356,25 @@ class HeadingResetWorker(QtCore.QThread):
         try:
             from heading_control import reset_heading
             value = reset_heading(self.host, self.password)
+        except Exception:
+            value = {"ok": False, "state": "UNCONFIRMED", "reason": "local_control_error"}
+        finally:
+            self.password = ""
+        self.result.emit(value)
+
+
+class FrontRecordingWorker(QtCore.QThread):
+    """Read-only Pi5 front video check; the recorder itself follows the trial."""
+    result = QtCore.pyqtSignal(dict)
+
+    def __init__(self, host, password, parent=None):
+        super().__init__(parent)
+        self.host, self.password = host, password
+
+    def run(self):
+        try:
+            from front_recording import check_front_recording
+            value = check_front_recording(self.host, self.password)
         except Exception:
             value = {"ok": False, "state": "UNCONFIRMED", "reason": "local_control_error"}
         finally:
@@ -493,12 +548,30 @@ class MapPanel(QtWidgets.QWidget):
         layout.setContentsMargins(5, 5, 5, 5)
         self.title = QtWidgets.QLabel(title)
         self.title.setStyleSheet("font-weight:600; color:#e2e8f0;")
-        layout.addWidget(self.title)
+        # 2026-11-13: wheel = zoom at the cursor, right/middle drag = pan, '자동 맞춤' (or double-click
+        # when goal picking is off) = follow the vehicle again. Left click keeps choosing goals.
+        title_row = QtWidgets.QHBoxLayout()
+        title_row.addWidget(self.title, 1)
+        self.fit_button = QtWidgets.QToolButton()
+        self.fit_button.setText("자동 맞춤")
+        self.fit_button.setToolTip("휠: 확대·축소 · 오른쪽/가운데 드래그: 이동 · 이 버튼: 차를 따라가는 자동 화면으로")
+        self.fit_button.setEnabled(False)
+        self.fit_button.setStyleSheet("QToolButton{color:#e2e8f0;background:#1e293b;border:1px solid #475569;border-radius:4px;padding:2px 8px;}"
+                                      "QToolButton:disabled{color:#64748b;background:#111827;}")
+        self.fit_button.clicked.connect(self.auto_view)
+        title_row.addWidget(self.fit_button)
+        layout.addLayout(title_row)
         self.figure = Figure(facecolor="#111827")
         self.canvas = FigureCanvasQTAgg(self.figure)
         self.canvas.setMinimumSize(220, 190)
         self.ax = self.figure.add_subplot(111, facecolor="#0b1220")
         self.canvas.mpl_connect("button_press_event", self.select_goal)
+        self.manual_view = False
+        self._pan = None  # (pixel x, pixel y, xlim, ylim) while dragging
+        self.canvas.mpl_connect("scroll_event", self.on_scroll)
+        self.canvas.mpl_connect("button_press_event", self.on_press)
+        self.canvas.mpl_connect("motion_notify_event", self.on_motion)
+        self.canvas.mpl_connect("button_release_event", self.on_release)
         self.figure.subplots_adjust(left=.13, right=.97, bottom=.16, top=.92)
         layout.addWidget(self.canvas, 1)
         legend = ("Slope | green 0° · yellow 15° · red ≥30° | gray: unknown"
@@ -568,6 +641,8 @@ class MapPanel(QtWidgets.QWidget):
         self._image_cache_key = self._pose_input_key = None
         self._pose_sampler = HistorySampler(1800)
         self._view_bounds = None
+        self._set_manual(False)   # a replay seek / new session starts in the automatic view
+        self._pan = None
         self._map_artist.set_visible(False)
         self._boundary_artist.set_data([], [])
         self._history_artist.set_data([], [])
@@ -585,8 +660,72 @@ class MapPanel(QtWidgets.QWidget):
         self.dirty = True
         self.canvas.draw_idle()
 
+    # ---- view: zoom / pan (2026-11-13) -------------------------------------------------------
+    MIN_SPAN_M, MAX_SPAN_M, ZOOM_STEP = 1.0, 60.0, 1.25
+
+    def _set_manual(self, manual):
+        self.manual_view = manual
+        self.fit_button.setEnabled(manual)
+
+    def auto_view(self):
+        self._set_manual(False)
+        self._pan = None
+        self._view_bounds = None   # next redraw fits the map/vehicle again
+        self.dirty = True
+        self.redraw()
+
+    def on_scroll(self, event):
+        if event.inaxes is not self.ax or not finite_number(event.xdata) or not finite_number(event.ydata):
+            return
+        steps = getattr(event, "step", 0) or (1 if event.button == "up" else -1)
+        factor = self.ZOOM_STEP ** (-steps)          # wheel up = zoom in
+        x0, x1 = self.ax.get_xlim()
+        y0, y1 = self.ax.get_ylim()
+        span_x, span_y = (x1 - x0) * factor, (y1 - y0) * factor
+        largest = max(span_x, span_y)
+        if largest > self.MAX_SPAN_M:
+            span_x, span_y = span_x * self.MAX_SPAN_M / largest, span_y * self.MAX_SPAN_M / largest
+        smallest = min(span_x, span_y)
+        if smallest < self.MIN_SPAN_M:
+            span_x, span_y = span_x * self.MIN_SPAN_M / smallest, span_y * self.MIN_SPAN_M / smallest
+        # keep the point under the cursor fixed
+        fx = (event.xdata - x0) / (x1 - x0) if x1 != x0 else .5
+        fy = (event.ydata - y0) / (y1 - y0) if y1 != y0 else .5
+        nx0, ny0 = event.xdata - fx * span_x, event.ydata - fy * span_y
+        self.ax.set_xlim(nx0, nx0 + span_x)
+        self.ax.set_ylim(ny0, ny0 + span_y)
+        self._set_manual(True)
+        self.canvas.draw_idle()
+
+    def on_press(self, event):
+        if event.inaxes is not self.ax:
+            return
+        if event.button in (2, 3):
+            self._pan = (event.x, event.y, self.ax.get_xlim(), self.ax.get_ylim())
+        elif event.button == 1 and event.dblclick and not self.goal_selection_enabled:
+            self.auto_view()
+
+    def on_motion(self, event):
+        if self._pan is None or event.x is None or event.y is None:
+            return
+        px, py, (x0, x1), (y0, y1) = self._pan
+        box = self.ax.bbox
+        if box.width <= 0 or box.height <= 0:
+            return
+        dx = (event.x - px) * (x1 - x0) / box.width
+        dy = (event.y - py) * (y1 - y0) / box.height
+        self.ax.set_xlim(x0 - dx, x1 - dx)
+        self.ax.set_ylim(y0 - dy, y1 - dy)
+        self._set_manual(True)
+        self.canvas.draw_idle()
+
+    def on_release(self, event):
+        self._pan = None
+
     def select_goal(self, event):
         geometry = grid_geometry(self.event)
+        if getattr(event, "dblclick", False):
+            return  # a double-click never picks a goal
         if (not self.goal_selection_enabled or event.button != 1 or event.inaxes is not self.ax or
                 geometry is None or self.pixels is None or
                 not finite_number(event.xdata) or not finite_number(event.ydata)):
@@ -728,7 +867,7 @@ class MapPanel(QtWidgets.QWidget):
         bounds = (cx - span / 2, cx + span / 2, cy - span / 2, cy + span / 2)
         current = self._view_bounds
         inside = current and current[0] <= min(xs) and max(xs) <= current[1] and current[2] <= min(ys) and max(ys) <= current[3]
-        if not inside and bounds != current:
+        if not self.manual_view and not inside and bounds != current:
             ax.set_xlim(bounds[:2])
             ax.set_ylim(bounds[2:])
             self._view_bounds = bounds
@@ -791,6 +930,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.planning_client = None
         self.planning_stale_disarmed = False
         self.selected_goal = None
+        self.selected_goal_source = None
         self.stop_worker = None
         self.trial_stop_result = None
         self.model_worker = None
@@ -807,6 +947,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.active_slope_mode = None
         self.slope_cpu_client = None
         self.slope_cpu_history = {}
+        from resource_metrics import ResourceHistory
+        self.resource_history = ResourceHistory()
         self.ssh_progress = {board: {"phase": "via_relay" if self.spectator_mode else
                                      ("disabled" if args.no_ssh else "command_unset")}
                              for board in ("pi", "jetson")}
@@ -826,13 +968,34 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             toolbar.addWidget(QtWidgets.QLabel("관전 모드 · 보드 SSH 연결 없음" if self.spectator_mode else
                                               f"Pi5: {args.pi_host}  |  Jetson: {args.jetson_host}"), 1)
             self.model_combo = QtWidgets.QComboBox()
-            self.model_combo.addItem("B2 · 기존", "b2")
-            self.model_combo.addItem("FCN · 실내", "fcn")
+            for model_id, label in MODEL_NAMES.items():
+                self.model_combo.addItem(label, model_id)
             self.model_combo.setToolTip("인지 모델만 전환합니다. 카메라·VIO·지도·화면 수신은 유지합니다.")
-            toolbar.addWidget(self.model_combo)
             self.model_button = QtWidgets.QPushButton("모델 적용")
             self.model_button.clicked.connect(self.apply_model)
-            toolbar.addWidget(self.model_button)
+            # 2026-11-12: run-time changes live in one popup ('설정 변경'); chosen before Start in the launcher.
+            self.settings_dialog = QtWidgets.QDialog(self)
+            self.settings_dialog.setWindowTitle("시험 설정 변경")
+            self.settings_dialog.resize(760, 360)
+            self.settings_layout = QtWidgets.QVBoxLayout(self.settings_dialog)
+            model_bar = QtWidgets.QHBoxLayout()
+            model_bar.addWidget(QtWidgets.QLabel("인지 모델"))
+            model_bar.addWidget(self.model_combo)
+            model_bar.addWidget(self.model_button)
+            model_bar.addStretch(1)
+            self.settings_layout.addLayout(model_bar)
+            self.settings_button = QtWidgets.QPushButton("설정 변경")
+            self.settings_button.setToolTip("인지 모델·OAK 점군·경사 계산·제어 방식·플래너 위치를 확인하고 바꿉니다.")
+            self.settings_button.clicked.connect(self.open_settings)
+            toolbar.addWidget(self.settings_button)
+            # 2026-11-15: 키보드 조종(Pi4) + 센서 녹화(Jetson SSD, Pi5 GPS) 창.
+            self.drive_record_button = QtWidgets.QPushButton("조종·녹화")
+            self.drive_record_button.setToolTip("키보드로 Pi4 제어기를 조종하고(누르는 동안만 전진, 떼면 정지), "
+                                                "Jetson SSD에 센서 원본과 Pi5 GPS를 녹화합니다.")
+            self.drive_record_button.clicked.connect(self.open_drive_record)
+            self.drive_record_button.setEnabled(not self.spectator_mode and not getattr(args, "no_ssh", False))
+            self.drive_record_dialog = None
+            toolbar.addWidget(self.drive_record_button)
             self.stop_button = QtWidgets.QPushButton("시험 종료")
             self.stop_button.setToolTip("센서·VIO·융합·지도·화면 수신을 종료합니다. 보드 전원은 유지합니다.")
             self.stop_button.setStyleSheet("QPushButton {background:#991b1b;color:white;font-weight:600;padding:9px 22px;} QPushButton:disabled {background:#475569;}")
@@ -846,7 +1009,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.model_message = QtWidgets.QLabel("인지 모델: 미확인 · 선택 후 적용")
             self.model_message.setWordWrap(True)
             self.model_message.setStyleSheet("color:#cbd5e1;padding:3px;")
-            layout.addWidget(self.model_message)
+            self.settings_layout.addWidget(self.model_message)
             cloud_bar = QtWidgets.QHBoxLayout()
             cloud_bar.addWidget(QtWidgets.QLabel("OAK 점군"))
             self.cloud_combo = QtWidgets.QComboBox()
@@ -860,10 +1023,10 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.cloud_status_button.clicked.connect(lambda: self.apply_cloud_source(query=True))
             cloud_bar.addWidget(self.cloud_status_button)
             cloud_bar.addStretch(1)
-            layout.addLayout(cloud_bar)
+            self.settings_layout.addLayout(cloud_bar)
             self.cloud_message = QtWidgets.QLabel("OAK 점군: 미확인. 기존 지도는 유지되며, 방식 비교는 새 지도에서 진행하세요.")
             self.cloud_message.setWordWrap(True)
-            layout.addWidget(self.cloud_message)
+            self.settings_layout.addWidget(self.cloud_message)
             slope_bar = QtWidgets.QHBoxLayout()
             slope_bar.addWidget(QtWidgets.QLabel("경사 계산"))
             self.slope_combo = QtWidgets.QComboBox()
@@ -878,10 +1041,32 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.slope_status_button.clicked.connect(lambda: self.apply_slope_mode(query=True))
             slope_bar.addWidget(self.slope_status_button)
             slope_bar.addStretch(1)
-            layout.addLayout(slope_bar)
+            self.settings_layout.addLayout(slope_bar)
             self.slope_message = QtWidgets.QLabel("경사 방식: 미확인. CPU는 개발 창 > 인지에서 확인하세요.")
             self.slope_message.setWordWrap(True)
-            layout.addWidget(self.slope_message)
+            self.settings_layout.addWidget(self.slope_message)
+            front_bar = QtWidgets.QHBoxLayout()
+            front_bar.addWidget(QtWidgets.QLabel("전방 녹화"))
+            self.front_check_button = QtWidgets.QPushButton("녹화 확인")
+            self.front_check_button.setToolTip("Pi5가 시험과 함께 저장하는 전방 영상(OAK 컬러 640x360, 약 10Hz)의 "
+                                               "녹화 여부만 확인합니다. 켜고 끄는 것은 시험 시작·종료가 합니다.")
+            self.front_check_button.clicked.connect(self.check_front_recording)
+            front_bar.addWidget(self.front_check_button)
+            self.front_list_button = QtWidgets.QPushButton("목록·받기")
+            self.front_list_button.setToolTip("시험별 전방 영상 목록 창을 열고, 골라서 노트북으로 받습니다.")
+            self.front_list_button.clicked.connect(self.open_front_recordings)
+            front_bar.addWidget(self.front_list_button)
+            self.front_message = QtWidgets.QLabel("전방 녹화: 미확인 · 시험 시작 때 자동으로 녹화합니다.")
+            self.front_message.setWordWrap(True)
+            front_bar.addWidget(self.front_message, 1)
+            layout.addLayout(front_bar)
+            self.front_runs = QtWidgets.QLabel("")
+            self.front_runs.setStyleSheet("color:#cbd5e1;padding:0 3px 3px 70px;")
+            self.front_runs.setToolTip("Pi5 ~/nomad_ws/log/visual_trial_<시각>/front_video/ · 최근 20개")
+            self.front_runs.setVisible(False)
+            layout.addWidget(self.front_runs)
+            self.front_check_button.setEnabled(not args.no_ssh and not self.spectator_mode)
+            self.front_list_button.setEnabled(not args.no_ssh and not self.spectator_mode)
             self.set_slope_controls_enabled(not args.no_ssh and not self.spectator_mode)
             self.set_cloud_controls_enabled(not args.no_ssh and not self.spectator_mode)
             if args.no_ssh or self.spectator_mode:
@@ -900,9 +1085,17 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             button = QtWidgets.QPushButton(label)
             button.clicked.connect(lambda checked=False, key=part: self.open_developer_window(key))
             developer_bar.addWidget(button)
+        resources_button = QtWidgets.QPushButton("보드 부하")
+        resources_button.clicked.connect(lambda checked=False: self.open_developer_window("resources"))
+        developer_bar.addWidget(resources_button)
         developer_bar.addStretch(1)
         developer_bar.addWidget(QtWidgets.QLabel("통합 화면과 같은 수신 데이터 사용"))
         layout.addLayout(developer_bar)
+        from rtk_panel import RtkPanel
+        self.rtk_panel = RtkPanel(args.pi_host,
+            readonly=self.replay_mode or self.spectator_mode or args.no_ssh, parent=self)
+        self.rtk_panel.telemetry.connect(lambda event: self.on_packet("pi", event))
+        layout.addWidget(self.rtk_panel.bar)
         self.status_label = QtWidgets.QLabel("Localization: WAITING | Perception: WAITING")
         self.status_label.setWordWrap(True)
         self.status_label.setStyleSheet("font-size:14px; font-weight:600; padding:5px;")
@@ -914,6 +1107,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.localization_mode_label = QtWidgets.QLabel("위치 모드 · 입력 대기")
         self.localization_mode_label.setWordWrap(True)
         layout.addWidget(self.localization_mode_label)
+        self.resource_label = QtWidgets.QLabel("젯슨 · CPU 미수신 | 라파4 · CPU 미수신")
+        self.resource_label.setWordWrap(True)
+        layout.addWidget(self.resource_label)
         layout.addWidget(self.rate_label)
         layout.addWidget(self.ssh_label)
         self.relay_label = QtWidgets.QLabel()
@@ -926,9 +1122,58 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.planning_host.setMaximumWidth(210)
         self.planning_host.setToolTip("C++ 플래너가 설치된 Pi4 SSH 주소")
         planning_bar.addWidget(self.planning_host)
+        from planning_client import CONTROL_MODES
+        self.planning_mode = QtWidgets.QComboBox()
+        for mode, label in CONTROL_MODES.items():
+            self.planning_mode.addItem(label, mode)
+        self.planning_mode.setToolTip("다음 플래너 연결부터 적용되는 모터 제어 방식. 주행 중에는 바꿀 수 없습니다.\n"
+                                      "erpm: VESC 속도 제어(기존) / VIO duty: Pi5 VIO 속도로 duty 제어(시험용)")
+        # 2026-11-12: planner placement (Pi4 existing / Jetson planner + Pi4 controller).
+        from planning_client import PLACEMENTS
+        self.planning_placement = QtWidgets.QComboBox()
+        for placement, label in PLACEMENTS.items():
+            self.planning_placement.addItem(label, placement)
+        self.planning_placement.setToolTip(
+            "다음 플래너 연결부터 적용. 주행 중에는 바꿀 수 없습니다.\n"
+            "Pi4 (기존): Pi4가 플래너·제어기·VESC 드라이버를 모두 실행\n"
+            "Jetson: 플래너는 Jetson(지도 옆), Pi4는 제어기·VESC 드라이버만 실행. Jetson 시험(지도)이 먼저 켜져 있어야 합니다")
+        self.planning_choice = QtWidgets.QLabel("")
+        self.planning_choice.setStyleSheet("color:#c4b5fd;")
+        if getattr(self, "settings_dialog", None) is not None:
+            planner_settings = QtWidgets.QHBoxLayout()
+            planner_settings.addWidget(QtWidgets.QLabel("플래너 연결 시 적용 · 연결 중엔 변경 불가"))
+            planner_settings.addWidget(self.planning_mode)
+            planner_settings.addWidget(self.planning_placement)
+            planner_settings.addStretch(1)
+            self.settings_layout.addLayout(planner_settings)
+            planning_bar.addWidget(self.planning_choice)
+        else:
+            planning_bar.addWidget(self.planning_mode)
+            planning_bar.addWidget(self.planning_placement)
+        self.planning_mode.currentIndexChanged.connect(self.show_planning_choice)
+        self.planning_placement.currentIndexChanged.connect(self.show_planning_choice)
+        self.apply_trial_settings(getattr(args, "trial_settings", None))
         self.planning_connect = QtWidgets.QPushButton("플래너 연결")
         self.planning_connect.clicked.connect(self.connect_planner)
         planning_bar.addWidget(self.planning_connect)
+        # 2026-11-16: manual odom x/y goal entry. It only stages the goal like
+        # a map click; sending stays the separate "선택 목표 보내기" button.
+        planning_bar.addWidget(QtWidgets.QLabel("odom x/y"))
+        self.goal_x_input, self.goal_y_input = QtWidgets.QDoubleSpinBox(), QtWidgets.QDoubleSpinBox()
+        for spin in (self.goal_x_input, self.goal_y_input):
+            spin.setRange(-1000., 1000.)
+            spin.setDecimals(2)
+            spin.setSingleStep(.1)
+            spin.setSuffix(" m")
+            spin.setKeyboardTracking(False)
+            spin.setToolTip("현재 odom 기준 목표 좌표. VIO 재시작·방향 초기화 뒤에는 다시 확인하세요.")
+            planning_bar.addWidget(spin)
+        self.goal_manual_set = QtWidgets.QPushButton("좌표로 목표 지정")
+        self.goal_manual_set.setToolTip("입력한 odom x/y를 선택 목표로 지정합니다. 전송은 ‘선택 목표 보내기’로 따로 합니다.")
+        self.goal_manual_set.clicked.connect(lambda: self.manual_goal())
+        planning_bar.addWidget(self.goal_manual_set)
+        for widget in (self.goal_x_input, self.goal_y_input, self.goal_manual_set):
+            widget.setEnabled(not self.spectator_mode and not args.no_ssh)
         self.goal_send = QtWidgets.QPushButton("선택 목표 보내기")
         self.goal_send.clicked.connect(self.send_goal)
         self.goal_send.setEnabled(False)
@@ -956,6 +1201,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         if self.spectator_mode or args.no_ssh:
             self.planning_connect.setEnabled(False)
             self.planning_host.setEnabled(False)
+            self.planning_mode.setEnabled(False)
+            self.planning_placement.setEnabled(False)
             if self.spectator_mode:
                 self.planning_message.setText("관전 모드 · 운용 PC의 계획 경로 표시 / 목표 전송 불가")
         upper = QtWidgets.QHBoxLayout()
@@ -1059,6 +1306,12 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.relay_receiver.progress.connect(self.on_relay_progress)
             self.relay_receiver.start()
         elif not args.no_ssh:
+            try:
+                import board_address  # lets every SSH user follow a board whose address changed
+                board_address.register(pi5=args.pi_host, jetson=args.jetson_host,
+                                       pi4=getattr(args, "planning_host", "") or "user@lpp.local")
+            except Exception:
+                pass
             for board, host, command in (("pi", args.pi_host, args.pi_command),
                                           ("jetson", args.jetson_host, args.jetson_command)):
                 if not command:
@@ -1068,6 +1321,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 self.workers.append(worker)
                 worker.start()
                 self.ensure_log_reader(board, host)
+            # Read-only resource/log helper; this never starts a planner or arms output.
+            self.ensure_log_reader("pi4", self.planning_host.text())
         if args.snapshot:
             QtCore.QTimer.singleShot(round(args.snapshot_after_s * 1000), self.save_snapshot)
             if args.snapshot_interval_s > 0:
@@ -1097,11 +1352,14 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 "ssh": self.ssh_progress, "now": self.now(), "wall_now": self.wall_now(),
                 "replay": self.replay_mode, "heading_ui": self.heading_ui(), "vio_ui": self.vio_ui(),
                 "active_model": self.active_model, "active_cloud_source": self.active_cloud_source,
+                "resource_history": self.resource_history.rows,
                 "slope_cpu_history": self.slope_cpu_history, "forward_axis": self.forward_axis,
                 "heading_note": self.heading_note, "trial_stop_result": self.trial_stop_result,
                 "planning_ui": {"host": self.planning_host.text(),
                                 "message": self.planning_message.text(),
                                 "selected_goal": self.selected_goal,
+                                "selected_goal_source": self.selected_goal_source_value(),
+                                "manual_enabled": self.goal_manual_set.isEnabled(),
                                 "spectator": self.spectator_mode,
                                 "no_ssh": self.args.no_ssh,
                                 "client_active": self.planning_client is not None,
@@ -1120,7 +1378,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.ensure_log_reader("pi4", self.planning_host.text())
         window = self.developer_windows.get(part)
         if window is None:
-            if part == "localization":
+            if part == "resources":
+                from developer_resources import ResourcesWindow as Window
+            elif part == "localization":
                 from developer_localization import LocalizationWindow as Window
             elif part == "perception":
                 from developer_perception import PerceptionWindow as Window
@@ -1191,6 +1451,53 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 "result": self.vio_restart_result, "reason": reason,
                 "spectator": self.spectator_mode, "no_ssh": self.args.no_ssh,
                 "fusion_continuity": summary["diagnostics_fresh"] or summary["status_fresh"]}
+
+    def open_drive_record(self):
+        if self.spectator_mode or self.args.no_ssh:
+            return
+        from drive_record_dialog import open_dialog
+        password = os.environ.get("NOMAD_BOARD_PASSWORD1") or os.environ.get("NOMAD_BOARD_PASSWORD")
+        pi4 = self.planning_host.text().strip() if hasattr(self, "planning_host") else getattr(self.args, "planning_host", "")
+        self.drive_record_dialog = open_dialog(pi4 or None, self.args.jetson_host, self.args.pi_host, password, self,
+                                               existing=getattr(self, "drive_record_dialog", None))
+
+    def open_front_recordings(self):
+        if self.spectator_mode or self.args.no_ssh:
+            return
+        from front_recording_dialog import open_dialog
+        password = os.environ.get("NOMAD_BOARD_PASSWORD1") or os.environ.get("NOMAD_BOARD_PASSWORD")
+        self.front_dialog = open_dialog(self.args.pi_host, password, self)
+
+    def check_front_recording(self):
+        if self.spectator_mode or self.args.no_ssh or getattr(self, "front_check_in_progress", False):
+            return
+        password = os.environ.get("NOMAD_BOARD_PASSWORD1") or os.environ.get("NOMAD_BOARD_PASSWORD")
+        if not password:
+            password, accepted = QtWidgets.QInputDialog.getText(
+                self, "전방 녹화 확인", "Pi5 SSH 비밀번호", QtWidgets.QLineEdit.Password)
+            if not accepted or not password:
+                return
+        self.front_check_in_progress = True
+        self.front_check_button.setEnabled(False)
+        self.front_message.setText("전방 녹화: 확인 중…")
+        worker = FrontRecordingWorker(self.args.pi_host, password, self)
+        self.front_check_worker = worker
+        worker.result.connect(self.on_front_recording_checked)
+        worker.finished.connect(self.on_front_check_finished)
+        worker.start()
+
+    @QtCore.pyqtSlot(dict)
+    def on_front_recording_checked(self, value):
+        from front_recording import runs_text, summary_text
+        self.front_message.setText(summary_text(value) + " · " + time.strftime("%H:%M:%S") + " 확인")
+        listing = runs_text(value)
+        self.front_runs.setText(("녹화본 (최근순)\n" + listing) if listing else "")
+        self.front_runs.setVisible(bool(listing))
+
+    @QtCore.pyqtSlot()
+    def on_front_check_finished(self):
+        self.front_check_in_progress = False
+        self.front_check_button.setEnabled(not self.spectator_mode and not self.args.no_ssh)
 
     def restart_vio(self):
         if not self.vio_ui()["enabled"]:
@@ -1335,17 +1642,54 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.ax.view_init(elev=24, azim=-60)
         self.plot_dirty = True
 
+    def apply_trial_settings(self, text):
+        """Launcher choices become this window's defaults (the boards already started with them)."""
+        import json
+        import trial_settings
+        try:
+            values = trial_settings.validate(json.loads(text)) if text else None
+        except ValueError:
+            values = None
+        if values:
+            for name, key in (("model_combo", "semantic_model"), ("cloud_combo", "cloud_source"),
+                              ("slope_combo", "slope_mode"), ("planning_mode", "control_mode"),
+                              ("planning_placement", "placement")):
+                combo = getattr(self, name, None)
+                index = combo.findData(values[key]) if combo is not None else -1
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+            for name, key in (("model_message", "semantic_model"), ("cloud_message", "cloud_source"),
+                              ("slope_message", "slope_mode")):
+                label = getattr(self, name, None)
+                if label is not None:
+                    label.setText(trial_settings.SETTINGS[key][0] + ": 시작 설정 " +
+                                  trial_settings.SETTINGS[key][1][values[key]] + " (현재 상태는 '현재 방식 확인'으로)")
+        self.show_planning_choice()
+
+    def show_planning_choice(self, *_):
+        if getattr(self, "planning_choice", None) is not None:
+            self.planning_choice.setText(self.planning_mode.currentText() + " · " + self.planning_placement.currentText())
+
+    def open_settings(self):
+        self.settings_dialog.show()
+        self.settings_dialog.raise_()
+        self.settings_dialog.activateWindow()
+
     def connect_planner(self):
         if self.spectator_mode or self.args.no_ssh:
             return
         if self.planning_client is not None:
             self.planning_client.stop()
             return
-        from planning_client import DEFAULT_PLANNING_COMMAND, PlanningClient
+        from planning_client import DEFAULT_PLANNING_COMMAND, PlanningClient, command_with_mode
         try:
             client = PlanningClient(self.planning_host.text(),
-                                    getattr(self.args, "planning_command", DEFAULT_PLANNING_COMMAND),
-                                    RUNTIME_DIR, self, pi5_host=getattr(self.args, "pi_host", None))
+                                    command_with_mode(getattr(self.args, "planning_command", DEFAULT_PLANNING_COMMAND),
+                                                      self.planning_mode.currentData()),
+                                    RUNTIME_DIR, self, pi5_host=getattr(self.args, "pi_host", None),
+                                    placement=self.planning_placement.currentData(),
+                                    jetson_host=getattr(self.args, "jetson_host", None),
+                                    control_mode=self.planning_mode.currentData())
         except ValueError as error:
             self.planning_message.setText(str(error))
             return
@@ -1356,6 +1700,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         client.progress.connect(self.planning_message.setText)
         client.closed.connect(lambda: self.on_planner_closed(client))
         self.planning_host.setEnabled(False)
+        self.planning_mode.setEnabled(False)
+        self.planning_placement.setEnabled(False)
         self.planning_connect.setText("플래너 종료")
         client.start()
 
@@ -1364,6 +1710,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             return
         self.planning_client = None
         self.planning_host.setEnabled(True)
+        self.planning_mode.setEnabled(True)
+        self.planning_placement.setEnabled(True)
         self.planning_connect.setText("플래너 연결")
         self.goal_send.setEnabled(False)
         self.goal_cancel.setEnabled(False)
@@ -1385,19 +1733,58 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         if geometry is None or geometry[0]["frame_id"] != frame:
             self.planning_message.setText("목표 선택 대기 · 좌표가 확인된 지도가 필요합니다.")
             return
+        self._stage_goal(x, y, frame, "click")
+
+    def manual_goal(self, x=None, y=None):
+        """Stage a typed odom goal. A map is not required; never sends."""
+        if self.spectator_mode or self.args.no_ssh:
+            return
+        x = self.goal_x_input.value() if x is None else x
+        y = self.goal_y_input.value() if y is None else y
+        self._stage_goal(x, y, "odom", "manual")
+
+    def selected_goal_source_value(self):
+        return getattr(self, "selected_goal_source", None) if self.selected_goal is not None else None
+
+    def goal_inside_map(self, x, y):
+        """True/False against the current costmap rectangle, None without a map."""
+        geometry = grid_geometry(self.panels["costmap"].event)
+        if geometry is None or geometry[0]["frame_id"] != "odom":
+            return None
+        g, yaw = geometry
+        dx, dy = x - g["origin"]["x"], y - g["origin"]["y"]
+        u = math.cos(yaw) * dx + math.sin(yaw) * dy
+        v = -math.sin(yaw) * dx + math.cos(yaw) * dy
+        return bool(0 <= u <= g["width"] * g["resolution"] and 0 <= v <= g["height"] * g["resolution"])
+
+    def _stage_goal(self, x, y, frame, source):
         from planning_client import goal_command
         try:
             goal_command(x, y, frame)
         except ValueError as error:
             self.planning_message.setText(str(error))
-            return
+            return False
+        x, y = float(x), float(y)
         self.selected_goal = (x, y, frame)
+        self.selected_goal_source = source
+        for spin, value in ((self.goal_x_input, x), (self.goal_y_input, y)):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
         age = self.age("image", "costmap")
         suffix = "보내기 전" if self.goal_map_fresh() else (
             f"지도 갱신 지연 {age:.1f}초 · 목표 전송 가능 · 주행은 유효 입력 대기" if age is not None else "지도 미수신 · 목표 전송 가능 · 주행은 유효 입력 대기")
-        self.planning_message.setText(f"선택 목표 ({x:.2f}, {y:.2f}) m · {frame} · {suffix}")
+        if source == "manual":
+            inside = self.goal_inside_map(x, y)
+            warning = ("" if inside else
+                       " · 지도 없음 · 플래너가 판정" if inside is None else " · 지도 밖 목표 · 플래너가 판정")
+            self.planning_message.setText(
+                f"입력 목표 ({x:.2f}, {y:.2f}) m · 현재 odom 기준 · {suffix}{warning}")
+        else:
+            self.planning_message.setText(f"선택 목표 ({x:.2f}, {y:.2f}) m · {frame} · {suffix}")
         for key in ("costmap", "slope"):
             self.panels[key].set_planning(self.telemetry.get("planning", {}), self.selected_goal)
+        return True
 
     def goal_map_fresh(self):
         age = self.age("image", "costmap")
@@ -1506,6 +1893,11 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             password, accepted = QtWidgets.QInputDialog.getText(self, "보드 접속", "SSH 비밀번호", QtWidgets.QLineEdit.Password)
             if not accepted:
                 return
+        # Retry only the boards whose stop was not confirmed; keep confirmed ones.
+        previous = self.trial_stop_result if isinstance(self.trial_stop_result, dict) else None
+        self.stop_confirmed = {board: result for board, result in (previous or {}).get("boards", {}).items()
+                               if result.get("ok")} if previous and not previous.get("ok") else {}
+        only = {"pi5", "jetson"} - set(self.stop_confirmed) if self.stop_confirmed else None
         self.trial_stop_result = None
         self.stop_button.setEnabled(False)
         self.model_combo.setEnabled(False)
@@ -1514,7 +1906,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.set_slope_controls_enabled(False)
         self.stop_button.setText("종료 중…")
         self.stop_message.setText("Pi5·Jetson의 실행 모듈을 종료하는 중… 보드 전원은 유지합니다.")
-        self.stop_worker = TrialStopWorker(self.args.pi_host, self.args.jetson_host, password, self)
+        self.stop_worker = TrialStopWorker(self.args.pi_host, self.args.jetson_host, password, self, only=only)
         self.stop_worker.progress.connect(self.stop_message.setText)
         self.stop_worker.result.connect(self.on_trial_stopped)
         self.stop_worker.start()
@@ -1551,9 +1943,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
     def on_model_switched(self, value):
         self.model_switch_result = value
         model = value.get("model")
-        if value.get("ok") is True and model in ("b2", "fcn"):
+        if value.get("ok") is True and model in MODEL_NAMES:
             self.active_model = model
-            self.model_message.setText("인지 모델: " + ("B2 · 기존" if model == "b2" else "FCN · 실내") + " · 전환 확인")
+            self.model_message.setText("인지 모델: " + MODEL_NAMES[model] + " · 전환 확인")
         else:
             self.active_model = None
             self.model_message.setText("모델 전환 미확인 · 현재 모델 미확인 (" + str(value.get("reason", "model_switch_failed")) + ")")
@@ -1718,6 +2110,13 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
 
     @QtCore.pyqtSlot(dict)
     def on_trial_stopped(self, value):
+        confirmed = getattr(self, "stop_confirmed", {})
+        if confirmed:
+            boards = {**confirmed, **value.get("boards", {})}
+            ok = all(result.get("ok") for result in boards.values()) and len(boards) == 2
+            value = {**value, "boards": boards, "ok": ok,
+                     "state": "STOPPED" if ok else "PARTIAL_FAILURE"}
+            self.stop_confirmed = {}
         self.trial_stop_result = value
         for worker in self.workers:
             worker.stop()
@@ -1726,9 +2125,18 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.stop_button.setText("종료 완료" if success else "종료 재시도")
         details = []
         for board, result in value.get("boards", {}).items():
-            details.append(f"{board}: " + ("종료 확인" if result.get("ok") else str(result.get("reason") or "종료 미확인")))
+            via = ROUTE_TEXT.get(result.get("route"), "")
+            # 2026-11-16: recording guard and leftover modules (stop_trial.sh sweep).
+            reason = ("센서 녹화 중이라 센서 유지" if result.get("reason") == "recording_active" else
+                      str(result.get("reason") or "종료 미확인"))
+            if result.get("survivors"):
+                reason += " · 남은 모듈 " + str(result["survivors"])[:120]
+            details.append(f"{board}: " + ("종료 확인" + via if result.get("ok") else reason + via))
         if success:
-            self.stop_message.setText("시험 종료 완료 · Pi5·Jetson 보드 전원 유지")
+            moved = [f"{'Pi5' if board == 'pi5' else 'Jetson'}{ROUTE_TEXT[result['route']]}"
+                     for board, result in value.get("boards", {}).items() if result.get("route") in ROUTE_TEXT]
+            self.stop_message.setText("시험 종료 완료 · Pi5·Jetson 보드 전원 유지" +
+                                      (" · 주소가 바뀐 보드: " + ", ".join(moved) if moved else ""))
         else:
             self.stop_message.setText("일부 보드 종료를 확인하지 못했습니다. " + " | ".join(details) +
                                      (" | " + str(value["reason"]) if value.get("reason") else ""))
@@ -1819,6 +2227,12 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             elif kind == "telemetry":
                 if source not in TELEMETRY_SOURCES or not finite_number(event.get("t")):
                     raise ValueError()
+                if source == "rtk":
+                    from rtk_panel import public_status
+                    rtk_status = public_status(event.get("rtk"))
+                    event = {k: v for k, v in event.items() if k in
+                             ("kind", "source", "t", "_source_session", "_relay_age_s", "_local_received_monotonic")}
+                    event["rtk"] = rtk_status
                 # Small diagnostics only; do not retain image buffers or non-finite JSON values here.
                 encoded = json.dumps(event, allow_nan=False)
                 if len(encoded) > 65536:
@@ -1833,6 +2247,10 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                     gpp, lpp = stage_summary(clean)
                     self.planning_message.setText(gpp + " | " + lpp + " | " + output_summary(clean))
                 else:
+                    if source in ("resources_jetson", "resources_pi4"):
+                        from resource_metrics import validate_resource
+                        validate_resource(event, board)
+                        self.resource_history.add(event, received_at)
                     if source == "slope_cpu" and not isinstance(event.get("cpu", {}), dict):
                         raise ValueError("Invalid CPU telemetry")
                     self.telemetry[source] = json.loads(encoded)
@@ -1941,8 +2359,13 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.image_dirty.discard(source)
 
     def refresh(self):
+        from resource_metrics import brief
+        self.resource_label.setText("젯슨 · " + brief(self.telemetry.get("resources_jetson"), self.age("telemetry", "resources_jetson"))
+                                    + " | 라파4 · " + brief(self.telemetry.get("resources_pi4"), self.age("telemetry", "resources_pi4")))
         self.record_view()
         self.update_recording_bar()
+        self.rtk_panel.update_status(self.telemetry.get("rtk", {}).get("rtk", {}),
+                                     self.age("telemetry", "rtk"))
         if self.slope_cpu_client is not None:
             for board, event in self.slope_cpu_client.drain():
                 self.on_packet(board, event)
@@ -1965,6 +2388,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                                    and report.get("armed") is False)
         self.output_disarm.setEnabled(bool(controllable and client is not None and not client.stopping))
         self.panels["costmap"].goal_selection_enabled = not self.spectator_mode and not self.args.no_ssh
+        for widget in (self.goal_x_input, self.goal_y_input, self.goal_manual_set):
+            widget.setEnabled(controllable)
         if planning_age is not None and planning_age > 3:
             if controllable and client is not None and not self.planning_stale_disarmed:
                 client.send({"cmd": "disarm"})
@@ -2177,6 +2602,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             QtCore.QTimer.singleShot(150, self.close)
             event.ignore()
             return
+        self.rtk_panel.close()
         self.close_recording()
         self.write_state()
         event.accept()
@@ -2191,6 +2617,7 @@ def parse_args():
     parser.add_argument("--planning-host", default="", help="Pi4 user@address; connects only after the planner button is pressed")
     from planning_client import DEFAULT_PLANNING_COMMAND
     parser.add_argument("--planning-command", default=DEFAULT_PLANNING_COMMAND)
+    parser.add_argument("--trial-settings", default="", help="JSON from the launcher settings box (trial_settings.py)")
     parser.add_argument("--ui-hz", type=float, default=5.0)
     parser.add_argument("--state-file", help="Optional JSON state file, updated once a second")
     parser.add_argument("--ssh-progress-file", help="Optional SSH phase/counter JSON; no raw commands, stderr or credentials")
@@ -2205,7 +2632,7 @@ def parse_args():
     relay.add_argument("--relay-listen", type=int, metavar="PORT", help="Operator PC: share accepted packets on all interfaces")
     relay.add_argument("--relay-host", metavar="HOST:PORT", help="Spectator: read-only TCP connection to the operator PC; no board SSH")
     parser.add_argument("--open-developer-window", action="append", default=[],
-                        choices=("localization", "perception", "traversability", "planning", "person_follow", "control"),
+                        choices=("localization", "perception", "traversability", "planning", "person_follow", "control", "resources"),
                         help="Open an independent developer window using the existing collectors; repeatable")
     parser.add_argument("--preview-heading-calibration", help="Explicit IMU=base preview only: use saved Basalt T_imu_cam[0] optical +Z for the front arrow; does not change ROS poses or TF")
     parser.add_argument("--enable-trial-control", action="store_true", help="Show the explicit remote trial stop button; board power stays on")

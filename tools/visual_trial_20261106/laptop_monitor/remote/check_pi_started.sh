@@ -6,6 +6,9 @@ ws=/home/user/nomad_ws
 run=$(cat /tmp/nomad_integrated_pi_run_dir)
 [[ "$run" = "$ws/log/visual_trial_"* && -d "$run" ]] || { echo 'INVALID_PI_RUN' >&2; exit 1; }
 for name in gnss vio fusion; do
+  if [[ "$name" = gnss && -f "$run/gnss_disabled" && ! -e "$run/gnss.pid" ]]; then
+    printf 'DISABLED=gnss\n'; continue
+  fi
   pid=$(cat "$run/$name.pid")
   [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { echo "EXITED=$name" >&2; exit 1; }
   cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")

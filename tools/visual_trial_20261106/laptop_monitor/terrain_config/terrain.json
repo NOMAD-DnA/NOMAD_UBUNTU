@@ -1,0 +1,21 @@
+{
+  "map_length_m": 20.0,
+  "slope_angle_reference": "gravity",
+  "freeze_slope_after_first_valid": false,
+  "retry_slope_score_at_least_100": false,
+  "startup_seed_keep_frozen": true,
+  "label_accumulation": {
+    "enabled": false,
+    "max_labels_per_tick": 4
+  },
+  "keep_slope_on_failure": false,
+  "cost_area": "map_window",
+  "max_map_cells": 0,
+  "map_keep_radius_m": 6.0,
+  "slope_score_per_deg": 4.0,
+  "slope_block_deg": 20.0,
+  "gui_overrides": {
+    "boundary_margin_px": null,
+    "startup_radius_m": null
+  }
+}

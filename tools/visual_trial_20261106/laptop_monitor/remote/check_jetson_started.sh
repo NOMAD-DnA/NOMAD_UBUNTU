@@ -13,6 +13,33 @@ for name in oak zed lidar semantic frame_alias semantic_adapter external_cloud; 
   [[ "$cmd" = *"$ws/"* ]] || { echo "STALE_PID=$name" >&2; exit 1; }
   printf 'RUNNING=%s pid=%s\n' "$name" "$pid"
 done
+if [[ "$(cat "$run/mapper_kind" 2>/dev/null)" == mapper2 ]]; then
+  # 2026-11-13 new mapper: one process, started by start_jetson.sh with a pid file.
+  pid=$(cat "$run/mapper2.pid")
+  [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { tail -n 6 "$run/mapper2.log" >&2 || true; echo 'EXITED=mapper2' >&2; exit 1; }
+  cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+  [[ "$cmd" = *nomad_mapper2* ]] || { echo 'STALE_PID=mapper2' >&2; exit 1; }
+  printf 'RUNNING=mapper2 pid=%s\nSTARTED_ONLY=jetson\nRUN=%s\n' "$pid" "$run"
+  exit 0
+fi
+if [[ "$(cat "$run/mapper_kind" 2>/dev/null)" == mapper3 ]]; then
+  # 2026-11-15 new mapper3 v3: one process (exec'd node, binary on the Jetson SSD) with a pid file.
+  pid=$(cat "$run/mapper3.pid")
+  [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { tail -n 6 "$run/mapper3.log" >&2 || true; echo 'EXITED=mapper3' >&2; exit 1; }
+  cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+  [[ "$cmd" = */mnt/ssd/nomad/nomad_mapper3_ws/*nomad_mapper3* ]] || { echo 'STALE_PID=mapper3' >&2; exit 1; }
+  printf 'RUNNING=mapper3 pid=%s\nSTARTED_ONLY=jetson\nRUN=%s\n' "$pid" "$run"
+  exit 0
+fi
+if [[ "$(cat "$run/mapper_kind" 2>/dev/null)" == terrain ]]; then
+  # 2026-11-13 improved legacy mapper: one process with a pid file.
+  pid=$(cat "$run/terrain.pid")
+  [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { tail -n 6 "$run/terrain.log" >&2 || true; echo 'EXITED=terrain' >&2; exit 1; }
+  cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+  [[ "$cmd" = *nomad_terrain_mapper* ]] || { echo 'STALE_PID=terrain' >&2; exit 1; }
+  printf 'RUNNING=terrain pid=%s\nSTARTED_ONLY=jetson\nRUN=%s\n' "$pid" "$run"
+  exit 0
+fi
 id=$(cat "$run/costmap_run_id")
 export ROS_DOMAIN_ID=59 ROS_LOCALHOST_ONLY=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 NOMAD_RUNTIME_DIR="$root/runtime-map-preview" \

@@ -103,5 +103,36 @@ class Tests(unittest.TestCase):
         self.assertFalse(items[0]['active'])
 
 
+
+class ShareAddressTest(unittest.TestCase):
+    def conf(self, text):
+        tmp = tempfile.NamedTemporaryFile('w', suffix='.conf', delete=False)
+        tmp.write(text)
+        tmp.close()
+        self.addCleanup(os.unlink, tmp.name)
+        return tmp.name
+
+    def test_name_and_ip_when_share_exists(self):
+        conf = self.conf('[global]\n[Shared]\n\tpath = /x\n')
+        out = n.local_share_addresses(conf, hostname='user-su', wifi_ip='10.42.0.1/24')
+        self.assertEqual(out, {'name': 'smb://user-su.local/shared', 'ip': 'smb://10.42.0.1/shared'})
+
+    def test_no_ip_and_no_share(self):
+        conf = self.conf('[global]\n[shared]\n')
+        self.assertEqual(n.local_share_addresses(conf, hostname='a.lan', wifi_ip=''), {'name': 'smb://a.local/shared'})
+        self.assertEqual(n.local_share_addresses(self.conf('[global]\n[sharedx]\n'), hostname='a'), {})
+        self.assertEqual(n.local_share_addresses('/nonexistent/smb.conf', hostname='a'), {})
+
+    def test_share_in_included_file(self):
+        included = self.conf('[shared]\n')
+        conf = self.conf('[global]\n   include = ' + included + '\n;   include = /x/smb.conf.%m\n')
+        self.assertEqual(n.local_share_addresses(conf, hostname='a', wifi_ip='')['name'], 'smb://a.local/shared')
+
+    def test_nmcli_failure_keeps_name(self):
+        conf = self.conf('[shared]\n')
+        with patch.object(n, '_nmcli', side_effect=RuntimeError('x')):
+            self.assertEqual(n.local_share_addresses(conf, hostname='a'), {'name': 'smb://a.local/shared'})
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -1,0 +1,66 @@
+{
+ "first_source_row": {
+  "title": "점군 시작 줄",
+  "description": "이 줄(위에서부터)보다 아래 영상만 점군으로 만들어요(하늘 제외).",
+  "unit": "줄",
+  "min": 0,
+  "max": 479,
+  "default": 206
+ },
+ "pixel_stride": {
+  "title": "픽셀 간격",
+  "description": "이 간격마다 한 점을 써요. 작게 하면 점이 많아져 느려져요.",
+  "unit": "px",
+  "min": 2,
+  "max": 16,
+  "default": 4
+ },
+ "min_depth_m": {
+  "title": "최소 거리",
+  "description": "이보다 가까운 점은 버려요.",
+  "unit": "m",
+  "min": 0.05,
+  "max": 2.0,
+  "default": 0.2
+ },
+ "max_depth_m": {
+  "title": "최대 거리",
+  "description": "이보다 먼 점은 버려요. 최소 거리보다 커야 해요.",
+  "unit": "m",
+  "min": 1.0,
+  "max": 20.0,
+  "default": 10.0
+ },
+ "max_capture_age_s": {
+  "title": "영상 최대 나이",
+  "description": "이보다 오래된 영상으로는 점군을 만들지 않아요.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 5.0,
+  "default": 1.5
+ },
+ "opencv_threads": {
+  "title": "OpenCV 스레드",
+  "description": "SGBM 계산 스레드 수예요.",
+  "unit": "개",
+  "min": 1,
+  "max": 4,
+  "default": 1
+ },
+ "num_disparities": {
+  "title": "시차 범위",
+  "description": "SGBM 시차 범위(16의 배수)예요. 3WAY 방식에서는 시험 설정 값 128이 우선해요.",
+  "unit": "px",
+  "min": 16,
+  "max": 256,
+  "default": 192
+ },
+ "block_size": {
+  "title": "블록 크기",
+  "description": "SGBM 블록 크기(홀수)예요.",
+  "unit": "px",
+  "min": 3,
+  "max": 15,
+  "default": 7
+ }
+}

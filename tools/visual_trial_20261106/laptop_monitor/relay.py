@@ -26,7 +26,7 @@ _SOURCES = {
     "image": frozenset(("rgb", "semantic", "slope", "costmap", "vio_tracking")),
     "status": frozenset(("localization", "perception")),
     "rates": frozenset(("pi", "jetson")),
-    "telemetry": frozenset(("gnss", "fusion", "vio_features", "magnetometer", "planning", "slope_cpu")),
+    "telemetry": frozenset(("gnss", "fusion", "vio_features", "magnetometer", "planning", "slope_cpu", "rtk", "resources_jetson", "resources_pi4")),
     "log": frozenset(("localization", "perception", "traversability", "planning")),
 }
 
@@ -40,7 +40,9 @@ STREAM_OWNERS = {
     ("image", "vio_tracking"): "pi",
     ("status", "localization"): "pi", ("status", "perception"): "jetson",
     ("rates", "pi"): "pi", ("rates", "jetson"): "jetson",
-    **{("telemetry", source): "pi" for source in ("gnss", "fusion", "vio_features")},
+    **{("telemetry", source): "pi" for source in ("gnss", "fusion", "vio_features", "rtk")},
+    ("telemetry", "resources_jetson"): "jetson",
+    ("telemetry", "resources_pi4"): "pi4",
     ("telemetry", "slope_cpu"): "jetson",
     ("telemetry", "magnetometer"): "jetson", ("telemetry", "planning"): "pi4",
 }
@@ -78,7 +80,8 @@ class CaptureOrder:
         session = event.get("_source_session", "legacy")
         if not isinstance(session, str) or not 0 < len(session) <= 128:
             return False
-        stamp = event.get("t")
+        # Resource deltas use the board monotonic clock even if wall time slews.
+        stamp = event.get("sample_monotonic_s") if event.get("source") in ("resources_jetson", "resources_pi4") else event.get("t")
         if stamp is not None and (not _finite(stamp) or stamp <= 0):
             return False
         previous = self.latest.get(key)
@@ -179,7 +182,7 @@ def _validate(board, event):
     if board not in ("pi", "jetson", "pi4") or not isinstance(event, dict) or not owns_stream(board, event):
         return None
     kind, source = event.get("kind"), event.get("source")
-    if board == "pi4" and (kind, source) not in (("telemetry", "planning"), ("log", "planning")):
+    if board == "pi4" and (kind, source) not in (("telemetry", "planning"), ("telemetry", "resources_pi4"), ("log", "planning")):
         return None
     if (not isinstance(kind, str) or kind not in _SOURCES or
             not isinstance(source, str) or source not in _SOURCES[kind]):
@@ -227,6 +230,9 @@ def _validate(board, event):
         elif kind == "log":
             if not valid_log_event(board, event):
                 return None
+        elif kind == "telemetry" and source in ("resources_jetson", "resources_pi4"):
+            from resource_metrics import validate_resource
+            validate_resource(event, board)
         elif kind == "telemetry" and source == "planning":
             if event.get("frame") != "odom" or not isinstance(event.get("plan_only"), bool):
                 return None

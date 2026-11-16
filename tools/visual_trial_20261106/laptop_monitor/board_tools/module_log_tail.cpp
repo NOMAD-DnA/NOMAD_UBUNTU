@@ -123,9 +123,10 @@ static bool write_frame(const std::string& line) {
   // A partial JSON packet cannot be replaced: close instead of mixing fragments.
   return sent==line.size();
 }
+#include "resource_sampler.hpp"
 int main(int argc,char**argv) {
-  std::string board, pointer; fs::path root;bool once=false;
-  for(int i=1;i<argc;++i){const std::string a=argv[i];if(a=="--board"&&i+1<argc)board=argv[++i];else if(a=="--root"&&i+1<argc)root=argv[++i];else if(a=="--pointer"&&i+1<argc)pointer=argv[++i];else if(a=="--once")once=true;else return 2;}
+  std::string board, pointer; fs::path root;bool once=false, resource_mode=false;
+  for(int i=1;i<argc;++i){const std::string a=argv[i];if(a=="--board"&&i+1<argc)board=argv[++i];else if(a=="--root"&&i+1<argc)root=argv[++i];else if(a=="--pointer"&&i+1<argc)pointer=argv[++i];else if(a=="--once")once=true;else if(a=="--resources")resource_mode=true;else return 2;}
   if(board!="pi"&&board!="jetson"&&board!="pi4")return 2;
   if(root.empty())root=board=="jetson"?"/home/nvidia/nomad_ws":board=="pi4"?"/home/user/nomad_cpp_ws":"/home/user/nomad_ws";
   if(pointer.empty())pointer=board=="jetson"?"/tmp/nomad_integrated_jetson_run_dir":"/tmp/nomad_integrated_pi_run_dir";
@@ -134,6 +135,7 @@ int main(int argc,char**argv) {
   if(flags<0 || ::fcntl(STDOUT_FILENO,F_SETFL,flags|O_NONBLOCK)<0)return 2;
   const auto session=std::to_string(::getpid())+"-"+std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
   std::map<std::string,Cursor> cursors;std::map<std::string,bool> announced;std::uint64_t seq=0;std::size_t first_file=0;
+  resources::Sampler sampler;
   do {
     const auto next_tick=Clock::now()+std::chrono::seconds(1);
     std::map<std::string,std::string> groups;const auto current=files(board,root,pointer);
@@ -157,10 +159,18 @@ int main(int argc,char**argv) {
       std::ostringstream o;o<<std::setprecision(17)<<"{\"kind\":\"log\",\"source\":"<<quote(group)<<",\"board\":"<<quote(board)<<",\"t\":"<<now<<",\"seq\":"<<++seq<<",\"session\":"<<quote(session)<<",\"text\":"<<quote(text)<<"}\n";
       if(!write_frame(o.str()))return 0;
     }
+    if(resource_mode && (board=="jetson"||board=="pi4")) {
+      const auto packet=sampler.sample(board,session);
+      if(!packet.empty()&&!write_frame(packet))return 0;
+    }
     if(once)break;
+    const bool gpu_ticks=resource_mode&&board=="jetson";
     while(alive&&Clock::now()<next_tick){
       const auto left=std::chrono::duration_cast<std::chrono::milliseconds>(next_tick-Clock::now()).count();
-      pollfd input{STDIN_FILENO,POLLIN,0};const int result=::poll(&input,1,std::max(1,static_cast<int>(left)));
+      // 2026-11-13: wake every 50 ms on the Jetson to read the GPU load (one small sysfs read).
+      const int wait_ms=std::max(1,static_cast<int>(gpu_ticks?std::min<long long>(left,50):left));
+      pollfd input{STDIN_FILENO,POLLIN,0};const int result=::poll(&input,1,wait_ms);
+      if(result==0&&gpu_ticks)sampler.gpu_tick(board);
       if(result<0&&errno!=EINTR)return 0;
       if(input.revents&(POLLHUP|POLLERR|POLLNVAL))return 0;
       if(input.revents&POLLIN){char discard[128];if(::read(STDIN_FILENO,discard,sizeof(discard))<=0)return 0;}

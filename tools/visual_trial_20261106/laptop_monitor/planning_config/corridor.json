@@ -1,0 +1,18 @@
+{
+ "search_seconds": 0.5,
+ "search_expansions": 50000,
+ "goal_tolerance": 0.29,
+ "corridor": {
+  "observation_turn_weight": 80.0,
+  "min_clearance": 0.15,
+  "allow_unknown_transit": true,
+  "waypoint_radius": 1.5,
+  "arrival_tolerance": 0.25,
+  "corner_aware": true,
+  "preferred_clearance": 0.52,
+  "transit_clearance_weight": 5.0,
+  "observation_guard": false
+ },
+ "corridor_seconds": 0.25,
+ "corridor_expansions": 20000
+}

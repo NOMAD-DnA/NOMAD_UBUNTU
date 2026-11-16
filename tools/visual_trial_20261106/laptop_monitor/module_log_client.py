@@ -89,6 +89,12 @@ class ModuleLogClient:
             if len(raw) > MAX_LINE:
                 raise ValueError("oversize")
             value = json.loads(raw)
+            if isinstance(value, dict) and value.get("source") in ("resources_jetson", "resources_pi4"):
+                from resource_metrics import validate_resource
+                validate_resource(value, self.board)
+                value["_source_session"] = "resources-" + value["boot_id"] + "-" + value["session"]
+                self._enqueue(value, arrived)
+                return True
             if not isinstance(value, dict) or value.get("kind") != "log" or value.get("board") != self.board:
                 raise ValueError("envelope")
             source, stamp, sequence = value.get("source"), value.get("t"), value.get("seq")
@@ -136,7 +142,8 @@ class ModuleLogClient:
                 return
 
     def remote_command(self):
-        return f"exec nice -n 15 {HELPERS[self.board]} --board {self.board}"
+        extra = " --resources" if self.board in ("jetson", "pi4") else ""
+        return f"exec nice -n 15 {HELPERS[self.board]} --board {self.board}{extra}"
 
     def credential_environment(self):
         return os.environ.copy()
@@ -153,12 +160,15 @@ class ModuleLogClient:
                 env.update(SSH_ASKPASS=str(askpass), SSH_ASKPASS_REQUIRE="force")
                 env.setdefault("DISPLAY", ":0")
             command = self.remote_command()
-            args = ["ssh", "-T", "-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1",
-                    "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=1",
-                    "-o", "NumberOfPasswordPrompts=1", "-o", "StrictHostKeyChecking=accept-new",
-                    "-o", 'UserKnownHostsFile="' + str(self.runtime_dir / "known_hosts") + '"',
-                    "-o", "LogLevel=ERROR", "-o", "BatchMode=" + ("no" if password else "yes"),
-                    self.host, command]
+            import board_address  # follow a board whose address changed
+            target = board_address.route(self.host)
+            common = ["-o", "ConnectTimeout=5", "-o", "ConnectionAttempts=1",
+                      "-o", "ServerAliveInterval=3", "-o", "ServerAliveCountMax=1",
+                      "-o", "NumberOfPasswordPrompts=1", "-o", "StrictHostKeyChecking=accept-new",
+                      "-o", 'UserKnownHostsFile="' + str(self.runtime_dir / "known_hosts") + '"',
+                      "-o", "LogLevel=ERROR", "-o", "BatchMode=" + ("no" if password else "yes")]
+            args = ["ssh", "-T", *common, *board_address.ssh_route_options(target, common),
+                    target["host"], command]
             process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                        stderr=subprocess.DEVNULL, env=env, bufsize=0,
                                        start_new_session=True)

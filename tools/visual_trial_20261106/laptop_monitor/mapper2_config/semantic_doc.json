@@ -1,0 +1,178 @@
+{
+ "max_range_m": {
+  "title": "라벨 붙일 최대 거리",
+  "description": "카메라에서 이 거리(수평)보다 먼 칸에는 라벨을 붙이지 않습니다. 멀수록 칸이 몇 픽셀뿐이라 틀리기 쉽습니다.",
+  "unit": "m",
+  "min": 0.5,
+  "max": 30.0,
+  "default": 6.0
+ },
+ "fan_margin_deg": {
+  "title": "시야 부채꼴 여유각",
+  "description": "카메라 시야각에 더하는 여유 각도입니다. 부채꼴은 빠른 사전 거르기용이고 실제 판정은 픽셀 투영으로 합니다.",
+  "unit": "deg",
+  "min": 0.0,
+  "max": 45.0,
+  "default": 10.0
+ },
+ "tf_wait_s": {
+  "title": "위치 대기 시간",
+  "description": "라벨 시각의 카메라 위치(TF)가 아직 없을 때 기다리는 최대 시간입니다. 넘으면 그 라벨은 버립니다.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 2.0,
+  "default": 0.2
+ },
+ "tf_retry_s": {
+  "title": "위치 재시도 주기",
+  "description": "대기 중인 라벨의 TF 조회를 다시 시도하는 주기입니다.",
+  "unit": "s",
+  "min": 0.01,
+  "max": 0.5,
+  "default": 0.05
+ },
+ "label_timeout_s": {
+  "title": "라벨 끊김 판정 시간",
+  "description": "이 시간 동안 라벨(또는 높이 지도)이 안 오면 상태를 WAITING으로 보냅니다.",
+  "unit": "s",
+  "min": 0.5,
+  "max": 30.0,
+  "default": 3.0
+ },
+ "publish_hz": {
+  "title": "내보내기 주기",
+  "description": "0이면 의미 지도가 바뀌는 즉시 내보내요(통합 요청 2.10). 사람·차 막기 해제 같은 시간 변화는 5 Hz로 확인해요. 0보다 크면 그 횟수 이하로 제한해요(0.5~20).",
+  "unit": "Hz (0=즉시)",
+  "min": 0.0,
+  "max": 20.0,
+  "default": 0.0
+ },
+ "vote_decay": {
+  "title": "오래된 표 감소율",
+  "description": "새 표가 들어올 때 그 칸의 기존 점수에 곱하는 값입니다. 작을수록 최근 표를, 클수록 오래 쌓인 판단을 더 믿습니다.",
+  "unit": "배",
+  "min": 0.0,
+  "max": 1.0,
+  "default": 0.8
+ },
+ "max_pending_labels": {
+  "title": "대기 라벨 최대 수",
+  "description": "TF를 기다리는 라벨을 최대 몇 장까지 쌓을지 정합니다. 넘치면 가장 오래된 것부터 버립니다.",
+  "unit": "장",
+  "min": 1,
+  "max": 64,
+  "default": 8
+ },
+ "require_height_for_ready": {
+  "title": "높이 지도 필요 (READY 조건)",
+  "description": "켜면 로직 A의 높이 지도가 오지 않을 때 READY를 내지 않습니다.",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "boundary_mask.enabled": {
+  "title": "클래스 경계 픽셀 제외",
+  "description": "켜면 클래스가 바뀌는 경계 ±N픽셀(semantic.real.json boundary_margin_px)은 투표하지 않습니다. 끄면 모든 픽셀을 씁니다.",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "occlusion.enabled": {
+  "title": "가림 확인",
+  "description": "켜면 카메라에서 칸까지 선을 따라 중간 칸 높이를 비교해, 물체 뒤에 가려진 칸에는 라벨을 붙이지 않습니다.",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "occlusion.margin_m": {
+  "title": "가림 여유 높이",
+  "description": "중간 칸이 시선보다 이 값 이상 높을 때만 가렸다고 봅니다. 높이 지도 오차로 뒤쪽을 전부 버리지 않게 합니다.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 1.0,
+  "default": 0.05
+ },
+ "dynamic.enabled": {
+  "title": "사람·차 주변 막기",
+  "description": "켜면 사람·차 픽셀로 보인 칸 주변을 잠깐 dynamic_block=1로 표시해 비용 단계가 막도록 합니다. 사람·차는 어느 경우에도 정적 투표에 넣지 않습니다.",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "dynamic.block_radius_m": {
+  "title": "사람·차 막는 반경",
+  "description": "사람·차가 보인 칸에서 이 반경 안의 칸을 막습니다.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 3.0,
+  "default": 0.5
+ },
+ "dynamic.hold_s": {
+  "title": "사람·차 막기 유지 시간",
+  "description": "마지막으로 본 뒤 이 시간 동안 막음을 유지합니다. null이면 기존 설정 semantic.real.json의 dynamic_retention_s(1.0 s)를 씁니다.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 30.0,
+  "default": null
+ },
+ "past_label_reuse.enabled": {
+  "title": "지난 라벨 다시 쓰기",
+  "description": "켜면 라벨을 보관해 두었다가, 높이가 새로 생긴 칸을 보관된 모든 라벨에 투영해 투표합니다(사람·차 제외).",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "past_label_reuse.label_retention_s": {
+  "title": "라벨 보관 시간",
+  "description": "지난 라벨을 이 시간만큼 보관합니다. 길수록 먼 곳 라벨도 쓰지만 위치 오차가 커질 수 있습니다.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 60.0,
+  "default": 10.0
+ },
+ "past_label_reuse.past_weight_per_s": {
+  "title": "지난 라벨 표 약화율",
+  "description": "지난 라벨의 표 무게는 (이 값)^(라벨 나이 초)입니다. 0.9면 1초 지난 라벨은 0.9표, 10초면 약 0.35표입니다.",
+  "unit": "배/초",
+  "min": 0.0,
+  "max": 1.0,
+  "default": 0.9
+ },
+ "past_label_reuse.max_labels": {
+  "title": "보관 라벨 최대 수",
+  "description": "보관 시간 안이라도 이 장수를 넘으면 오래된 것부터 지웁니다(메모리 보호).",
+  "unit": "장",
+  "min": 1,
+  "max": 200,
+  "default": 30
+ },
+ "height_change_revote.enabled": {
+  "title": "높이 바뀐 칸 의미 다시 계산",
+  "description": "칸 높이가 '다시 계산 높이 변화' 이상 바뀌면, 그 칸의 이전 의미 투표(옛 높이로 계산돼 엉뚱한 픽셀을 본 표)를 지우고 보관된 라벨로 새 높이에서 다시 투표합니다. 보관 시간이 지난 라벨뿐이면 그 칸은 의미 '모름'이 됩니다.",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "height_change_revote.min_change_m": {
+  "title": "다시 계산 높이 변화",
+  "description": "칸 높이가 이 값 이상 바뀌면 의미를 다시 계산합니다. 작으면 높이 흔들림마다 다시 계산하고, 크면 큰 변화만 반영합니다.",
+  "unit": "m",
+  "min": 0.01,
+  "max": 1.0,
+  "default": 0.05
+ },
+ "slope_gate.enabled": {
+  "title": "경사 있는 칸에만 의미 기록",
+  "description": "켜면 높이 지도가 경사를 잰 칸에만 지면 종류(클래스)를 투표합니다. OAK가 직접 못 본 칸(벽 뒤 음영 등)은 경사가 없어 벽 픽셀이 칠해지지 않습니다. 경사가 나중에 생기면 보관된 라벨로 투표하고, 경사가 사라진 칸은 클래스를 숨깁니다(표는 보관). 사람·차 막기와 카메라가 본 시각은 경사와 상관없이 그대로 적용됩니다.",
+  "unit": "on/off",
+  "min": null,
+  "max": null,
+  "default": true
+ }
+}

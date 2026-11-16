@@ -15,6 +15,7 @@ import shlex
 import signal
 import subprocess
 import tempfile
+import time
 from control import validate_host
 
 FEATURE = 'nomad-gui-laptop-wifi-20261111-1'
@@ -187,7 +188,7 @@ def time_request(board, host, ssh_password, action='status', timeout_s=40, addre
     status: the board's own check. pi5_address: tell a follower Pi5's current
     address (installed agent, sudo). Returns clock_sync-style dict with 'message'."""
     import clock_sync
-    if board not in BOARDS or action not in ('status', 'install', 'pi5_address'):
+    if board not in BOARDS or action not in ('status', 'install', 'pi5_address', 'step'):
         return failed('invalid_request')
     request = {'board': board, 'action': action}
     if action == 'pi5_address':
@@ -216,6 +217,90 @@ def time_request(board, host, ssh_password, action='status', timeout_s=40, addre
         result = clock_sync.parse(done['out'])
         if result.get('reason', '').startswith('trial_running'):
             result['message'] = '시험 모듈이 실행 중이라 설치하지 않음 / 시험 종료 후 다시'
+        return result
+    except (OSError, TypeError, ValueError):
+        return failed('invalid_credentials_or_local_ssh_error')
+
+
+# Pi5 clock from this laptop (2026-11-12). The laptop UTC is written only after the
+# board prints READY (SSH + login done), and the board records its own clock at
+# that moment, so the sudo/python start-up delay does not enter the offset.
+TIME_SET_WRAPPER = r'''set -eu
+umask 077
+IFS= read -r nomad_sudo_password
+IFS= read -r nomad_request
+nomad_net_dir=$(mktemp -d /tmp/nomad-time-set.XXXXXXXX)
+trap 'rm -rf -- "$nomad_net_dir"' EXIT
+printf '%s\n' "$nomad_request" > "$nomad_net_dir/request.json"
+printf 'NOMAD_TIME_READY\n'
+IFS= read -r nomad_laptop_utc
+printf '%s %s\n' "$nomad_laptop_utc" "$(date -u +%s.%N)" > "$nomad_net_dir/time.txt"
+printf '%s\n' "$nomad_sudo_password" | sudo -k -S -p '' python3 __AGENT__ --request-file "$nomad_net_dir/request.json"
+'''
+
+
+def time_set_from_laptop(host, ssh_password, timeout_s=30, clock=time.time):
+    """Ask Pi5 to take this laptop's UTC (only applied by the board when it has no
+    internet time and differs by > 2 s). Returns a clock_sync-style dict."""
+    import clock_sync
+    import selectors
+    try:
+        host = validate_host(host)
+        if host.split('@')[0] != 'user':
+            return failed('invalid_board_address')
+        if not isinstance(ssh_password, str) or not ssh_password or any(c in ssh_password for c in '\r\n\x00'):
+            return failed('ssh_password_required')
+        now = clock()
+        if not (now >= 1767225600.0):
+            return failed('laptop_time_invalid')
+        state = Path(os.environ.get('XDG_STATE_HOME', str(Path.home() / '.local/state'))) / 'nomad-trial'
+        state.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with tempfile.TemporaryDirectory(prefix='nomad-time-set-') as temporary:
+            askpass = Path(temporary) / 'askpass'
+            askpass.write_text('#!/bin/sh\nprintf \'%s\\n\' "$NOMAD_SSH_PASSWORD"\n')
+            askpass.chmod(0o700)
+            env = dict(os.environ, SSH_ASKPASS=str(askpass), SSH_ASKPASS_REQUIRE='force', NOMAD_SSH_PASSWORD=ssh_password)
+            env.setdefault('DISPLAY', ':0')
+            wrapper = TIME_SET_WRAPPER.replace('__AGENT__', TIME_INSTALLED)
+            args = ['ssh', '-T', '-o', 'ControlMaster=no', '-o', 'ControlPath=none', '-o', 'ConnectTimeout=5',
+                    '-o', 'NumberOfPasswordPrompts=1', '-o', 'StrictHostKeyChecking=accept-new',
+                    '-o', 'UserKnownHostsFile="' + str(state / 'known_hosts') + '"', '-o', 'LogLevel=ERROR',
+                    host, 'bash -c ' + shlex.quote(wrapper)]
+            process = subprocess.Popen(args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                       env=env, start_new_session=True)
+            deadline = clock() + timeout_s
+            try:
+                process.stdin.write((ssh_password + '\n' + json.dumps({'board': 'pi5', 'action': 'set_time'}) + '\n').encode())
+                process.stdin.flush()
+                selector = selectors.DefaultSelector()
+                selector.register(process.stdout, selectors.EVENT_READ)
+                received = b''
+                while b'NOMAD_TIME_READY\n' not in received:
+                    remaining = deadline - clock()
+                    if remaining <= 0:
+                        raise subprocess.TimeoutExpired(args, timeout_s)
+                    if not selector.select(min(remaining, 0.5)):
+                        if process.poll() is not None:
+                            raise subprocess.TimeoutExpired(args, timeout_s)
+                        continue
+                    chunk = os.read(process.stdout.fileno(), 4096)
+                    if not chunk:
+                        raise subprocess.TimeoutExpired(args, timeout_s)
+                    received += chunk
+                # Laptop UTC captured right after the board's READY line arrived.
+                rest, err = process.communicate(input=('{:.6f}\n'.format(clock())).encode(),
+                                                timeout=max(1., deadline - clock()))
+            except (subprocess.TimeoutExpired, BrokenPipeError):
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                process.communicate()
+                return failed('ssh_timeout_unconfirmed')
+        out = (received + rest).decode('utf-8', 'replace')
+        if clock_sync.MARKER not in out:
+            return failed('agent_missing_or_invalid_result')
+        result = clock_sync.parse(out)
         return result
     except (OSError, TypeError, ValueError):
         return failed('invalid_credentials_or_local_ssh_error')
@@ -261,6 +346,46 @@ def local_hotspots():
             gateway = current or gateway
         out.append({'name': name, 'uuid': uuid_text, 'ssid': fields[1], 'active': active == 'yes',
                     'gateway': gateway, 'band': fields[4] or 'auto'})
+    return out
+
+
+SMB_CONF = Path('/etc/samba/smb.conf')
+SHARE_NAME = 'shared'
+
+
+def _smb_has_share(conf, depth=0):
+    """[shared] in smb.conf or a file it includes (include = /abs/path, no %macros)."""
+    try:
+        text = conf.read_text(errors='replace')
+    except OSError:
+        return False
+    if re.search(r'^\s*\[' + SHARE_NAME + r'\]\s*$', text, re.IGNORECASE | re.MULTILINE):
+        return True
+    if depth >= 3:
+        return False
+    for match in re.finditer(r'^\s*include\s*=\s*(/\S+)\s*$', text, re.IGNORECASE | re.MULTILINE):
+        if '%' not in match.group(1) and _smb_has_share(Path(match.group(1)), depth + 1):
+            return True
+    return False
+
+
+def local_share_addresses(conf=SMB_CONF, hostname=None, wifi_ip=None):
+    """2026-11-12: addresses teammates use for this PC's Samba [shared] folder.
+    Samba listens on every interface, so turning the hotspot on/off changes only
+    the IP; the mDNS name stays. Empty dict if this PC does not serve the share."""
+    if not _smb_has_share(Path(conf)):
+        return {}
+    import socket
+    name = (hostname or socket.gethostname()).split('.')[0]
+    out = {'name': 'smb://{}.local/{}'.format(name, SHARE_NAME)}
+    if wifi_ip is None:
+        try:
+            wifi_ip = _nmcli('-g', 'IP4.ADDRESS', 'device', 'show', local_wifi_device()).split('|')[0].strip()
+        except RuntimeError:
+            wifi_ip = ''
+    wifi_ip = (wifi_ip or '').split('/')[0].strip()
+    if wifi_ip:
+        out['ip'] = 'smb://{}/{}'.format(wifi_ip, SHARE_NAME)
     return out
 
 

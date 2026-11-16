@@ -16,6 +16,18 @@ from render_utils import stable_metadata
 
 
 _ANSI = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))")
+# Display classification only; the original text is never changed.
+_ERROR = re.compile(r"\b(?:ERROR|FATAL|CRITICAL|Traceback|Exception|exception|failed|failure|error)\b|오류|실패|치명")
+_WARN = re.compile(r"\b(?:WARN|WARNING|warning|warn|timeout|timed out)\b|경고|지연")
+
+
+def log_level(row):
+    """'error', 'warn' or None for one already received log row."""
+    if _ERROR.search(row):
+        return "error"
+    if _WARN.search(row):
+        return "warn"
+    return None
 
 
 class LogHistory:
@@ -72,6 +84,7 @@ class ModuleLogPanel(QtWidgets.QWidget):
         self._ids = deque()
         self._id_set = set()
         self._batch_rows = None
+        self._problems = {"errors": 0, "warnings": 0, "last": "", "last_level": None}
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(7, 3, 7, 5)
         layout.setSpacing(4)
@@ -98,6 +111,10 @@ class ModuleLogPanel(QtWidgets.QWidget):
         self.paused = QtWidgets.QCheckBox("표시 일시정지")
         self.paused.toggled.connect(self._pause_changed)
         options.addWidget(self.paused)
+        self.problems_only = QtWidgets.QCheckBox("경고·오류만")
+        self.problems_only.setToolTip("ERROR/WARN/실패/오류/경고 같은 단어가 있는 줄만 보여 줍니다. 받은 로그는 그대로 보관합니다.")
+        self.problems_only.toggled.connect(self._rebuild)
+        options.addWidget(self.problems_only)
         options.addStretch(1)
         layout.addLayout(options)
         self.text = QtWidgets.QPlainTextEdit()
@@ -157,6 +174,13 @@ class ModuleLogPanel(QtWidgets.QWidget):
                 self._id_set.discard(self._ids.popleft())
         prefix = f"[{board}/{source}] "
         rows = [prefix + row[:4096] for row in rows]
+        for row in rows:
+            level = log_level(row)
+            if level is not None:
+                self._problems["errors" if level == "error" else "warnings"] += 1
+                if level == "error" or self._problems["last_level"] != "error":
+                    self._problems["last"] = time.strftime("%H:%M:%S") + " " + row[:300]
+                    self._problems["last_level"] = level
         self._lines.extend(rows)
         if not self.paused.isChecked():
             selected = self._matching(rows)
@@ -202,7 +226,12 @@ class ModuleLogPanel(QtWidgets.QWidget):
 
     def _matching(self, rows):
         query = self.filter.text().casefold()
-        return [row for row in rows if query in row.casefold()]
+        problems = self.problems_only.isChecked()
+        return [row for row in rows if query in row.casefold() and (not problems or log_level(row))]
+
+    def problem_summary(self):
+        """Counts of error/warning rows received by this panel since it was cleared."""
+        return dict(self._problems)
 
     def _state(self):
         mode = "표시 일시정지 · " if self.paused.isChecked() else ""
@@ -224,6 +253,7 @@ class ModuleLogPanel(QtWidgets.QWidget):
     def clear(self):
         self._lines.clear()
         self.text.clear()
+        self._problems = {"errors": 0, "warnings": 0, "last": "", "last_level": None}
         # Keep cursors so the next shared-buffer replay cannot resurrect cleared
         # records. No board file is truncated and no module command is sent.
         self._state()

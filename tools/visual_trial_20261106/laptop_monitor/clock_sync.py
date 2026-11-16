@@ -18,6 +18,7 @@ import shlex
 import socket
 import subprocess
 import tempfile
+import time
 
 from control import validate_host
 
@@ -44,7 +45,12 @@ REASON_TEXT = {
     'invalid_pi5_address': 'Pi5 주소가 올바르지 않음',
     'pi5_address_unresolved': 'GUI의 Pi5 주소를 IP로 확인하지 못함',
     'pi5_update_needs_agent': 'Pi5 주소 갱신 기능 없음 / 연결 창에서 시간 동기화 다시 설치',
+    'laptop_time_invalid': '노트북 시계가 이상해 Pi5 시각을 맞추지 않음',
+    'laptop_time_missing': '노트북 시각을 받지 못함',
+    'time_set_needs_agent': '노트북 시각 보정 기능 없음 / 연결 창에서 시간 동기화 다시 설치',
 }
+LAPTOP_SET_THRESHOLD_S = 2.0
+STEP_THRESHOLD_MS = 500.0
 
 
 def describe(result):
@@ -65,7 +71,8 @@ def parse(stdout):
     except ValueError:
         return dict(ok=False, reason='time_result_invalid', state='FAILED')
     result = {k: value[k] for k in ('board', 'reference', 'offset_ms', 'last_offset_ms', 'update_age_s', 'wired',
-                                     'stratum', 'updated', 'pi5_address') if k in value}
+                                     'stratum', 'updated', 'pi5_address', 'board_utc', 'internet_synced', 'time_set',
+                                     'time_set_reason', 'laptop_offset_s', 'stepped') if k in value}
     servers = value.get('servers')
     if isinstance(servers, list):
         result['servers'] = [str(s)[:64] for s in servers[:8]]
@@ -109,9 +116,48 @@ def synchronize_clock(host, password, timeout_s=15, pi5_host=None):
         return dict(ok=False, reason='time_connection_failed', state='FAILED', message=REASON_TEXT['time_connection_failed'])
     if completed.returncode == 255 and MARKER not in completed.stdout:
         return dict(ok=False, reason='time_connection_failed', state='FAILED', message=REASON_TEXT['time_connection_failed'])
+    received_at = time.time()
     result = parse(completed.stdout)
     if pi5_host and not result['ok'] and result.get('board') in ('pi4', 'jetson'):
         result = _learn_pi5(result, result['board'], host, password, pi5_host)
+    return repair_time(result, host, password, received_at)
+
+
+def needs_laptop_time(result, laptop_now):
+    """Pi5 without internet time and > 2 s away from this laptop."""
+    board_utc = result.get('board_utc')
+    return (result.get('board') == 'pi5' and result.get('internet_synced') is False and
+            isinstance(board_utc, (int, float)) and abs(laptop_now - board_utc) > LAPTOP_SET_THRESHOLD_S)
+
+
+def needs_step(result):
+    offset = result.get('offset_ms')
+    return (result.get('board') in ('pi4', 'jetson') and not result.get('ok') and
+            isinstance(offset, (int, float)) and abs(offset) > STEP_THRESHOLD_MS)
+
+
+def repair_time(result, host, password, laptop_now=None):
+    """2026-11-12: Pi5 takes this laptop's clock only when it has no internet time;
+    a follower far (> 0.5 s) from Pi5 is stepped once. Needs the SSH password (sudo)."""
+    if not password:
+        return result
+    import network_control
+    laptop_now = time.time() if laptop_now is None else laptop_now
+    if needs_laptop_time(result, laptop_now):
+        updated = network_control.time_set_from_laptop(host, password)
+        if updated.get('reason') in ('invalid_request', 'agent_missing_or_invalid_result'):
+            return dict(result, reason='time_set_needs_agent', message=REASON_TEXT['time_set_needs_agent'], ok=False)
+        if updated.get('time_set'):
+            updated['message'] = '노트북 시각으로 Pi5 보정({:+.1f}s) · '.format(-updated.get('laptop_offset_s', 0)) + updated.get('message', '')
+        return updated
+    if needs_step(result):
+        board = result['board']
+        updated = network_control.time_request(board, host, password, 'step', timeout_s=40)
+        if updated.get('reason') == 'invalid_request':
+            return dict(result, reason='time_set_needs_agent', message=REASON_TEXT['time_set_needs_agent'], ok=False)
+        if updated.get('stepped'):
+            updated['message'] = 'Pi5 시각으로 한 번에 맞춤 · ' + updated.get('message', describe(updated))
+        return updated
     return result
 
 

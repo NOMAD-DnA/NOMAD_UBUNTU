@@ -58,10 +58,16 @@ class AgentTests(unittest.TestCase):
 
     def test_configs_step_only_at_start_and_follow_pi5(self):
         jetson = agent.chrony_config('jetson', ['10.77.0.2', '192.168.3.156'])
-        self.assertIn('makestep 0.1 3', jetson)
+        self.assertIn('makestep 1 -1', jetson)  # 2026-11-15: followers step on any > 1 s error
+        self.assertNotIn('makestep 0.1 3', jetson)
+        pi4 = agent.chrony_config('pi4', ['192.168.3.156'])
+        self.assertIn('makestep 1 -1', pi4)
+        self.assertEqual(pi4.count('makestep'), 1)
         self.assertIn('server 10.77.0.2 iburst minpoll 1 maxpoll 4 prefer', jetson)
         self.assertNotIn('pool', jetson)
         pi5 = agent.chrony_config('pi5', [])
+        self.assertIn('makestep 0.1 3', pi5)
+        self.assertEqual(pi5.count('makestep'), 1)
         self.assertIn('local stratum 8', pi5)
         self.assertIn('allow 10.0.0.0/8', pi5)
         with self.assertRaises(agent.TimeError):

@@ -1,0 +1,93 @@
+{
+ "wheelbase": {
+  "title": "축간 거리",
+  "description": "앞바퀴와 뒷바퀴 축 사이 거리예요. 회전 반경 계산에 쓰여요. (Slash 335 mm 공개 사양)",
+  "unit": "m",
+  "default": 0.335,
+  "min": 0.1,
+  "max": 1.5
+ },
+ "track": {
+  "title": "좌우 바퀴 간격",
+  "description": "왼쪽·오른쪽 바퀴 사이 거리예요. 안쪽 바퀴 조향 한계 계산에 쓰여요.",
+  "unit": "m",
+  "default": 0.6,
+  "min": 0.1,
+  "max": 2.0
+ },
+ "wheel_radius": {
+  "title": "바퀴 반지름",
+  "description": "바퀴 반지름이에요. 속도 환산에 쓰여요.",
+  "unit": "m",
+  "default": 0.055,
+  "min": 0.01,
+  "max": 0.5
+ },
+ "max_steer": {
+  "title": "최대 조향 명령",
+  "description": "플래너가 낼 수 있는 최대 조향각이에요(0.611 rad = 35°). 실제 서보 한계는 측정 전이에요.",
+  "unit": "rad",
+  "default": 0.6108652381980153,
+  "min": 0.05,
+  "max": 1.2,
+  "safety": true
+ },
+ "steering_joint_limit": {
+  "title": "안쪽 바퀴 조향 한계(모델)",
+  "description": "최대 조향 35°에서 계산한 안쪽 바퀴 각도예요. 모델 일관성용이고 측정값은 아니에요.",
+  "unit": "rad",
+  "default": 1.0813901513620499,
+  "min": 0.1,
+  "max": 1.5,
+  "safety": true
+ },
+ "reference_offset": {
+  "title": "계획 기준점 위치",
+  "description": "경로를 계산하는 기준점이 차 중심에서 앞뒤로 떨어진 거리예요(-축간거리/2). 뒷바퀴 조향 모델 가정이에요.",
+  "unit": "m",
+  "default": -0.1675,
+  "min": -1.0,
+  "max": 1.0
+ },
+ "body_length": {
+  "title": "차체 길이",
+  "description": "차체 길이 값이에요. 지금 플래너는 0보다 큰지만 확인하고 충돌 검사에는 쓰지 않아요. 충돌 검사 크기는 '차체 검사 상자·관측 감속' 탭의 상자 반길이·반폭이에요.",
+  "unit": "m",
+  "default": 1.0,
+  "min": 0.2,
+  "max": 3.0,
+  "safety": false
+ },
+ "body_width": {
+  "title": "차체 폭",
+  "description": "차체 폭 값이에요. 지금 플래너는 0보다 큰지만 확인하고 충돌 검사에는 쓰지 않아요. 충돌 검사 크기는 '차체 검사 상자·관측 감속' 탭의 상자 반길이·반폭이에요.",
+  "unit": "m",
+  "default": 0.65,
+  "min": 0.2,
+  "max": 3.0,
+  "safety": false
+ },
+ "rear_steer": {
+  "title": "뒷바퀴 조향 모델",
+  "description": "뒷바퀴 조향 차량 모델로 경로를 계산해요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "forward_speed": {
+  "title": "최대 주행 속도",
+  "description": "경로를 따라갈 때(RPP)의 최대 속도예요. 곡선·비용·관측 감속·목표 근처에서는 이보다 느려져요. 실제 속도는 보정 전이라 명령값이에요.",
+  "unit": "m/s",
+  "default": 0.25,
+  "min": 0.05,
+  "max": 1.5,
+  "safety": true
+ },
+ "arrival_tolerance": {
+  "title": "최종 목표 도착 거리",
+  "description": "차가 최종 목표에서 이 거리 안에 들어오면 도착으로 보고 멈춰요.",
+  "unit": "m",
+  "default": 0.35,
+  "min": 0.05,
+  "max": 2.0
+ }
+}

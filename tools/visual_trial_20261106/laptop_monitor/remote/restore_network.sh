@@ -11,6 +11,23 @@ case "$model" in
   *) echo "WRONG_BOARD: unsupported model $model" >&2; exit 1 ;;
 esac
 out="/tmp/nomad_network_resume_$(date +%Y%m%d_%H%M%S)_$$.log"
+# 2026-11-12: fast path. If the saved direct profile is already active on eth0 with our
+# address, the link is 100 Mb/s full duplex and the receive buffers are already set,
+# do not bring the link down/up again (that renegotiation plus 4 s wait slowed every start).
+if [[ "$(nmcli -g GENERAL.CONNECTION device show eth0 2>/dev/null)" == nomad-direct-20261105 ]] &&
+   ip -4 -o addr show dev eth0 | grep -q " $addr/30 " &&
+   ethtool eth0 2>/dev/null | grep -q 'Speed: 100Mb/s' &&
+   ethtool eth0 2>/dev/null | grep -q 'Duplex: Full' &&
+   ethtool eth0 2>/dev/null | grep -q 'Link detected: yes' &&
+   [[ "$(sysctl -n net.core.rmem_max)" == 33554432 && "$(sysctl -n net.core.wmem_max)" == 33554432 &&
+      "$(sysctl -n net.core.rmem_default)" == 4194304 && "$(sysctl -n net.core.wmem_default)" == 4194304 &&
+      "$(sysctl -n net.ipv4.ipfrag_high_thresh)" == 67108864 && "$(sysctl -n net.ipv4.ipfrag_time)" == 5 &&
+      "$(sysctl -n net.ipv4.ipfrag_max_dist)" == 0 ]]; then
+  ip -br -4 addr show dev eth0
+  ethtool eth0 | sed -n '/Speed:/p;/Duplex:/p;/Auto-negotiation:/p;/Link detected:/p'
+  printf 'NETWORK_CONFIGURED=%s\nNETWORK_ALREADY_UP=1\nPEER=%s\n' "$role" "$peer"
+  exit 0
+fi
 keys='net.core.rmem_max net.core.wmem_max net.core.rmem_default net.core.wmem_default net.ipv4.ipfrag_high_thresh net.ipv4.ipfrag_time net.ipv4.ipfrag_max_dist'
 sysctl $keys > "$out"
 if ! nmcli -g connection.id connection show nomad-direct-20261105 >/dev/null 2>&1; then

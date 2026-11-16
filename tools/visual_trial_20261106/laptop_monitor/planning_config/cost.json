@@ -1,0 +1,18 @@
+{
+ "cost": {
+  "multi": true,
+  "obstacle_weight": 16.0,
+  "proximity_radius": 4.0,
+  "clearance_weight": 27.0,
+  "clearance_radius": 0.58,
+  "slope_weight": 5.0,
+  "terrain_weight": 5.0,
+  "missing_cost": 1.0,
+  "unknown_surcharge": 9.0,
+  "unknown_penalty": 9.0,
+  "cluster_weight": 32.0,
+  "cluster_radius": 4.0,
+  "cluster_influence": 0.75,
+  "cluster_saturation": 0.4
+ }
+}

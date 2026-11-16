@@ -1,0 +1,111 @@
+{
+ "search_seconds": {
+  "title": "GPP 탐색 시간 한도",
+  "description": "Hybrid A*(GPP)가 중간 목표점 하나를 찾는 데 쓰는 최대 시간이에요. 후보 전체를 합쳐 한 번 계산에 약 1초를 넘지 않아요. 플래너는 2초를 넘으면 시작하지 않아요.",
+  "unit": "s",
+  "default": 0.5,
+  "min": 0.05,
+  "max": 2.0
+ },
+ "search_expansions": {
+  "title": "GPP 탐색 확장 한도",
+  "description": "Hybrid A*(GPP)가 펼치는 최대 노드 수예요.",
+  "unit": "개",
+  "default": 50000,
+  "min": 1000,
+  "max": 500000
+ },
+ "goal_tolerance": {
+  "title": "GPP 탐색 목표 허용 거리",
+  "description": "Hybrid A*(GPP)가 중간 목표점에 이만큼 가까이 가면 탐색 성공으로 봐요. 미관측 칸 지나가기를 켜면 지도 칸 크기의 0.75배로 더 작아져요.",
+  "unit": "m",
+  "default": 0.29,
+  "min": 0.05,
+  "max": 2.0
+ },
+ "corridor.observation_turn_weight": {
+  "title": "관측 부족 방향 회전 비용",
+  "description": "GPP 비용 지도에서, 차가 보는 방향에서 15°보다 많이 돌아야 하는 칸 중 카메라 관측이 부족한 칸에 더하는 비용이에요(75°에서 최대). 클수록 카메라로 본 쪽으로 경로를 잡아요. 0보다 크면 카메라 관측 지원 지도가 없을 때 플래너가 멈춰요.",
+  "unit": "배",
+  "default": 80.0,
+  "min": 0.0,
+  "max": 200.0
+ },
+ "corridor.min_clearance": {
+  "title": "GPP 최소 장애물 여유",
+  "description": "GPP 비용 지도에서 장애물 칸으로부터 이 거리 안의 칸을 막아서, 경로가 절대 지나가지 않게 해요.",
+  "unit": "m",
+  "default": 0.15,
+  "min": 0.0,
+  "max": 2.0,
+  "safety": true
+ },
+ "corridor.allow_unknown_transit": {
+  "title": "미관측 칸 지나가기 허용",
+  "description": "GPP 경로가 미관측 칸을 지나갈 수 있게 해요(중간 목표점은 항상 관측된 빈 칸). 켜면 중간 목표점을 차 주변 '중간 목표 최대 거리' 안에서 골라요.",
+  "unit": "켬/끔",
+  "default": true,
+  "safety": true
+ },
+ "corridor.waypoint_radius": {
+  "title": "중간 목표 최대 거리",
+  "description": "미관측 칸 지나가기를 켰을 때, GPP가 향할 중간 목표점을 차에서 이 거리 안의 관측된 빈 칸에서 골라요.",
+  "unit": "m",
+  "default": 1.5,
+  "min": 0.2,
+  "max": 5.0
+ },
+ "corridor.arrival_tolerance": {
+  "title": "중간 목표 도착 거리",
+  "description": "중간 목표점에 이만큼 가까워지면 도착한 것으로 보고 다음 중간 목표를 골라요.",
+  "unit": "m",
+  "default": 0.25,
+  "min": 0.05,
+  "max": 2.0
+ },
+ "corridor_seconds": {
+  "title": "중간 목표 고르기 시간 한도",
+  "description": "GPP가 향할 중간 목표점 후보를 지도에서 찾는 데 쓰는 최대 시간이에요. 플래너는 1초를 넘으면 시작하지 않아요.",
+  "unit": "s",
+  "default": 0.25,
+  "min": 0.05,
+  "max": 1.0
+ },
+ "corridor_expansions": {
+  "title": "중간 목표 고르기 확장 한도",
+  "description": "중간 목표점 후보를 찾을 때 펼치는 최대 칸 수예요.",
+  "unit": "개",
+  "default": 20000,
+  "min": 1000,
+  "max": 200000
+ },
+ "corridor.corner_aware": {
+  "title": "장애물 여유로 중간 목표 고르기",
+  "description": "미관측 칸 지나가기 모드에서 중간 목표점을 고를 때, 장애물에서 가까운 점에 감점을 줘요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "corridor.preferred_clearance": {
+  "title": "중간 목표 선호 여유",
+  "description": "중간 목표점이 장애물에서 이 거리 이상 떨어져 있으면 감점이 없어요(장애물 여유로 중간 목표 고르기가 켜져 있을 때).",
+  "unit": "m",
+  "default": 0.52,
+  "min": 0.05,
+  "max": 3.0
+ },
+ "corridor.transit_clearance_weight": {
+  "title": "중간 목표 여유 감점 크기",
+  "description": "중간 목표점이 '중간 목표 선호 여유'보다 장애물에 가까울 때 주는 감점의 크기예요.",
+  "unit": "배",
+  "default": 5.0,
+  "min": 0.0,
+  "max": 50.0
+ },
+ "corridor.observation_guard": {
+  "title": "GPP 경로 관측 확인",
+  "description": "켜면 GPP 후보 경로의 1.1~2 m 앞 구간 중 60% 이상이 카메라로 본 칸이어야 그 경로를 써요. 켜면 카메라 관측 지원 지도가 없을 때 플래너가 멈춰요. (지금 꺼 둠)",
+  "unit": "켬/끔",
+  "default": false,
+  "safety": true
+ }
+}

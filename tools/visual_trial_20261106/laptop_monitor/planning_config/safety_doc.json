@@ -1,0 +1,92 @@
+{
+ "odometry_timeout": {
+  "title": "위치 끊김 판단",
+  "description": "위치(VIO)가 이 시간 넘게 안 오면 멈춰요.",
+  "unit": "s",
+  "default": 0.5,
+  "min": 0.1,
+  "max": 3.0,
+  "safety": true
+ },
+ "map_timeout": {
+  "title": "지도 끊김 판단",
+  "description": "비용 지도가 이 시간 넘게 안 오면 멈춰요.",
+  "unit": "s",
+  "default": 2.5,
+  "min": 0.2,
+  "max": 10.0,
+  "safety": true
+ },
+ "status_timeout": {
+  "title": "상태 끊김 판단",
+  "description": "위치·인지 상태 메시지가 이 시간 넘게 안 오면 멈춰요.",
+  "unit": "s",
+  "default": 1.5,
+  "min": 0.2,
+  "max": 10.0,
+  "safety": true
+ },
+ "vehicle_timeout": {
+  "title": "차량 상태 끊김 판단",
+  "description": "제어기의 차량 상태가 이 시간 넘게 안 오면 멈춰요.",
+  "unit": "s",
+  "default": 0.3,
+  "min": 0.05,
+  "max": 3.0,
+  "safety": true
+ },
+ "result_timeout": {
+  "title": "경로 결과 유효 시간",
+  "description": "계산한 경로를 이 시간까지만 써요.",
+  "unit": "s",
+  "default": 1.0,
+  "min": 0.1,
+  "max": 5.0,
+  "safety": true
+ },
+ "clock_future_tolerance": {
+  "title": "미래 시각 허용",
+  "description": "입력 시각이 지금보다 이만큼 미래여도 받아들여요(보드 시계 차이).",
+  "unit": "s",
+  "default": 0.2,
+  "min": 0.0,
+  "max": 1.0,
+  "safety": true
+ },
+ "command_lease": {
+  "title": "명령 유효 시간",
+  "description": "주행 명령 하나가 유효한 시간이에요. 새 명령이 없으면 제어기가 멈춰요. 플래너는 0.3 s를 넘으면 시작하지 않아요.",
+  "unit": "s",
+  "default": 0.15,
+  "min": 0.05,
+  "max": 0.3,
+  "safety": true
+ },
+ "max_result_displacement": {
+  "title": "경로 계산 중 허용 이동",
+  "description": "경로를 계산하는 동안 차가 이보다 많이 움직이면 그 결과를 버려요.",
+  "unit": "m",
+  "default": 0.4,
+  "min": 0.05,
+  "max": 2.0,
+  "safety": true
+ },
+ "max_result_rotation": {
+  "title": "경로 계산 중 허용 회전",
+  "description": "경로를 계산하는 동안 차가 이보다 많이 돌면 그 결과를 버려요.",
+  "unit": "rad",
+  "default": 0.4,
+  "min": 0.05,
+  "max": 2.0,
+  "safety": true
+ },
+ "max_map_cells": {
+  "title": "지도 최대 칸 수",
+  "description": "이보다 큰 지도는 거부해요(메모리 보호). 플래너는 4,000,000칸을 넘으면 시작하지 않아요.",
+  "unit": "칸",
+  "default": 1000000,
+  "min": 10000,
+  "max": 4000000,
+  "safety": true
+ }
+}

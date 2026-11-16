@@ -19,6 +19,28 @@ from control import validate_host
 MAX_LINE = 512 * 1024
 MAX_PATH_POINTS = 600
 DEFAULT_PLANNING_COMMAND = "bash /home/user/nomad_cpp_ws/src/nomad_planning_cpp/scripts/run_planning_output.sh --stdio"
+# Pi4 run_planning_output.sh reads NOMAD_CONTROL_MODE (rpm = VESC erpm speed control,
+# vio_duty = VIO-feedback duty control, nomad_vio_duty_control). The mode is chosen per
+# planner session; it is always passed explicitly so a saved Pi4 selection cannot surprise.
+CONTROL_MODES = {"rpm": "erpm 제어 (VESC 속도)", "vio_duty": "VIO duty 제어"}
+# 2026-11-12: where the planner runs. "pi4" = existing Pi4 launcher (planner+controller+driver).
+# "jetson" = planner on the Jetson next to the map; Pi4 runs only driver+controller
+# (remote/pi4_output_only.sh). Both scripts are sent over SSH; no board file is changed.
+PLACEMENTS = {"pi4": "플래너 Pi4 (기존)", "jetson": "플래너 Jetson · 제어 Pi4"}
+REMOTE = Path(__file__).with_name("remote")
+
+
+def embedded(script_name, *args):
+    """Remote command that runs a shipped GUI script text with bash -c (nothing installed)."""
+    import shlex
+    text = (REMOTE / script_name).read_text(encoding="utf-8")
+    return "bash -c " + shlex.quote(text) + " nomad " + " ".join(shlex.quote(a) for a in args)
+
+
+def command_with_mode(command, mode):
+    if mode not in CONTROL_MODES:
+        raise ValueError("알 수 없는 제어 방식입니다.")
+    return "NOMAD_CONTROL_MODE=" + mode + " " + command
 
 
 def finite(value):
@@ -159,9 +181,25 @@ class PlanningClient(QtCore.QObject):
     progress = QtCore.pyqtSignal(str)
     closed = QtCore.pyqtSignal()
 
-    def __init__(self, host, command, runtime_dir, parent=None, pi5_host=None):
+    def __init__(self, host, command, runtime_dir, parent=None, pi5_host=None, placement="pi4",
+                 jetson_host=None, control_mode="rpm"):
         super().__init__(parent)
         self.host = validate_host(host)
+        if placement not in PLACEMENTS:
+            raise ValueError("알 수 없는 플래너 위치입니다.")
+        self.placement = placement
+        self.jetson_host = None
+        if placement == "jetson":
+            if control_mode not in CONTROL_MODES:
+                raise ValueError("알 수 없는 제어 방식입니다.")
+            self.jetson_host = validate_host(jetson_host or "")
+            if self.jetson_host.split("@", 1)[0] != "nvidia":
+                raise ValueError("Jetson 계정은 nvidia@주소로 입력해 주세요.")
+            # Planner on Jetson (stdio); Pi4 keeps only the vehicle output session.
+            # 2026-11-13 (later): planner settings are stored on the Jetson (board_settings.py) and
+            # applied there by jetson_planner.sh, so every laptop starts with the same values.
+            command = embedded("jetson_planner.sh", "--stdio")
+            self.output_command = embedded("pi4_output_only.sh", control_mode)
         # Pi5 address this GUI uses; Pi4 is told it when it still follows an old one.
         try:
             self.pi5_host = validate_host(pi5_host) if pi5_host else None
@@ -176,6 +214,16 @@ class PlanningClient(QtCore.QObject):
         self.process.readyReadStandardError.connect(self.drain_error)
         self.process.finished.connect(self.finished)
         self.process.errorOccurred.connect(self.process_error)
+        self.output_process = None
+        if self.placement == "jetson":
+            self.output_process = QtCore.QProcess(self)
+            self.output_process.readyReadStandardOutput.connect(self.read_output_session)
+            self.output_process.readyReadStandardError.connect(
+                lambda: self.output_process.readAllStandardError())
+            self.output_process.finished.connect(self.output_finished)
+            self.output_process.errorOccurred.connect(self.output_error)
+            self.output_ready = False
+        self.clock_queue = []
         self.clock_process = QtCore.QProcess(self)
         self.clock_process.finished.connect(self.clock_finished)
         self.clock_process.errorOccurred.connect(self.clock_error)
@@ -191,8 +239,15 @@ class PlanningClient(QtCore.QObject):
 
     def start(self):
         self.clock_process.setProcessEnvironment(QtCore.QProcessEnvironment.systemEnvironment())
-        self.progress.emit("Pi4 시간 동기화 확인(Pi5 기준 5ms) · 플래너 시작 전")
-        args = [str(Path(__file__).with_name("clock_sync.py")), "--host", self.host]
+        # Jetson mode: both the Pi4 controller and the Jetson planner must follow Pi5 time.
+        self.clock_queue = [("Pi4", self.host)] + ([("Jetson", self.jetson_host)] if self.jetson_host else [])
+        self.start_next_clock()
+
+    def start_next_clock(self):
+        name, host = self.clock_queue[0]
+        self.clock_name = name
+        self.progress.emit(name + " 시간 동기화 확인(Pi5 기준 5ms) · 플래너 시작 전")
+        args = [str(Path(__file__).with_name("clock_sync.py")), "--host", host]
         if self.pi5_host:
             args += ["--pi5-host", self.pi5_host]
         self.clock_process.start(sys.executable, args)
@@ -210,10 +265,15 @@ class PlanningClient(QtCore.QObject):
         if self.stopping:
             self.finished(0, QtCore.QProcess.NormalExit)
         elif code == 0:
-            self.start_planner()
+            self.clock_queue.pop(0)
+            if self.clock_queue:
+                self.start_next_clock()
+            else:
+                self.start_planner()
         else:
             self.finished(code, QtCore.QProcess.NormalExit)
-            self.progress.emit("Pi4 시간 동기화 확인 실패 · " + (detail or "연결 상태 확인") + " · 플래너를 시작하지 않았습니다")
+            self.progress.emit(getattr(self, "clock_name", "Pi4") + " 시간 동기화 확인 실패 · " +
+                               (detail or "연결 상태 확인") + " · 플래너를 시작하지 않았습니다")
 
     def clock_error(self, _error):
         self.finished(-1, QtCore.QProcess.CrashExit)
@@ -234,13 +294,45 @@ class PlanningClient(QtCore.QObject):
             if not env.contains("DISPLAY"):
                 env.insert("DISPLAY", ":0")
         self.process.setProcessEnvironment(env)
-        args = ["-T", "-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=3",
-                "-o", "ServerAliveCountMax=1", "-o", "NumberOfPasswordPrompts=1",
-                "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR",
-                "-o", 'UserKnownHostsFile="' + str(self.runtime_dir / "known_hosts") + '"',
-                "-o", "BatchMode=" + ("no" if password else "yes"), self.host, self.command]
+        import board_address  # follow Pi4 if its address changed (recovered route)
+        board_address.register(pi4=self.host)
+        if self.placement == "jetson":
+            board_address.register(jetson=self.jetson_host)
+            self.output_process.setProcessEnvironment(env)
+            self.output_process.start("ssh", self.ssh_args(self.host, self.output_command, password))
+            self.progress.emit("Pi4 제어기·VESC 드라이버 시작 중 (플래너는 Jetson)")
+            self.process.start("ssh", self.ssh_args(self.jetson_host, self.command, password))
+            self.progress.emit("Jetson 플래너 연결 중 · 출력 잠금 상태로 시작")
+            return
+        self.process.start("ssh", self.ssh_args(self.host, self.command, password))
         self.progress.emit("Pi4 플래너 연결 중 · 출력 잠금 상태로 시작")
-        self.process.start("ssh", args)
+
+    def ssh_args(self, host, command, password):
+        import board_address
+        target = board_address.route(host)
+        common = ["-o", "ConnectTimeout=6", "-o", "ServerAliveInterval=3",
+                  "-o", "ServerAliveCountMax=1", "-o", "NumberOfPasswordPrompts=1",
+                  "-o", "StrictHostKeyChecking=accept-new", "-o", "LogLevel=ERROR",
+                  "-o", 'UserKnownHostsFile="' + str(self.runtime_dir / "known_hosts") + '"',
+                  "-o", "BatchMode=" + ("no" if password else "yes")]
+        return ["-T", *common, *board_address.ssh_route_options(target, common), target["host"], command]
+
+    # ---------- Jetson mode: Pi4 vehicle output session ----------
+    def read_output_session(self):
+        text = bytes(self.output_process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        if "NOMAD_PI4_OUTPUT_READY" in text and not self.output_ready:
+            self.output_ready = True
+            self.progress.emit("Pi4 제어기·VESC 드라이버 실행 중 · Jetson 플래너 대기")
+
+    def output_error(self, _error):
+        if self.output_process.state() == QtCore.QProcess.NotRunning:
+            self.output_finished(-1, QtCore.QProcess.CrashExit)
+
+    def output_finished(self, _code, _status):
+        # Without the Pi4 controller the Jetson planner must not stay connected (and vice versa).
+        if not self.did_close and not self.stopping:
+            self.progress.emit("Pi4 제어기 세션 종료 · Jetson 플래너도 닫습니다 (Pi4 잠금·실행 중 프로세스 확인)")
+            self.stop()
 
     def send(self, command, *, timing=None, origin="command_send"):
         if command.get("cmd") == "goal":
@@ -310,6 +402,10 @@ class PlanningClient(QtCore.QObject):
         self.ready = False
         # The native planner treats EOF/SSH loss as disarm and cancels its work.
         self.process.closeWriteChannel()
+        if self.output_process is not None and self.output_process.state() != QtCore.QProcess.NotRunning:
+            # Pi4 output script stops driver+controller on stdin EOF.
+            self.output_process.closeWriteChannel()
+            self.force_timer.start(4000)
         if self.process.state() == QtCore.QProcess.NotRunning:
             self.finished(0, QtCore.QProcess.NormalExit)
         else:
@@ -318,6 +414,8 @@ class PlanningClient(QtCore.QObject):
     def force_close(self):
         if self.process.state() != QtCore.QProcess.NotRunning:
             self.process.kill()
+        if self.output_process is not None and self.output_process.state() != QtCore.QProcess.NotRunning:
+            self.output_process.kill()
 
     def finished(self, _code, _status):
         if self.did_close:
@@ -330,5 +428,11 @@ class PlanningClient(QtCore.QObject):
         if self.temporary is not None:
             self.temporary.cleanup()
             self.temporary = None
-        self.progress.emit("Pi4 플래너 연결 종료 · 센서/보드 전원 유지")
+        if self.output_process is not None and self.output_process.state() != QtCore.QProcess.NotRunning:
+            # Planner gone: end the Pi4 output session too (EOF, then kill after 4 s).
+            self.output_process.closeWriteChannel()
+            QtCore.QTimer.singleShot(4000, lambda: self.output_process.state() != QtCore.QProcess.NotRunning
+                                     and self.output_process.kill())
+        where = "Jetson 플래너·Pi4 제어기" if self.placement == "jetson" else "Pi4 플래너"
+        self.progress.emit(where + " 연결 종료 · 센서/보드 전원 유지")
         self.closed.emit()

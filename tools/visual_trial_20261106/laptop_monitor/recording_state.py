@@ -10,7 +10,9 @@ PROVENANCE_FILES = ("monitor.py", "session_ui.py", "session_recording.py", "reco
                     "planning_footprint.py", "developer_planning.py", "planning_client.py",
                     "module_logs.py", "developer_control.py", "localization_state.py",
                     "developer_localization.py", "developer_traversability.py",
-                    "developer_perception.py", "heading_indicator.py", "relay.py")
+                    "developer_perception.py", "heading_indicator.py", "relay.py", "rtk_panel.py",
+                    "resource_metrics.py", "developer_resources.py",
+                    "board_tools/module_log_tail.cpp", "board_tools/resource_sampler.hpp")
 
 
 def source_digests():

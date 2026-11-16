@@ -3,7 +3,9 @@ import math
 import time
 from PyQt5 import QtGui, QtWidgets
 from module_logs import attach_module_logs, update_module_logs
+from model_control import MODEL_NAMES
 from render_utils import stable_metadata
+import developer_debug as dbg
 
 
 # RGB equivalents of monitor_probe.cpp's field12 preview palette.
@@ -36,7 +38,7 @@ class PerceptionWindow(QtWidgets.QMainWindow):
     def __init__(self, parent=None, components=None):
         super().__init__(parent)
         self.setWindowTitle("NOMAD | 인지 개발")
-        self.resize(1180, 700)
+        self.resize(1240, 740)
         self.setStyleSheet(STYLE)
         self.panels, self._image_keys, self._image_received, self._image_meta = {}, {}, {}, {}
         body = QtWidgets.QWidget()
@@ -87,18 +89,112 @@ class PerceptionWindow(QtWidgets.QMainWindow):
         layout.addWidget(footer)
         self.setCentralWidget(body)
         attach_module_logs(self)
+        self._class_key, self._class_rows = None, []
+        self.debug = dbg.DebugTools(self, "perception", "NOMAD 인지 개발", (
+            {"key": "image:rgb", "label": "원본 영상", "limit": 2., "rate": ("jetson", "rgb")},
+            {"key": "image:semantic", "label": "분할 영상", "limit": 2., "rate": ("jetson", "semantic")},
+            {"key": "status:perception", "label": "인지 상태", "limit": 3., "rate": ("jetson", "perception")},
+            {"key": "rates:jetson", "label": "젯슨 Hz 보고", "limit": 3.},
+            {"key": "telemetry:slope_cpu", "label": "경사 CPU 측정", "limit": 3.},
+        ), log_dock=self.log_dock)
+        self.debug.clear_hooks.append(self._clear_debug)
 
     def append_module_log(self, event):
         return self.log_panel.append_event(event)
 
+    def _clear_debug(self):
+        self._class_key, self._class_rows = None, []
+
     def update_snapshot(self, snapshot):
+        self.debug.observe(snapshot)
+        if self.debug.frozen:
+            return
+        self._update_view(snapshot)
+        self.debug.publish(snapshot, self._debug_checks(snapshot), self._debug_sections(snapshot))
+
+    def _debug_checks(self, snapshot):
+        status = snapshot.get("statuses", {}).get("perception", {})
+        meta = snapshot.get("image_meta", {})
+        checks = [dbg.status_check("인지 모듈 상태 (READY 사유)", status, age(snapshot, "status:perception")),
+                  dbg.freshness("원본 영상 수신", age(snapshot, "image:rgb"), 2., 5.),
+                  dbg.freshness("분할 영상 수신", age(snapshot, "image:semantic"), 2., 5.),
+                  dbg.rate_check("원본 토픽 Hz (보드)", dbg.reported_rate(snapshot, "jetson", "rgb")),
+                  dbg.rate_check("분할 토픽 Hz (보드)", dbg.reported_rate(snapshot, "jetson", "semantic"))]
+        broken = [name for source, name in (("rgb", "원본"), ("semantic", "분할"))
+                  if meta.get(source, {}).get("decode_error") or meta.get(source, {}).get("latest_frame_error")]
+        checks.append(("영상 해독", "warn" if broken else "ok",
+                       ("새 영상 해독 실패: " + ", ".join(broken) + " · 마지막 정상 영상 유지") if broken else "최근 영상 정상 해독"))
+        model = snapshot.get("active_model")
+        checks.append(("모델 선택 확인", "ok" if model in MODEL_NAMES else "unknown",
+                       MODEL_NAMES.get(model, "운용 PC의 모델 전환 확인 결과 없음")))
+        slope = snapshot.get("telemetry", {}).get("slope_cpu", {})
+        slope_age = age(snapshot, "telemetry:slope_cpu")
+        if slope_age is None:
+            checks.append(("경사 CPU 측정", "unknown", "미수신 (운용 PC에서 측정 연결 전)"))
+        else:
+            live = slope_age <= 3. and slope.get("state") == "live"
+            checks.append(("경사 CPU 측정", "ok" if live else "warn",
+                           f"{slope.get('state', '—')} · 방식 {slope.get('active_mode', '—')} · {slope_age:.1f}초 전"))
+        checks.append(dbg.log_check(self.log_panel))
+        return checks
+
+    def _semantic_classes(self, snapshot):
+        image = snapshot.get("images", {}).get("semantic")
+        if not isinstance(image, QtGui.QImage) or image.isNull():
+            return self._class_rows
+        key = image.cacheKey()
+        if key == self._class_key:
+            return self._class_rows
+        self._class_key = key
+        pixels = dbg.image_rgb(image)
+        if pixels is None:
+            return self._class_rows
+        palette = [tuple(int(color[i:i+2], 16) for i in (1, 3, 5)) for _, color in FIELD12]
+        total, counts, unclassified = dbg.palette_counts(pixels, palette)
+        rows = [[str(index), name, f"{count/total*100:.1f}%", f"{count:,}"]
+                for index, ((name, _), count) in enumerate(zip(FIELD12, counts))]
+        rows.sort(key=lambda row: -int(row[3].replace(",", "")))
+        rows.append(["—", "판별 불가 (압축 경계 등)", f"{unclassified/total*100:.1f}%", f"{unclassified:,}"])
+        self._class_rows = rows
+        return rows
+
+    def _debug_sections(self, snapshot):
+        meta = snapshot.get("image_meta", {})
+        wall = snapshot.get("wall_now")
+        columns = []
+        for source in ("rgb", "semantic"):
+            event = meta.get(source, {}) if isinstance(meta.get(source), dict) else {}
+            stamp = event.get("t")
+            latency = wall - stamp if dbg.finite(wall) and dbg.finite(stamp) and stamp > 0 else None
+            columns.append([f"{event.get('width', '—')}×{event.get('height', '—')}",
+                            str(event.get("encoding", "—")), dbg.wall_clock(stamp),
+                            dbg.number_text(latency, 2, "초"), dbg.age_text(age(snapshot, "image:" + source)),
+                            "해독 실패" if event.get("decode_error") else "정상" if event else "미수신"])
+        image_rows = [[name, *values] for name, *values in zip(
+            ("크기", "인코딩", "보드 촬영 시각", "촬영→지금 (시계 차 포함)", "PC 수신 후", "해독"), *columns)]
+        rates = snapshot.get("rates", {}).get("jetson", {})
+        sections = {
+            "영상 정보": (["항목", "원본 영상", "분할 영상"],
+                       image_rows, "촬영→지금은 보드 시각과 이 PC 시각의 차이를 포함합니다. 시계가 맞지 않으면 참고만 하세요."),
+            "분할 클래스 비율 · 표시 영상 기준": (["ID", "클래스", "비율", "픽셀(2칸 간격 표본)"], self._semantic_classes(snapshot),
+                       "보드가 보낸 field12 색상 영상을 가장 가까운 색으로 셉니다. JPEG 압축 경계는 '판별 불가'로 둡니다. 원본 확률값이 아닙니다."),
+            "젯슨 보고 Hz 전체": (["토픽 이름 (보드 집계)", "Hz"],
+                       [[str(k), dbg.number_text(v, 2)] for k, v in sorted(rates.items())] if isinstance(rates, dict) else [],
+                       "보드 수신 프로그램이 1초마다 센 콜백 수입니다."),
+            "인지 관련 프로세스 · 보드 부하 계측": (dbg.PROCESS_HEADERS,
+                       dbg.module_processes(snapshot, ("semantic", "camera", "stereo_cloud")),
+                       dbg.PROCESS_NOTE),
+        }
+        return sections
+
+    def _update_view(self, snapshot):
         update_module_logs(self, snapshot, "perception")
         self.update_slope_cpu(snapshot)
         status = snapshot.get("statuses", {}).get("perception", {})
         self.status.setText("인지: " + str(status.get("state", "미수신")) + " | " +
                             age_text(age(snapshot, "status:perception")))
         self.status.setToolTip(str(status.get("detail", "")))
-        selected = {"b2": "B2", "fcn": "FCN"}.get(snapshot.get("active_model"), "—")
+        selected = MODEL_NAMES.get(snapshot.get("active_model"), "—")
         rates = snapshot.get("rates", {}).get("jetson", {})
         self.rate.setText("원본 " + hz_text(rates.get("rgb")) + " | 분할 " + hz_text(rates.get("semantic")) +
                           " | Hz 보고: " + age_text(age(snapshot, "rates:jetson")))

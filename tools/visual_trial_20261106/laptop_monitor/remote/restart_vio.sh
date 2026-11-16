@@ -161,6 +161,10 @@ fi
 export FASTRTPS_DEFAULT_PROFILES_FILE="$ws/config/oak_fastdds_wired.xml"
 [[ -f "$FASTRTPS_DEFAULT_PROFILES_FILE" ]] || fail profile_unavailable
 [[ ! -f "$run/vio.log" ]] || mv -- "$run/vio.log" "$run/vio_before_restart_$(date +%Y%m%d_%H%M%S)_$$.log" || fail vio_start_failed
+# 2026-11-16: the GUI Basalt settings copied at Start (start_pi_vio_fusion.sh), same file as before the restart.
+if [[ -f "$run/basalt_vio_config.json" && ! -L "$run/basalt_vio_config.json" ]]; then
+    export NOMAD_BASALT_VIO_CONFIG="$run/basalt_vio_config.json"
+fi
 setsid env ROS_LOG_DIR="$run/ros" bash "$ws/scripts/run_basalt_cpp.sh" 8>&- 9>&- </dev/null > "$run/vio.log" 2>&1 &
 new_pid=$!
 printf '%s\n' "$new_pid" > "$run/vio.pid.next" && mv -- "$run/vio.pid.next" "$run/vio.pid" || fail vio_start_failed
