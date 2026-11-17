@@ -163,6 +163,7 @@ class ControlWindow(QtWidgets.QMainWindow):
         self._trace = None
         self._vesc = None
         self._link = None  # 2026-11-17: 마지막 link_trace (통신·제어 주기)
+        self._slip = None  # 2026-11-17 오후: 마지막 [SLIP] 줄 (미끄러짐·막힘 표시)
         body = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(body)
         layout.setSpacing(9)
@@ -297,13 +298,21 @@ class ControlWindow(QtWidgets.QMainWindow):
             return 0
         session = str(event.get("run_id", event.get("session", "")))
         if session != self._log_session:
-            self._log_session, self._trace, self._vesc, self._link = session, None, None, None
+            self._log_session, self._trace, self._vesc, self._link, self._slip = session, None, None, None, None
         for row in rows:
             clean = _ANSI.sub("", row)
             trace = trace_from_line(clean)
             vesc = vesc_status.vesc_trace_from_line(clean) if trace is None else None
             link = vesc_status.link_trace_from_line(clean) if trace is None and vesc is None else None
-            if link is not None:
+            slip = vesc_status.slip_event_from_line(clean) if trace is None and vesc is None and link is None else None
+            if slip is not None:
+                previous_stamp = self._slip.get("stamp") if self._slip else None
+                if finite(previous_stamp) and (not finite(slip["stamp"]) or slip["stamp"] <= previous_stamp):
+                    continue
+                slip.update(event_stamp=event.get("t"),
+                            received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
+                self._slip = slip
+            elif link is not None:
                 previous_stamp = self._link.get("stamp") if self._link else None
                 if finite(previous_stamp) and (not finite(link["stamp"]) or link["stamp"] <= previous_stamp):
                     continue
@@ -339,6 +348,9 @@ class ControlWindow(QtWidgets.QMainWindow):
                 old = self._link.get("stamp") if self._link else None
                 if not finite(old) or not finite(value) or value >= old:
                     self._link = None
+                old = self._slip.get("stamp") if self._slip else None
+                if not finite(old) or not finite(value) or value >= old:
+                    self._slip = None
         return added
 
     def _clear_debug(self):
@@ -412,6 +424,10 @@ class ControlWindow(QtWidgets.QMainWindow):
             code = self._vesc.get("fault_code")
             checks.append(("VESC 고장 코드", vesc_status.fault_level(code),
                            vesc_status.fault_text(code, self._vesc.get("fault"))))
+        if self._slip:
+            slip_age, _note = self._record_age(self._slip, snapshot)
+            _title, text, level = vesc_status.slip_row(self._slip, slip_age)
+            checks.append(("미끄러짐·막힘 ([SLIP], 표시 전용)", level, text))
         if self._link:
             link_age, _note = self._record_age(self._link, snapshot)
             _title, text, level = vesc_status.link_row(self._link, link_age)
@@ -541,9 +557,10 @@ class ControlWindow(QtWidgets.QMainWindow):
                  "미수신 (2026-11-16 이전 제어기에는 없음)") + " · 입력 전류는 VESC 추정값")
         control_fresh = trace_age is not None and trace_age <= 3.
         link_age, _link_note = self._record_age(self._link, snapshot)
+        slip_age, _slip_note = self._record_age(self._slip, snapshot)
         for title, text, level in vesc_status.trace_rows(self._trace if control_fresh else None,
                                                          self._vesc if vesc_fresh else None,
-                                                         self._link, link_age):
+                                                         self._link, link_age, self._slip, slip_age):
             label = self.vesc_values.get(title)
             if label is None:
                 continue

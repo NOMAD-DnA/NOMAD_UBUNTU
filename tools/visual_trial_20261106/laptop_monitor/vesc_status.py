@@ -11,6 +11,10 @@
 - '제어 주기·LPP' 줄을 추가했다.
   - 키보드 조종: HTTP `link_*`·`control_tick_max_ms` 키를 쓴다.
   - 자율주행: 로그의 `link_trace` 줄을 쓴다. 제어기는 이 줄을 문제가 있던 1초(만료, 명령 공백, 제어 주기 지연)에만 찍고, 그 밖에는 10초마다 찍는다.
+- 2026-11-17 오후 (2차 묶음 제어기 이후): '미끄러짐·막힘' 줄.
+  - 키보드 조종: `slip_*` 키를 쓴다. 이 모드는 위치가 없어서 보통 off다.
+  - 자율주행: `[SLIP] … start/end` 로그 줄을 쓴다.
+  - 표시만 한다. 제어기도 출력을 바꾸지 않는다.
 """
 from __future__ import annotations
 
@@ -170,6 +174,7 @@ def status_rows(data, fresh=True):
         rows.append(("제어 주기·LPP", text + " (최근 1초)", "warn" if trouble else "ok"))
     else:
         rows.append(("제어 주기·LPP", MISSING + " (2026-11-17 이후 제어기)", "unknown"))
+    rows.append(_slip_status_row(data))
     return rows
 
 
@@ -218,6 +223,59 @@ def vesc_trace_from_line(line):
     return trace
 
 
+def slip_event_from_line(line):
+    """제어기 로그의 `[SLIP]` 줄 → dict(kind, phase, detail, duration_s, distance_m, stamp). 아니면 None."""
+    if not isinstance(line, str):
+        return None
+    line = _ANSI.sub("", line)
+    if not line.lstrip().startswith("[controller]") or "[SLIP]" not in line:
+        return None
+    stamp = _ROS_STAMP.search(line)
+    event = {"stamp": _number(stamp.group(1)) if stamp else None, "duration_s": None, "distance_m": None, "detail": ""}
+    start, end = _SLIP_START.search(line), _SLIP_END.search(line)
+    if start:
+        event.update(kind=start.group(1), phase="start", detail=start.group(2).split(" (display only")[0][:120])
+    elif end:
+        event.update(kind=end.group(1), phase="end", duration_s=_number(end.group(2)), distance_m=_number(end.group(3)))
+    else:
+        return None
+    return event
+
+
+def slip_row(event, age_s=None):
+    """자율주행 '미끄러짐·막힘' 줄 (마지막 [SLIP] 줄 기준, 표시 전용)."""
+    title = "미끄러짐·막힘"
+    if not isinstance(event, dict):
+        return (title, "사건 없음 (2026-11-17 2차 묶음 이후 제어기, 위치 수신 필요)", "unknown")
+    name = SLIP_KO.get(event.get("kind"), MISSING)
+    ago = f" · {age_s:.0f}초 전" if finite(age_s) else ""
+    if event.get("phase") == "start":
+        if finite(age_s) and age_s > 30.0:  # 끝 줄을 못 받았을 수 있음 (로그 읽기 1 KiB/s 초과 등)
+            return (title, f"{name} 시작 기록만 있음 · 끝 기록 없음{ago}", "unknown")
+        return (title, f"{name} 중 · {event.get('detail') or MISSING}{ago} (표시만, 출력 그대로)", "warn")
+    if finite(age_s) and age_s > SLIP_RECENT_S:
+        return (title, "최근 1분 사건 없음", "ok")
+    text = f"마지막: {name} {_num(event.get('duration_s'), 1)}초"
+    if finite(event.get("distance_m")):
+        text += f", 뒤로 {event['distance_m']:.2f} m"
+    return (title, text + ago, "ok")
+
+
+def _slip_status_row(data):
+    """키보드 조종 HTTP 상태 → '미끄러짐·막힘' 줄."""
+    get = data.get
+    state = get("slip_state")
+    if state is None:
+        return ("미끄러짐·막힘", MISSING + " (2026-11-17 2차 묶음 이후 제어기)", "unknown")
+    if state == "off":
+        return ("미끄러짐·막힘", f"판단 꺼짐 · {get('slip_off_reason') or MISSING}", "unknown")
+    body = get("body_speed_mps")
+    text = f"차체 {_num(body, 2)} m/s · 사건 {int(get('slip_events')) if finite(get('slip_events')) else MISSING}회"
+    if state in SLIP_KO:
+        return ("미끄러짐·막힘", f"{SLIP_KO[state]} 중 {_num(get('slip_state_s'), 1)}초 · " + text + " (표시만)", "warn")
+    return ("미끄러짐·막힘", "이상 없음 · " + text, "ok")
+
+
 def link_trace_from_line(line):
     """제어기 로그 한 줄의 `link_trace` → dict (2026-11-17 이후 제어기). 'na'(명령·시각 없음)는 None."""
     if not isinstance(line, str):
@@ -249,7 +307,7 @@ def link_row(link, age_s=None):
     return (title, text, "warn" if trouble else "ok")
 
 
-def trace_rows(control, vesc, link=None, link_age=None):
+def trace_rows(control, vesc, link=None, link_age=None, slip=None, slip_age=None):
     """자율주행 로그(control_trace의 추가 값 + vesc_trace + link_trace) → (제목, 값, 수준) 목록."""
     control = control if isinstance(control, dict) else {}
     vesc = vesc if isinstance(vesc, dict) else {}
@@ -275,10 +333,15 @@ def trace_rows(control, vesc, link=None, link_age=None):
                  "warn" if finite(age) and age > TELEMETRY_WARN_S*1000 else "ok" if finite(age) else "unknown"))
     rows.append(("서보", _servo_text(vesc.get("servo_cmd"), vesc.get("servo_target")), "ok"))
     rows.append(link_row(link, link_age))
+    rows.append(slip_row(slip, slip_age))
     return rows
 
 
 LEVEL_COLORS = {"ok": "#e2e8f0", "warn": "#fbbf24", "fail": "#f87171", "unknown": "#94a3b8"}  # 어두운 창(제어 개발 창)
 # 2026-11-17: 키보드 조종 창은 런처의 밝은 테마(흰 묶음 바탕)를 물려받는다. 위의 #e2e8f0는 거기서 거의 안 보였다.
 LEVEL_COLORS_LIGHT = {"ok": "#17263b", "warn": "#b45309", "fail": "#b91c1c", "unknown": "#64748b"}
-WIDE_ROWS = ("정지 출력", "제어 주기·LPP")  # 값이 길어 한 줄 전체를 쓰는 줄 (키보드 조종 창)
+WIDE_ROWS = ("정지 출력", "제어 주기·LPP", "미끄러짐·막힘")
+SLIP_RECENT_S = 60.0       # 끝난 미끄러짐 사건을 이만큼 '최근'으로 보여 줌
+_SLIP_START = re.compile(r"\[SLIP\]\s+(stuck|backslide)\s+start:\s*(.*)$")
+_SLIP_END = re.compile(r"\[SLIP\]\s+(stuck|backslide)\s+end after\s+([0-9.]+)\s*s(?:,\s*([0-9.]+)\s*m backward)?")
+SLIP_KO = {"stuck": "헛돎·막힘", "backslide": "뒤로 밀림"}  # 값이 길어 한 줄 전체를 쓰는 줄 (키보드 조종 창)

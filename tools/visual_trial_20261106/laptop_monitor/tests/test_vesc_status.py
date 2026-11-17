@@ -162,6 +162,39 @@ class HoldAndLinkRowsTest(unittest.TestCase):
         self.assertNotIn('초째', old[0])
 
 
+SLIP_START = '[SLIP] stuck start: wheels 812 ERPM, iq 27.3 A, body 0.01 m/s (display only; output unchanged)'
+SLIP_END = '[SLIP] backslide end after 1.2 s, 0.53 m backward'
+
+
+class SlipRowsTest(unittest.TestCase):
+    """2026-11-17 오후: 미끄러짐·막힘 표시 (2차 묶음 제어기 이후, 표시 전용)."""
+
+    def test_slip_lines_parse_and_rate(self):
+        start = vesc_status.slip_event_from_line(controller_line(500., SLIP_START).replace('[INFO]', '[WARN]'))
+        self.assertEqual((start['kind'], start['phase'], start['stamp']), ('stuck', 'start', 500.0))
+        title, text, level = vesc_status.slip_row(start, 2.0)
+        self.assertEqual((title, level), ('미끄러짐·막힘', 'warn'))
+        self.assertIn('헛돎·막힘 중 · wheels 812 ERPM, iq 27.3 A, body 0.01 m/s · 2초 전 (표시만, 출력 그대로)', text)
+        self.assertEqual(vesc_status.slip_row(start, 45.0)[2], 'unknown')  # 끝 줄을 못 받은 오래된 시작
+        end = vesc_status.slip_event_from_line(controller_line(501., SLIP_END))
+        self.assertEqual((end['kind'], end['phase'], end['duration_s'], end['distance_m']), ('backslide', 'end', 1.2, 0.53))
+        self.assertEqual(vesc_status.slip_row(end, 5.0), ('미끄러짐·막힘', '마지막: 뒤로 밀림 1.2초, 뒤로 0.53 m · 5초 전', 'ok'))
+        self.assertEqual(vesc_status.slip_row(end, 90.0), ('미끄러짐·막힘', '최근 1분 사건 없음', 'ok'))
+        self.assertEqual(vesc_status.slip_row(None)[2], 'unknown')
+        self.assertIsNone(vesc_status.slip_event_from_line(controller_line(1., LINK_TRACE)))
+        self.assertIsNone(vesc_status.slip_event_from_line('[planner] [SLIP] stuck start: x'))
+
+    def test_keyboard_slip_row(self):
+        self.assertEqual(rows(STATUS)['미끄러짐·막힘'][1], 'unknown')
+        off = rows(dict(STATUS, slip_state='off', slip_off_reason='no localization pose'))
+        self.assertEqual(off['미끄러짐·막힘'], ('판단 꺼짐 · no localization pose', 'unknown'))
+        stuck = rows(dict(STATUS, slip_state='stuck', slip_state_s=2.4, body_speed_mps=0.01, slip_events=1))
+        self.assertEqual(stuck['미끄러짐·막힘'][1], 'warn')
+        self.assertIn('헛돎·막힘 중 2.4초', stuck['미끄러짐·막힘'][0])
+        ok = rows(dict(STATUS, slip_state='ok', body_speed_mps=0.27, slip_events=0))
+        self.assertEqual(ok['미끄러짐·막힘'], ('이상 없음 · 차체 0.27 m/s · 사건 0회', 'ok'))
+
+
 class VescStatusWindowsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -231,17 +264,23 @@ class VescStatusWindowsTest(unittest.TestCase):
         now = time.time()
         child.update_snapshot({})
         self.assertIn('link_trace 없음', child.vesc_values['제어 주기·LPP'].text())
+        self.assertIn('사건 없음', child.vesc_values['미끄러짐·막힘'].text())
         text = '\n'.join((controller_line(now, CONTROL_TRACE), controller_line(now + .001, VESC_TRACE),
                           controller_line(now + .002, LINK_BAD)))
         child.append_module_log(dict(kind='log', board='pi4', source='planning', t=now, seq=1, session='fixture', text=text))
         child.update_snapshot({})
         self.assertIn('만료 1', child.vesc_values['제어 주기·LPP'].text())
         self.assertIn('#fbbf24', child.vesc_values['제어 주기·LPP'].styleSheet())
+        slip = controller_line(now + .003, SLIP_START).replace('[INFO]', '[WARN]')
+        child.append_module_log(dict(kind='log', board='pi4', source='planning', t=now + .5, seq=2, session='fixture', text=slip))
+        child.update_snapshot({})
+        self.assertIn('헛돎·막힘 중', child.vesc_values['미끄러짐·막힘'].text())
         # A new controller start line drops the previous run's link figures.
-        child.append_module_log(dict(kind='log', board='pi4', source='planning', t=now + 1, seq=2, session='fixture',
+        child.append_module_log(dict(kind='log', board='pi4', source='planning', t=now + 1, seq=3, session='fixture',
                                      text=controller_line(now + 1, 'starting mode=commission')))
         child.update_snapshot({})
         self.assertIn('link_trace 없음', child.vesc_values['제어 주기·LPP'].text())
+        self.assertIn('사건 없음', child.vesc_values['미끄러짐·막힘'].text())
 
 
 if __name__ == '__main__':
