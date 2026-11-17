@@ -90,6 +90,78 @@ class VescStatusRowsTest(unittest.TestCase):
         self.assertIsNone(vesc_status.vesc_trace_from_line(controller_line(1., CONTROL_TRACE)))
 
 
+LINK_TRACE = 'link_trace n=20 gap_ms=62 age_min_ms=3 age_max_ms=15 expired=0 tick_max_ms=22'
+LINK_BAD = 'link_trace n=12 gap_ms=410 age_min_ms=4 age_max_ms=380 expired=1 tick_max_ms=21'
+
+
+class HoldAndLinkRowsTest(unittest.TestCase):
+    """2026-11-17: 정지 유지 시간·발열 추정·오래 유지 경고, 제어 주기·LPP 줄 (제어기 f6f4946 이후)."""
+
+    def test_keyboard_hold_row_uses_controller_estimates(self):
+        held = rows(dict(STATUS, stop_output='hold', stop_output_a=30.0, stop_hold_basis='unsettled', stop_hold_s=12.4,
+                         stop_hold_heat_w=15.12, stop_hold_long=True))
+        self.assertEqual(held['정지 출력'][1], 'warn')
+        self.assertIn('12초째', held['정지 출력'][0])
+        self.assertIn('모터 발열 약 15 W(추정)', held['정지 출력'][0])
+        self.assertIn('모터 온도 미측정', held['정지 출력'][0])
+        short = rows(dict(STATUS, stop_output='hold', stop_output_a=12.5, stop_hold_basis='load', stop_hold_s=3.0,
+                          stop_hold_heat_w=2.625, stop_hold_long=False))
+        self.assertEqual(short['정지 출력'][1], 'ok')
+        self.assertIn('모터 발열 약 3 W(추정)', short['정지 출력'][0])
+        # 옛 제어기(발열·오래 유지 키 없음): 유지 시간만으로 같은 기준을 적용하고 발열은 꾸미지 않는다.
+        old = rows(dict(STATUS, stop_output='hold', stop_output_a=30.0, stop_hold_basis='unsettled', stop_hold_s=11.0))
+        self.assertEqual(old['정지 출력'][1], 'warn')
+        self.assertNotIn('발열', old['정지 출력'][0])
+        braking = rows(dict(STATUS, stop_output='brake', stop_output_a=20.0, stop_hold_s=0.0))
+        self.assertEqual(braking['정지 출력'], ('brake 20.0 A · 근거 none', 'ok'))
+
+    def test_keyboard_link_row(self):
+        self.assertEqual(rows(STATUS)['제어 주기·LPP'], ('— (2026-11-17 이후 제어기)', 'unknown'))
+        idle = rows(dict(STATUS, control_tick_max_ms=21.5, link_commands=0, link_cmd_max_gap_ms=0.0, link_expiries=0))
+        self.assertEqual(idle['제어 주기·LPP'], ('제어 주기 최대 22 ms · LPP 명령 없음 · 만료 0 (최근 1초)', 'ok'))
+        late = rows(dict(STATUS, control_tick_max_ms=55.0, link_commands=0, link_expiries=0))
+        self.assertEqual(late['제어 주기·LPP'][1], 'warn')
+        gap = rows(dict(STATUS, control_tick_max_ms=21.0, link_commands=15, link_cmd_max_gap_ms=350.0,
+                        link_cmd_age_min_ms=3.0, link_cmd_age_max_ms=40.0, link_expiries=0))
+        self.assertEqual(gap['제어 주기·LPP'][1], 'warn')
+        self.assertIn('LPP 15개/초 · 최대 공백 350 ms · 지연 3~40 ms', gap['제어 주기·LPP'][0])
+
+    def test_link_trace_parses_and_rates(self):
+        link = vesc_status.link_trace_from_line(controller_line(200.25, LINK_TRACE))
+        self.assertEqual((link['n'], link['gap_ms'], link['expired'], link['tick_max_ms'], link['stamp']),
+                         (20.0, 62.0, 0.0, 22.0, 200.25))
+        none_age = vesc_status.link_trace_from_line(controller_line(201., 'link_trace n=0 gap_ms=0 age_min_ms=na '
+                                                                         'age_max_ms=na expired=0 tick_max_ms=20'))
+        self.assertIsNone(none_age['age_min_ms'])
+        self.assertIsNone(vesc_status.link_trace_from_line(controller_line(1., VESC_TRACE)))
+        self.assertIsNone(vesc_status.link_trace_from_line('[planner] link_trace n=1'))
+        title, text, level = vesc_status.link_row(link, 2.0)
+        self.assertEqual((title, level), ('제어 주기·LPP', 'ok'))
+        self.assertIn('평소(10초마다 기록) · 2초 전', text)
+        bad = vesc_status.link_row(vesc_status.link_trace_from_line(controller_line(202., LINK_BAD)), 4.0)
+        self.assertEqual(bad[2], 'warn')
+        self.assertIn('만료 1', bad[1])
+        self.assertIn('문제 있던 1초', bad[1])
+        self.assertEqual(vesc_status.link_row(link, 30.0)[2], 'unknown')  # 평소 줄도 10초마다 오므로 오래됨
+        self.assertEqual(vesc_status.link_row(None)[2], 'unknown')
+        quiet = vesc_status.link_row(vesc_status.link_trace_from_line(controller_line(203., 'link_trace n=0 gap_ms=95000 '
+                                                                       'age_min_ms=na age_max_ms=na expired=0 tick_max_ms=21')), 1.0)
+        self.assertEqual(quiet[2], 'ok')  # 플래너가 꺼져 있는 것은 통신 문제로 보지 않는다
+        self.assertIn('마지막 명령 95초 전', quiet[1])
+
+    def test_autonomy_hold_row_from_traces(self):
+        control = {'stop': 'hold', 'stop_a': 30.0}
+        long_hold = dict(vesc_status.vesc_trace_from_line(controller_line(300., VESC_TRACE + ' hold_s=12.3')),
+                         hold_basis='unsettled')
+        row = dict((t, (x, l)) for t, x, l in vesc_status.trace_rows(control, long_hold))['정지 출력']
+        self.assertEqual(row[1], 'warn')
+        self.assertIn('12초째 · 모터 발열 약 15 W(추정) · 오래 유지 중', row[0])
+        old = dict((t, (x, l)) for t, x, l in vesc_status.trace_rows(control,
+                   vesc_status.vesc_trace_from_line(controller_line(301., VESC_TRACE))))['정지 출력']
+        self.assertEqual(old[1], 'ok')  # 11-16 제어기: 유지 시간이 없으면 경고하지 않는다
+        self.assertNotIn('초째', old[0])
+
+
 class VescStatusWindowsTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -116,7 +188,7 @@ class VescStatusWindowsTest(unittest.TestCase):
         dialog.refresh_drive()
         self.assertIn('16.42 V', dialog.vesc_values['배터리'].text())
         self.assertIn('명령 0.512', dialog.vesc_values['서보'].text())
-        self.assertIn('#e2e8f0', dialog.vesc_values['배터리'].styleSheet())
+        self.assertIn(vesc_status.LEVEL_COLORS_LIGHT['ok'], dialog.vesc_values['배터리'].styleSheet())  # 밝은 테마
         self.assertFalse(dialog.vesc_diag_body.isVisibleTo(dialog))
         dialog.vesc_diag.setChecked(True)
         dialog.refresh_drive()
@@ -125,7 +197,7 @@ class VescStatusWindowsTest(unittest.TestCase):
         snapshot.update(fresh=False)
         dialog.refresh_drive()
         self.assertIn('상태 끊김', dialog.vesc_hint.text())
-        self.assertIn('#94a3b8', dialog.vesc_values['배터리'].styleSheet())
+        self.assertIn(vesc_status.LEVEL_COLORS_LIGHT['unknown'], dialog.vesc_values['배터리'].styleSheet())
         snapshot.update(status=OLD_STATUS, fresh=True)
         dialog.refresh_drive()
         self.assertIn('제어기 배포 필요', dialog.vesc_hint.text())
@@ -152,6 +224,24 @@ class VescStatusWindowsTest(unittest.TestCase):
         self.assertIsNone(old.servo.command)
         self.assertIn('오래되어', old.servo_status.text())
         self.assertEqual(old.vesc_values['배터리'].text(), '— V · 입력 — A(VESC 추정) · — W')
+
+    def test_control_window_shows_link_trace(self):
+        child = ControlWindow()
+        self.windows.append(child)
+        now = time.time()
+        child.update_snapshot({})
+        self.assertIn('link_trace 없음', child.vesc_values['제어 주기·LPP'].text())
+        text = '\n'.join((controller_line(now, CONTROL_TRACE), controller_line(now + .001, VESC_TRACE),
+                          controller_line(now + .002, LINK_BAD)))
+        child.append_module_log(dict(kind='log', board='pi4', source='planning', t=now, seq=1, session='fixture', text=text))
+        child.update_snapshot({})
+        self.assertIn('만료 1', child.vesc_values['제어 주기·LPP'].text())
+        self.assertIn('#fbbf24', child.vesc_values['제어 주기·LPP'].styleSheet())
+        # A new controller start line drops the previous run's link figures.
+        child.append_module_log(dict(kind='log', board='pi4', source='planning', t=now + 1, seq=2, session='fixture',
+                                     text=controller_line(now + 1, 'starting mode=commission')))
+        child.update_snapshot({})
+        self.assertIn('link_trace 없음', child.vesc_values['제어 주기·LPP'].text())
 
 
 if __name__ == '__main__':

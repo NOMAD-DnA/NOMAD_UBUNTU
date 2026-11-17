@@ -162,6 +162,7 @@ class ControlWindow(QtWidgets.QMainWindow):
         self._log_session = None
         self._trace = None
         self._vesc = None
+        self._link = None  # 2026-11-17: 마지막 link_trace (통신·제어 주기)
         body = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(body)
         layout.setSpacing(9)
@@ -227,7 +228,7 @@ class ControlWindow(QtWidgets.QMainWindow):
         trace_layout.addLayout(trace_grid)
         layout.addWidget(trace_box)
 
-        vesc_box = QtWidgets.QGroupBox("모터·배터리 · VESC 값 (vesc_trace 로그, 2026-11-16 이후 제어기)")
+        vesc_box = QtWidgets.QGroupBox("모터·배터리 · VESC 값 (vesc_trace·link_trace 로그, 2026-11-16/17 이후 제어기)")
         vesc_layout = QtWidgets.QVBoxLayout(vesc_box)
         self.vesc_status = QtWidgets.QLabel("vesc_trace · 미수신")
         self.vesc_status.setWordWrap(True)
@@ -296,12 +297,20 @@ class ControlWindow(QtWidgets.QMainWindow):
             return 0
         session = str(event.get("run_id", event.get("session", "")))
         if session != self._log_session:
-            self._log_session, self._trace, self._vesc = session, None, None
+            self._log_session, self._trace, self._vesc, self._link = session, None, None, None
         for row in rows:
             clean = _ANSI.sub("", row)
             trace = trace_from_line(clean)
             vesc = vesc_status.vesc_trace_from_line(clean) if trace is None else None
-            if vesc is not None:
+            link = vesc_status.link_trace_from_line(clean) if trace is None and vesc is None else None
+            if link is not None:
+                previous_stamp = self._link.get("stamp") if self._link else None
+                if finite(previous_stamp) and (not finite(link["stamp"]) or link["stamp"] <= previous_stamp):
+                    continue
+                link.update(event_stamp=event.get("t"),
+                            received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
+                self._link = link
+            elif vesc is not None:
                 previous_stamp = self._vesc.get("stamp") if self._vesc else None
                 if finite(previous_stamp) and (not finite(vesc["stamp"]) or vesc["stamp"] <= previous_stamp):
                     continue
@@ -327,6 +336,9 @@ class ControlWindow(QtWidgets.QMainWindow):
                 old = self._vesc.get("stamp") if self._vesc else None
                 if not finite(old) or not finite(value) or value >= old:
                     self._vesc = None
+                old = self._link.get("stamp") if self._link else None
+                if not finite(old) or not finite(value) or value >= old:
+                    self._link = None
         return added
 
     def _clear_debug(self):
@@ -400,6 +412,10 @@ class ControlWindow(QtWidgets.QMainWindow):
             code = self._vesc.get("fault_code")
             checks.append(("VESC 고장 코드", vesc_status.fault_level(code),
                            vesc_status.fault_text(code, self._vesc.get("fault"))))
+        if self._link:
+            link_age, _note = self._record_age(self._link, snapshot)
+            _title, text, level = vesc_status.link_row(self._link, link_age)
+            checks.append(("제어 주기·LPP 명령 (link_trace)", level, text))
         if self._trace and self._trace.get("thermal"):
             thermal = self._trace.get("thermal")
             checks.append(("ESC 온도", vesc_status.thermal_level(thermal),
@@ -524,8 +540,10 @@ class ControlWindow(QtWidgets.QMainWindow):
         set_text(self.vesc_status, "vesc_trace · " + (vesc_note if self._vesc else
                  "미수신 (2026-11-16 이전 제어기에는 없음)") + " · 입력 전류는 VESC 추정값")
         control_fresh = trace_age is not None and trace_age <= 3.
+        link_age, _link_note = self._record_age(self._link, snapshot)
         for title, text, level in vesc_status.trace_rows(self._trace if control_fresh else None,
-                                                         self._vesc if vesc_fresh else None):
+                                                         self._vesc if vesc_fresh else None,
+                                                         self._link, link_age):
             label = self.vesc_values.get(title)
             if label is None:
                 continue

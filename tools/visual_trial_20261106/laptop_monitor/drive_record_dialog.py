@@ -275,13 +275,22 @@ class DriveRecordDialog(QtWidgets.QDialog):
         self.vesc_hint.setObjectName("muted")
         grid.addWidget(self.vesc_hint, 0, 0, 1, 4)
         self.vesc_values = {}
-        for index, (title, _text, _level) in enumerate(vesc_status.status_rows({})):
-            row, column = 1 + index // 2, (index % 2) * 2
-            grid.addWidget(QtWidgets.QLabel(title), row, column)
+        titles = [title for title, _text, _level in vesc_status.status_rows({})]
+        # 2026-11-17: 짧은 값은 두 칸씩, 긴 값(정지 유지·통신)은 아래에 한 줄 전체로.
+        normal = [title for title in titles if title not in vesc_status.WIDE_ROWS]
+        wide = [title for title in titles if title in vesc_status.WIDE_ROWS]
+        for index, title in enumerate(normal + wide):
             label = QtWidgets.QLabel(vesc_status.MISSING)
             label.setWordWrap(True)
             label.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
-            grid.addWidget(label, row, column + 1)
+            if index < len(normal):
+                row, column = 1 + index // 2, (index % 2) * 2
+                grid.addWidget(QtWidgets.QLabel(title), row, column)
+                grid.addWidget(label, row, column + 1)
+            else:
+                row = 1 + (len(normal) + 1) // 2 + index - len(normal)
+                grid.addWidget(QtWidgets.QLabel(title), row, 0)
+                grid.addWidget(label, row, 1, 1, 3)
             self.vesc_values[title] = label
         grid.setColumnStretch(1, 1)
         grid.setColumnStretch(3, 1)
@@ -322,7 +331,8 @@ class DriveRecordDialog(QtWidgets.QDialog):
             label = self.vesc_values.get(title)
             if label is None:
                 continue
-            color = vesc_status.LEVEL_COLORS["unknown"] if not (connected and fresh) else vesc_status.LEVEL_COLORS[level]
+            colors = vesc_status.LEVEL_COLORS_LIGHT  # 2026-11-17: 런처의 밝은 테마
+            color = colors["unknown"] if not (connected and fresh) else colors[level]
             if label.text() != text:
                 label.setText(text)
             style = f"color:{color};"
