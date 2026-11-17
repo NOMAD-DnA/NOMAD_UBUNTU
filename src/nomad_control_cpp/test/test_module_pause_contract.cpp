@@ -72,7 +72,8 @@ public:
   executor_->spin_some();this_thread::sleep_for(chrono::milliseconds(2));
  }}
  bool call(const rclcpp::Client<Trigger>::SharedPtr& client){if(!client->service_is_ready()){pump(.2);if(!client->service_is_ready())return false;}auto f=client->async_send_request(make_shared<Trigger::Request>());double end=wall()+1.;while(wall()<end&&f.wait_for(chrono::milliseconds(0))!=future_status::ready)pump(.01);return f.wait_for(chrono::milliseconds(0))==future_status::ready&&f.get()->success;}
- void resume(const char* name){send_=true;stop_=false;frame_="base_link";stamp_age_=0;int before=positive_;pump(.35);expect(positive_>before&&last_positive_>=700-1e-6&&ready_&&!fault_,name);}
+ // 2026-11-17: after lost or invalid LPP input the controller waits for 0.3 s of continuous commands (link_resume_stable_s).
+ void resume(const char* name){send_=true;stop_=false;frame_="base_link";stamp_age_=0;int before=positive_;pump(.7);expect(positive_>before&&last_positive_>=700-1e-6&&ready_&&!fault_,name);}
  void no_motion(const char* name,bool expect_release=true){pump(.22);int before=positive_;int release_before=releases_;pump(.16);expect(positive_==before&&(!expect_release||releases_>release_before)&&ready_&&!fault_,name);}
  void run(){
   const double discovery_deadline=wall()+4.;do{pump(.1);}while(!ready_&&wall()<discovery_deadline);pump(.3);expect(ready_&&!fault_,"hardware ready without positive planner command");expect(positive_==0,"idle creates no motor motion");

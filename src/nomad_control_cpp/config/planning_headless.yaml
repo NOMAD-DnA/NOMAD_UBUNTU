@@ -14,5 +14,15 @@ nomad_vesc_trial:
     # Stopping from ~1000 ERPM within ~50 ms made the car lurch. Faults, operator STOP, overspeed, telemetry/driver
     # loss and a car already at or below 200 ERPM still stop at once; a fresh moving LPP command during the ramp
     # cancels it. Adds ~4-6 cm of stop distance at 1000 ERPM. 0 = stop at once (before 11-13). Range 0..1 s.
+    # 2026-11-17: the ramp ends only after 3 measured readings in a row at or below 200 (a lone HFI drop no longer
+    # ends it: 57 of 95 field ramps on 11-16 did, with the car still moving).
     planning.stop_ramp_s: 0.3
+    # 2026-11-17: after a stop caused by lost/invalid LPP input (Wi-Fi), resume only after this long of continuous
+    # fresh commands; a planner STOP still resumes on the next fresh command. On 11-16 the car stopped and restarted
+    # 0.1-0.44 s later 6 times (20-36 A starts, 30 A holds). 0 = resume at once (before 11-17). Range 0..2 s.
+    planning.link_resume_stable_s: 0.3
+    # 2026-11-17 (4a): slip/stuck display from /nomad/localization/odometry + /nomad/localization/status
+    # (slip_monitor.hpp). Display and [SLIP] log lines only: the output is never changed by it. Off while the pose or
+    # status is stale/not READY (Wi-Fi). false = no localization subscriptions at all.
+    slip.enabled: true
     planning.allow_estimated_calibration: true

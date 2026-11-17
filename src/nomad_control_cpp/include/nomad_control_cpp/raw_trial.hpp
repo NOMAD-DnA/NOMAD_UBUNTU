@@ -73,7 +73,8 @@ public:
     bool pausePlanning(const std::string& reason, double steady_now, double ros_now);
     // Headless planning only, for an LPP STOP or lost LPP input while driving forward: ramp the speed command
     // from min(command, measured ERPM) down to end_erpm over ramp_s (no running floor), keep end_erpm until the
-    // measured ERPM is at or below it (at most kStopRampSettleS more), then stop exactly as pausePlanning(reason)
+    // measured ERPM is at or below it for kStopRampEndSamples samples in a row (at most kStopRampSettleS after the
+    // command got there), then stop exactly as pausePlanning(reason)
     // does. Faults, timeouts and stop() still end it at once. False when it does not apply (not running a planning
     // drive faster than end_erpm, invalid values): the caller then stops at once.
     bool beginStopRamp(const std::string& reason, double steady_now, double ros_now, double ramp_s, double end_erpm);
@@ -87,6 +88,10 @@ public:
     // 30-50 A, harder than the 20 A stop brake, which cannot hold 17-20 deg (14 deg loaded) (review model: 0 runaways and no brake
     // pulse in 180 downhill cases at 0.6 s; 0.3 s left some).
     static constexpr double kStopRampSettleS = 0.60;
+    // 2026-11-17: the measured speed must be at or below end_erpm for this many telemetry samples in a row (~60 ms at
+    // 50 Hz) before the ramp hands over. Sensorless (HFI) ERPM drops for single samples: on 11-16, 57 of 95 field ramps
+    // ended on such a lone drop of 300+ ERPM while VIO still showed a median 0.14 m/s, and the hold lurched the car.
+    static constexpr int kStopRampEndSamples = 3;
     // 2026-11-15 GUI reverse: an operator reversal (target opposite to the last drive direction) releases to the stop
     // output while the wheel still turns the old way faster than stationary_erpm, at most this long; then the new
     // direction drives from 0 anyway (the speed PID brakes harder than the 20 A stop brake, which cannot hold a steep
@@ -189,6 +194,8 @@ private:
         double rate_erpm_s = 0.0; // command decrease per second
         double end_erpm = 0.0;    // hand over to the stop output once the measured ERPM is at or below this
         std::optional<double> at_end_since; // the command reached end_erpm (waiting for the measured speed)
+        int low_samples = 0;                    // telemetry samples in a row at or below end_erpm
+        std::optional<double> counted_stamp;    // stamp of the last sample counted (each sample counts once)
     };
     std::optional<StopRamp> stop_ramp_;
     bool vesc_fault_ = false;

@@ -523,15 +523,21 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
 
 // Planning stop ramp: the running floor and the stall check do not apply. The command stays at end_erpm until the
 // measured speed is there (then the stop output starts with the handbrake, not a brake pulse), at most
-// kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle). True when it handed over
-// to the planning wait.
+// kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle). "There" means
+// kStopRampEndSamples telemetry samples in a row (2026-11-17), so a lone HFI ERPM drop does not end the ramp.
+// True when it handed over to the planning wait.
 bool RawTrialController::tickStopRamp(double steady_now, double dt) {
     commanded_erpm_ = max(stop_ramp_->end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
     if (commanded_erpm_ <= stop_ramp_->end_erpm + 1e-9 && !stop_ramp_->at_end_since)
         stop_ramp_->at_end_since = steady_now;
     const bool settled_too_long = stop_ramp_->at_end_since &&
         steady_now - *stop_ramp_->at_end_since >= kStopRampSettleS - 1e-9;
-    if (sample_->raw_erpm <= stop_ramp_->end_erpm || settled_too_long) {
+    // The control tick (20 ms) and the telemetry (50 Hz) are not in step: count each new sample once.
+    if (!stop_ramp_->counted_stamp || sample_->stamp_s != *stop_ramp_->counted_stamp) {
+        stop_ramp_->counted_stamp = sample_->stamp_s;
+        stop_ramp_->low_samples = sample_->raw_erpm <= stop_ramp_->end_erpm ? stop_ramp_->low_samples + 1 : 0;
+    }
+    if (stop_ramp_->low_samples >= kStopRampEndSamples || settled_too_long) {
         const string reason = stop_ramp_->reason;
         pauseOrLatch(reason, true); // a stop ramp exists only with planning recovery: always the wait
         return true;

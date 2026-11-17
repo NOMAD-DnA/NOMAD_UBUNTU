@@ -11,10 +11,13 @@
 #include "nomad_control_cpp/vesc_telemetry.hpp"
 #include "nomad_control_cpp/wire_stamp.hpp"
 #include "nomad_control_cpp/link_stats.hpp"
+#include "nomad_control_cpp/slip_monitor.hpp"
 #include "nomad_thermal/thermal_guard.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
 #include <nomad_interfaces/msg/vehicle_state.hpp>
+#include <nomad_interfaces/msg/module_status.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #endif
 #include <sensor_msgs/msg/imu.hpp>
 #include "calibration.hpp"
@@ -268,6 +271,11 @@ private:
              planning_min_running_erpm_>planning_feedback_limit_erpm_)))
             throw invalid_argument("planning running floor requires measured headless mode and bounded ERPM");
         // 2026-11-13: LPP STOP / lost LPP input ramp the speed down over this many seconds first (0 = stop at once).
+        // 2026-11-17: after a stop caused by LPP input loss (Wi-Fi), resume only after this long of continuous fresh
+        // commands (0 = at once, as before). On 11-16 the car stopped and restarted 0.1-0.44 s later 6 times.
+        planning_link_resume_s_=parameter<double>("planning.link_resume_stable_s",0.3);
+        if(!isfinite(planning_link_resume_s_)||planning_link_resume_s_<0||planning_link_resume_s_>2.0)
+            throw invalid_argument("planning.link_resume_stable_s="+to_string(planning_link_resume_s_)+" outside 0 <= x <= 2");
         planning_stop_ramp_s_=parameter<double>("planning.stop_ramp_s",0.0);
         if(!isfinite(planning_stop_ramp_s_)||planning_stop_ramp_s_<0||planning_stop_ramp_s_>RawTrialController::kMaxStopRampS||
            (planning_stop_ramp_s_>0&&(!planning_headless_||!planning_resume_after_stop_||!planning_measured_speed_control_)))
@@ -328,10 +336,12 @@ private:
                 if(planning_headless_&&c.stop){
                     // An out-of-order STOP rejected by the stamp fence cannot erase a newer live command.
                     if(planning_guard_->target(ros,steady))return;
+                    planning_link_pause_=false; // the planner asked to stop: not a link loss
                     onPlanningLost("LPP pause; waiting for fresh command","LPP STOP; reset required",steady,ros);
                     return;
                 }
                 if(received){
+                    planning_last_accept_=steady; // 2026-11-17: arrivals, for the link-loss resume wait
                     planning_speed_=c.speed_mps;planning_angle_=c.steering_rad;
                     if(auto target=planning_guard_->target(ros,steady))
                         planning_start_gate_->update(steady,target->erpm,min(limits::kPlanningReceiveLeaseS,c.valid_for-max(0.0,ros-c.stamp)));
@@ -341,7 +351,7 @@ private:
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
                     // The car is already stopping in a stop ramp; an invalid or stale message does not cut it short.
                     if(raw_controller_->stopRampActive())return;
-                    if(supervisor_.active())link_stats_.onExpiry();
+                    if(supervisor_.active()){link_stats_.onExpiry();planning_link_pause_=true;}
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
@@ -351,6 +361,39 @@ private:
             });
         vehicle_state_pub_=create_publisher<nomad_interfaces::msg::VehicleState>(
             "/nomad/control/vehicle_state",rclcpp::QoS(1).reliable().durability_volatile());
+        // 2026-11-17 (4a): slip/stuck display from the fused localization pose (slip_monitor.hpp). Display and logs
+        // only; no control decision reads it. Same topics and QoS as the planner (sensor data / reliable status).
+        slip_enabled_=parameter<bool>("slip.enabled",true);
+        if(slip_enabled_){
+            slip_odom_sub_=create_subscription<nav_msgs::msg::Odometry>(
+                parameter<string>("slip.odometry_topic","/nomad/localization/odometry"),rclcpp::SensorDataQoS().keep_last(1),
+                [this](nav_msgs::msg::Odometry::ConstSharedPtr m){
+                    const auto& p=m->pose.pose.position;
+                    if(const auto stamp=stampSeconds(m->header.stamp))slip_monitor_.onPose(*stamp,p.x,p.y,p.z,steadySeconds());
+                });
+            slip_status_sub_=create_subscription<nomad_interfaces::msg::ModuleStatus>(
+                parameter<string>("slip.status_topic","/nomad/localization/status"),rclcpp::QoS(1).reliable(),
+                [this](nomad_interfaces::msg::ModuleStatus::ConstSharedPtr m){
+                    slip_monitor_.onStatus(m->state==nomad_interfaces::msg::ModuleStatus::READY,steadySeconds());
+                });
+        }
+    }
+    // One slip/stuck judgement per control tick; one log line when a detection starts or ends.
+    void tickSlip(double steady) {
+        const double commanded=activeState()==TrialState::Running?max(0.0,raw_controller_->commandedMotorErpm()):0.0;
+        const bool driving=commanded>0.0;
+        const auto event=slip_monitor_.tick(steady,commanded,stop_output_.holding());
+        if(!event)return;
+        if(event->state==SlipState::Stuck)
+            RCLCPP_WARN(get_logger(),"[SLIP] stuck start: no progress, wheels %.0f ERPM, iq %.1f A, body %.2f m/s (display only; output unchanged)",
+                        event->erpm,event->iq_a,event->body_mps);
+        else if(event->state==SlipState::BackSlide)
+            RCLCPP_WARN(get_logger(),"[SLIP] backslide start: body moving backward %.2f m/s while %s (display only; output unchanged)",
+                        -slip_monitor_.alongSpeed().value_or(0.0),driving?"driving forward":"holding");
+        else if(event->ended==SlipState::BackSlide)
+            RCLCPP_WARN(get_logger(),"[SLIP] backslide end after %.1f s, %.2f m backward",event->duration_s,event->distance_m);
+        else
+            RCLCPP_INFO(get_logger(),"[SLIP] stuck end after %.1f s",event->duration_s);
     }
     // LPP STOP or lost LPP input (expiry, planner gone): headless auto-resume profiles pause and wait for a
     // fresh command, after a speed ramp when planning.stop_ramp_s > 0; every other profile latches a stop
@@ -486,6 +529,13 @@ private:
         logPlanningWait(reason,steady,ros);
     }
     void tickPlanning(double steady,double ros) {
+        // 2026-11-17: how long LPP commands have kept arriving (for the link-loss resume wait). Arrivals, not the lease:
+        // one late command with a long valid_for must not pass the wait on its own (review 11-17). A gap over
+        // kLinkGapS (3 periods at 20 Hz) restarts the count.
+        const bool flowing=planning_guard_&&planning_guard_->target(ros,steady)&&planning_last_accept_&&
+                           steady-*planning_last_accept_<=kLinkGapS;
+        if(!flowing)planning_fresh_since_.reset();
+        else if(!planning_fresh_since_)planning_fresh_since_=steady;
         // ESC over-temperature: release autonomous output; resume path re-arms below 70 C.
         if(thermal_.stopped()&&supervisor_.active()){
             if(planning_headless_&&planning_resume_after_stop_)pausePlanning("ESC over-temperature (>=80 C); resumes below 70 C",steady,ros);
@@ -516,15 +566,22 @@ private:
             }else if(supervisor_.resumePending()&&!planning_guard_->target(ros,steady)){
                 pausePlanning("planning input expired; waiting for fresh command",steady,ros);
             }else if(supervisor_.resumePending()&&planningReady(steady,ros)&&stabilityReady()&&!thermal_.stopped()){
-                if(planning_measured_speed_control_){
+                if(planning_link_pause_&&planning_link_resume_s_>0&&
+                   (!planning_fresh_since_||steady-*planning_fresh_since_<planning_link_resume_s_)){
+                    // A lone late command after a Wi-Fi gap: wait for a steady stream before restarting.
+                    char text[96];
+                    snprintf(text,sizeof(text),"LPP link recovering: waiting for %.1f s of continuous commands",
+                             planning_link_resume_s_);
+                    planning_wait_reason_=text;logPlanningWait(planning_wait_reason_,steady,ros);
+                }else if(planning_measured_speed_control_){
                     const auto next=planning_guard_->target(ros,steady);
                     if(next&&raw_controller_->resumePlanning(next->erpm,next->servo,steady,ros,driver_ready)){
-                        supervisor_.activate();commissioning_axis_=4;
+                        supervisor_.activate();commissioning_axis_=4;planning_link_pause_=false;
                         resetPlanningSpeedFeedback();logRawTransition();
                     }
                 }else if(planning_start_gate_->ready(steady)&&activeStationary(steady,ros)&&
                          raw_controller_->reset(steady,ros)){
-                    supervisor_.onResetResume();logRawTransition();
+                    supervisor_.onResetResume();planning_link_pause_=false;logRawTransition();
                 }
             }
         }
@@ -533,7 +590,7 @@ private:
            (planning_measured_speed_control_||planning_start_gate_->ready(steady))&&stabilityReady()&&!thermal_.stopped()){
             if(raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),0,
                                       steady,ros,exclusiveDriverReady())){
-                supervisor_.activate();commissioning_axis_=4;resetPlanningSpeedFeedback();
+                supervisor_.activate();commissioning_axis_=4;resetPlanningSpeedFeedback();planning_link_pause_=false;
             }
         }
         if(!supervisor_.active())return;
@@ -547,6 +604,7 @@ private:
             raw_controller_->cancelStopRamp(steady);
             stop_output_.cancelStopRamp();
             stop_ramp_started_.reset();
+            planning_link_pause_=false; // the drive goes on
             resetPlanningSpeedFeedback();
         }
         // Legacy mode keeps its original limit. The measured-speed profile reduces
@@ -577,6 +635,7 @@ private:
         }
         if(!planningReady(steady,ros)||!target){
             link_stats_.onExpiry();
+            planning_link_pause_=true;
             onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
         }
@@ -892,7 +951,7 @@ private:
         const bool accepted = raw_controller_->reset(steady, ros);
 #ifdef NOMAD_ENABLE_PLANNING
         if(accepted&&planning_headless_){
-            supervisor_.onReset();planning_guard_->clear();
+            supervisor_.onReset();planning_guard_->clear();planning_link_pause_=false;
             planning_start_gate_->reset(steady,true);planning_overspeed_since_.reset();resetPlanningSpeedFeedback();
         }
 #endif
@@ -902,6 +961,7 @@ private:
     void activeStop(const string& reason) {
 #ifdef NOMAD_ENABLE_PLANNING
         supervisor_.onStop(planning_headless_);
+        planning_link_pause_=false; // an operator/global STOP is not a link loss (review 11-17)
         if(planning_start_gate_)planning_start_gate_->reset(steadySeconds(),true);
         resetPlanningSpeedFeedback();
         planning_overspeed_since_.reset();
@@ -997,6 +1057,9 @@ private:
         else controller_->observe(sample, steadySeconds(), now().seconds());
         last_raw_erpm_ = s.speed;
         last_telemetry_rx_ = steadySeconds();
+#ifdef NOMAD_ENABLE_PLANNING
+        if (slip_enabled_) slip_monitor_.onTelemetry(*last_telemetry_rx_, s.speed, s.avg_iq);
+#endif
         last_voltage_ = s.voltage_input;
         last_current_ = s.current_motor;
         last_iq_ = s.avg_iq;
@@ -1175,6 +1238,7 @@ private:
             tickReversalTrace(steady_now);
 #ifdef NOMAD_ENABLE_PLANNING
             tickStopRampTrace(steady_now);
+            if(slip_enabled_)tickSlip(steady_now);
 #endif
         } else {
             const auto output = controller_->tick(steady_now, ros_now, driver_ready);
@@ -1404,6 +1468,20 @@ private:
         data["estimated_speed_verified"]=planning_calibration_.verified;
         data["planning_feedback_limit_erpm"]=planning_feedback_limit_erpm_;
         data["planning_stop_ramp_s"]=planning_stop_ramp_s_;
+        data["planning_link_resume_stable_s"]=planning_link_resume_s_;
+        // 2026-11-17 (4a) slip/stuck display (slip_monitor.hpp): off = no judgement (see slip_off_reason).
+        data["slip_enabled"]=slip_enabled_;
+        data["slip_state"]=slip_enabled_?slipStateName(slip_monitor_.state()):"off";
+        data["slip_off_reason"]=slip_enabled_?slip_monitor_.offReason():string("slip.enabled is false");
+        data["slip_state_s"]=slip_enabled_?max(0.0,steady_now-slip_monitor_.since()):0.0;
+        {
+            const auto body=slip_monitor_.bodySpeed(),along=slip_monitor_.alongSpeed();
+            data["body_speed_mps"]=slip_enabled_&&body?nlohmann::json(*body):nlohmann::json(nullptr);
+            data["body_along_mps"]=slip_enabled_&&along?nlohmann::json(*along):nlohmann::json(nullptr);
+        }
+        data["slip_events"]=slip_monitor_.events();
+        data["slip_last_backslide_m"]=slip_monitor_.lastBackslideM();
+        data["planning_link_pause"]=planning_link_pause_;
         data["stop_ramp_active"]=raw_controller_&&raw_controller_->stopRampActive();
         if(commissioning_){
             const auto requested=planning_guard_->target(ros_now,steady_now);
@@ -1469,6 +1547,15 @@ private:
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
+    double planning_link_resume_s_=0.3;      // planning.link_resume_stable_s (2026-11-17)
+    bool planning_link_pause_=false;         // the current/last LPP pause came from lost or invalid input
+    optional<double> planning_fresh_since_;  // steady time LPP commands started arriving without a gap
+    optional<double> planning_last_accept_;  // steady time of the last accepted LPP command
+    static constexpr double kLinkGapS=0.15;  // longest gap between commands that still counts as arriving
+    bool slip_enabled_=false;                // slip.enabled (2026-11-17, 4a)
+    SlipMonitor slip_monitor_;
+    rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr slip_odom_sub_;
+    rclcpp::Subscription<nomad_interfaces::msg::ModuleStatus>::SharedPtr slip_status_sub_;
     optional<double> stop_ramp_started_;     // steady time the running stop ramp began ([STOP_RAMP] trace)
     bool planning_measured_speed_control_=false,planning_feedback_reducing_=false;
     double planning_feedback_target_=0;

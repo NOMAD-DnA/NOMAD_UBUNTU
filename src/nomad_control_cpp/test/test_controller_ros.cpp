@@ -4,6 +4,8 @@
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
 #include <nomad_interfaces/msg/vehicle_state.hpp>
+#include <nomad_interfaces/msg/module_status.hpp>
+#include <nav_msgs/msg/odometry.hpp>
 #endif
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/imu.hpp>
@@ -13,6 +15,7 @@
 #include <string>
 #include <thread>
 #include <functional>
+#include <tuple>
 #include <limits>
 #define NOMAD_GUI_NO_MAIN
 #include "../src/gui_server.cpp"
@@ -40,6 +43,7 @@ public:
         for (const auto& suffix : {"speed", "current"}) {
             subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/" + suffix, 10,
                 [this, name = string(suffix)](nomad::Scalar::ConstSharedPtr msg) {
+                    output_log_.emplace_back(steadySeconds(), name == "speed" ? 'S' : 'C', msg->data);
                     if (name == "speed") {
                         ++speed_messages_; if (msg->data != 0.0) ++moving_messages_;
                         observed_motor_erpm_.push_back(msg->data);
@@ -54,13 +58,16 @@ public:
         subs_.push_back(fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/brake", 10,
             [this](nomad::Scalar::ConstSharedPtr msg) {
                 ++brake_messages_; last_brake_ = msg->data; stop_output_times_.push_back(steadySeconds());
+                output_log_.emplace_back(steadySeconds(), 'B', msg->data);
                 if (follow_) telemetry_erpm_ = 0.0;
             }));
         subscribeHandbrake();
         rclcpp::NodeOptions options;
         options.arguments({"--ros-args", "-r", "__ns:=" + prefix_,
             "-r","/nomad/planning/drive_command:="+prefix_+"/planning",
-            "-r","/nomad/control/vehicle_state:="+prefix_+"/vehicle_state"});
+            "-r","/nomad/control/vehicle_state:="+prefix_+"/vehicle_state",
+            "-r","/nomad/localization/odometry:="+prefix_+"/odometry",
+            "-r","/nomad/localization/status:="+prefix_+"/localization_status"});
         options.parameter_overrides({
             {"planning.start_hold_s",0.0},{"planning.restart_cooldown_s",0.0},
             {"mode", commission ? "commission" : (bench ? "bench" : "monitor")},
@@ -104,6 +111,7 @@ public:
         handbrake_sub_ = fake_->create_subscription<nomad::Scalar>(prefix_ + "/commands/motor/handbrake", 10,
             [this](nomad::Scalar::ConstSharedPtr msg) {
                 ++handbrake_messages_; last_handbrake_ = msg->data; stop_output_times_.push_back(steadySeconds());
+                output_log_.emplace_back(steadySeconds(), 'H', msg->data);
                 if (follow_) telemetry_erpm_ = 0.0;
             });
     }
@@ -115,6 +123,8 @@ public:
                 nomad::VescState msg;
                 msg.header.stamp = fake_->now();
                 msg.state.speed = telemetry_erpm_;
+                // 2026-11-17: lone sensorless (HFI) ERPM readings, as seen at 57 of 95 field ramp ends on 11-16.
+                if (glitch_samples_ > 0) { msg.state.speed = glitch_erpm_; --glitch_samples_; }
                 msg.state.current_motor = 0.0;
                 msg.state.avg_iq = telemetry_iq_;
                 msg.state.current_input = 1.5;
@@ -138,6 +148,17 @@ public:
                 last_sent_ = steadySeconds();
 #ifdef NOMAD_ENABLE_PLANNING
                 if(planning_pub_&&send_planning_)publishPlanning();
+                // 2026-11-17 (4a): fake fused pose (body along +x at body_mps_) and localization status.
+                if(odom_pub_&&send_pose_){
+                    const double now_s=steadySeconds();
+                    if(last_pose_at_>0)pose_x_+=body_mps_*(now_s-last_pose_at_);
+                    last_pose_at_=now_s;
+                    nav_msgs::msg::Odometry odom;odom.header.stamp=fake_->now();odom.header.frame_id="odom";
+                    odom.pose.pose.position.x=pose_x_;odom.pose.pose.orientation.w=1.0;odom_pub_->publish(odom);
+                    nomad_interfaces::msg::ModuleStatus st;st.header.stamp=fake_->now();
+                    st.state=localization_ready_?nomad_interfaces::msg::ModuleStatus::READY:nomad_interfaces::msg::ModuleStatus::WAITING;
+                    loc_status_pub_->publish(st);
+                }
 #endif
             }
 #ifdef NOMAD_ENABLE_PLANNING
@@ -203,6 +224,21 @@ public:
         if (future.wait_for(chrono::milliseconds(0)) != future_status::ready)
             throw runtime_error("commissioning service timeout");
         return future.get()->accepted;
+    }
+
+    // 2026-11-17 (5a): rules that hold for every motor command the fake VESC received in this rig (commission/LPP).
+    void checkOutputInvariants(const string& label, double hold_min, double hold_max, bool fault_injected,
+                               double max_erpm = 1000.0) {
+        bool hold_ok = true, release_ok = true, forward_only = true, bounded = true;
+        for (const auto& [time, kind, value] : output_log_) {
+            (void)time;
+            if (kind == 'H') hold_ok = hold_ok && value >= hold_min - 1e-9 && value <= hold_max + 1e-9;
+            if (kind == 'C') release_ok = release_ok && fault_injected;
+            if (kind == 'S') { forward_only = forward_only && value >= 0.0; bounded = bounded && value <= max_erpm + 1e-9; }
+        }
+        expect(hold_ok, (label + "every handbrake command is inside the hold range").c_str());
+        expect(release_ok, (label + "0 A release only after a VESC fault").c_str());
+        expect(forward_only && bounded, (label + "LPP speed commands stay forward and within the ERPM limit").c_str());
     }
 
     // Nullable numeric status key (json::value() throws on null and would end the whole suite).
@@ -354,7 +390,10 @@ public:
         }else{
             expect(!status_.value("planning_reset_required",true)&&!status_.value("autonomous_active",true),
                    ("measured-speed mode pauses without latching for "+failure).c_str());
-            send_planning_=true;send_telemetry_=true;telemetry_erpm_=0;telemetry_fault_=0;pump(.35);
+            // 2026-11-17: a pause from lost/invalid LPP input waits for 0.3 s of continuous commands
+            // (planning.link_resume_stable_s) before it resumes; a telemetry loss resumes at once.
+            const bool link_loss=failure=="command expiry"||failure=="invalid command";
+            send_planning_=true;send_telemetry_=true;telemetry_erpm_=0;telemetry_fault_=0;pump(link_loss?.7:.35);
             expect(moving_messages_>stopped&&status_.value("autonomous_active",false)&&
                    !status_.value("planning_reset_required",true),
                    ("fresh commands resume after "+failure+" without reset").c_str());
@@ -417,7 +456,7 @@ public:
         expect(moving_messages_==expired&&!status_.value("planning_reset_required",true),
                "planner lease expiry releases output without a reset latch");
         expect(vehicle_ready,"module expiry retains VehicleState ready");
-        send_planning_=true;pump(.4);
+        send_planning_=true;pump(.7); // 2026-11-17: + the 0.3 s link-loss resume wait
         expect(moving_messages_>expired&&!status_.value("planning_reset_required",true),
                "fresh planner stream resumes after lease expiry without reset");
         send_planning_=false;pump(.45);stop();const int stopped_again=moving_messages_;
@@ -586,6 +625,8 @@ public:
     // during the ramp, so a slow machine still acts while it runs.
     void runStopRamp(const string& scenario,double ramp_s) {
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
+        odom_pub_=fake_->create_publisher<nav_msgs::msg::Odometry>(prefix_+"/odometry",rclcpp::SensorDataQoS().keep_last(1));
+        loc_status_pub_=fake_->create_publisher<nomad_interfaces::msg::ModuleStatus>(prefix_+"/localization_status",rclcpp::QoS(1).reliable());
         const auto lpp=[&](bool stop,double speed){
             nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();cmd.header.frame_id="base_link";
             cmd.valid_for.nanosec=300000000;cmd.stop_requested=stop;cmd.target_speed=speed;cmd.target_steering_angle=.01;
@@ -634,7 +675,7 @@ public:
                   "it waits without a latch");
             return;
         }
-        if(scenario!="expiry")lpp(true,0.0);
+        if(scenario!="expiry"&&scenario!="link resume"&&scenario!="shutdown while driving"&&scenario!="slip display")lpp(true,0.0);
         if(scenario=="climb hold"){telemetry_iq_=8.0;follow_lag_=150.0;}
         if(scenario=="LPP STOP"||scenario=="expiry"||scenario=="climb hold"){
             check(wait_status(ramp_running,scenario=="expiry"?.6:.25)&&status_.value("planning_stop_ramp_s",0.0)==ramp_s,
@@ -660,7 +701,7 @@ public:
                         "a flat ramp holds with the minimum (12.5 A)");
             if(!climb)check(status_.value("planning_wait_reason",string()).find(
                 scenario=="expiry"?"expired":"LPP pause")!=string::npos,"the wait reason names the stop");
-            follow_lag_=0.0;telemetry_iq_=6.0;send_planning_=true;pump(.5);
+            follow_lag_=0.0;telemetry_iq_=6.0;send_planning_=true;pump(scenario=="expiry"?.8:.5); // expiry: + 0.3 s link wait
             check(observed_motor_erpm_.back()==1000.0&&status_.value("planning_supervisor_state",string())=="ACTIVE",
                   "a fresh command resumes after the ramp stop");
         }else if(scenario=="cancel"||scenario=="cancel then flat"){
@@ -714,6 +755,92 @@ public:
             check(speed_log_.size()>=before+3&&stop_output_times_.size()==outputs,
                   "an invalid LPP message during the ramp does not cut it short");
             check(wait_status(held,ramp_s+1.0)&&!status_.value("planning_reset_required",true),"the ramp still ends in the hold");
+        }else if(scenario=="noisy end"){
+            // 2026-11-17 (2nd bundle, item 1): lone low ERPM readings (sensorless HFI noise) must not end the ramp;
+            // three in a row do. On 11-16, 57 of 95 field ramps ended on such a lone drop while the car still moved.
+            check(wait_status(ramp_running,.3),"the ramp runs before the ERPM glitch");
+            const size_t outputs_before=stop_output_times_.size();
+            glitch_samples_=2;pump(.12);
+            check(stop_output_times_.size()==outputs_before&&status_.value("stop_ramp_active",false),
+                  "two lone low ERPM samples do not end the ramp");
+            glitch_samples_=3;
+            check(wait_status(held,.35)&&stop_output_times_.size()>outputs_before,
+                  "three low ERPM samples in a row end the ramp (the speed really dropped)");
+        }else if(scenario=="link resume"){
+            // 2026-11-17 (2nd bundle, item 2): a stop from LPP input loss (Wi-Fi) resumes only after 0.3 s of
+            // continuous fresh commands; one late command does not restart the car. A planner STOP is not a link loss.
+            check(wait_status(held,2.0),"an expiry ends in a hold");
+            const auto active=[&]{return status_.value("planning_supervisor_state",string())=="ACTIVE";};
+            nomad_interfaces::msg::DriveCommand lone;lone.header.stamp=fake_->now();lone.header.frame_id="base_link";
+            lone.valid_for.nanosec=200000000;lone.target_speed=.25;lone.target_steering_angle=.01;
+            const int moves=moving_messages_;
+            planning_pub_->publish(lone);
+            // While that command is still valid (0.2 s < the 0.3 s check) the wait names the link check.
+            check(wait_status([&]{return status_.value("planning_wait_reason",string()).find("link")!=string::npos;},.18),
+                  "the wait reason names the link check");
+            pump(.25);
+            check(moving_messages_==moves&&!active(),"one late command after a link loss does not restart the car");
+            // Arrivals count, not the lease: one command valid for 0.5 s does not pass the 0.3 s wait (review 11-17).
+            lone.header.stamp=fake_->now();lone.valid_for.nanosec=500000000;planning_pub_->publish(lone);pump(.45);
+            check(moving_messages_==moves&&!active(),"one late command with a 0.5 s lease does not restart the car");
+            pump(.15);
+            const double from=steadySeconds();send_planning_=true;
+            check(wait_status(active,1.0),"continuous commands restart the car");
+            check(steadySeconds()-from>=.28,"the restart waits for about 0.3 s of continuous commands");
+            // Link loss again, then a planner STOP during the wait: the STOP clears the link check.
+            send_planning_=false;
+            check(wait_status(held,2.0)&&wait_status([&]{return status_.value("planning_link_pause",false);},.5),
+                  "a second expiry sets the link check");
+            lpp(true,0.0);pump(.1);
+            check(!status_.value("planning_link_pause",true),"a planner STOP clears the link check");
+            const double t1=steadySeconds();send_planning_=true;
+            check(wait_status(active,1.0)&&steadySeconds()-t1<.25,
+                  "after a planner STOP, fresh commands resume without the link wait");
+        }else if(scenario=="slip display"){
+            // Reached with the drive stopped by expiry (send_planning_ false above): restart and drive on.
+            send_planning_=true;
+            check(wait_status([&]{return status_.value("planning_supervisor_state",string())=="ACTIVE";},1.5),
+                  "the drive restarts for the slip check");
+            body_mps_=.27;pump(1.0);
+            check(status_.value("slip_state",string())=="ok"&&abs(statusNumber("body_speed_mps",-1.0)-.27)<.05,
+                  "slip display: ok while the body follows the wheels at 0.27 m/s");
+            const int brakes=brake_messages_,handbrakes=handbrake_messages_;
+            body_mps_=0.0;telemetry_iq_=30.0;
+            check(wait_status([&]{return status_.value("slip_state",string())=="stuck";},2.5),
+                  "wheels at 1000 ERPM and 30 A with the body still: slip display shows stuck");
+            check(brake_messages_==brakes&&handbrake_messages_==handbrakes&&observed_motor_erpm_.back()==1000.0,
+                  "stuck is display only: the drive output is unchanged");
+            check(statusNumber("slip_events",0)>=1,"the stuck event is counted");
+            body_mps_=.27;telemetry_iq_=6.0;
+            check(wait_status([&]{return status_.value("slip_state",string())=="ok";},2.0),"moving again clears stuck");
+            localization_ready_=false;
+            check(wait_status([&]{return status_.value("slip_state",string())=="off"&&
+                status_.value("slip_off_reason",string())=="localization not READY";},1.0),
+                  "localization not READY: the display is off with the reason");
+            localization_ready_=true;send_pose_=false;
+            check(wait_status([&]{return status_.value("slip_off_reason",string())=="localization pose stale";},1.0),
+                  "no fresh pose (Wi-Fi): the display is off");
+        }else if(scenario=="shutdown"){
+            // 2026-11-17 (5a): node shutdown (SIGINT/SIGTERM path) while the commission LPP stop holds.
+            check(wait_status(held,2.0),"the LPP STOP ends in a hold before the shutdown");
+            // Only what prepareShutdown() itself publishes: the controller leaves the executor (no more timer ticks).
+            const size_t mark=output_log_.size();
+            controller_->prepareShutdown();executor_.remove_node(controller_);pump(.05);
+            int holds=0;bool clean=true;
+            for(size_t i=mark;i<output_log_.size();++i){
+                const auto& [time,kind,value]=output_log_[i];(void)time;
+                if(kind=='H'){++holds;clean=clean&&value>=12.5-1e-9&&value<=30.0+1e-9;}else clean=false;
+            }
+            check(holds>=1&&clean,"shutdown while holding sends the handbrake (12.5-30 A) and nothing else");
+        }else if(scenario=="shutdown while driving"){
+            const size_t mark=output_log_.size();
+            controller_->prepareShutdown();executor_.remove_node(controller_);pump(.05);
+            int brakes=0;bool clean=true;
+            for(size_t i=mark;i<output_log_.size();++i){
+                const auto& [time,kind,value]=output_log_[i];(void)time;
+                if(kind=='B'){++brakes;clean=clean&&value==20.0;}else if(kind=='S')clean=clean&&value<=0.0;else if(kind!='H')clean=false;
+            }
+            check(brakes>=1&&clean,"shutdown at 1000 ERPM sends the 20 A brake, never a drive command");
         }else throw runtime_error("unknown stop ramp scenario");
     }
 
@@ -1438,6 +1565,15 @@ private:
     int speed_messages_ = 0, moving_messages_ = 0, servo_messages_ = 0, release_messages_ = 0;
     int brake_messages_ = 0, handbrake_messages_ = 0;
     double last_brake_ = -1.0, last_handbrake_ = -1.0;
+    vector<tuple<double, char, double>> output_log_; // every command the fake VESC got: S speed, C 0 A, B brake, H handbrake
+    int glitch_samples_ = 0; double glitch_erpm_ = 0.0;   // next telemetry samples report glitch_erpm_
+#ifdef NOMAD_ENABLE_PLANNING
+    // 2026-11-17 (4a): fake localization for the slip/stuck display
+    rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
+    rclcpp::Publisher<nomad_interfaces::msg::ModuleStatus>::SharedPtr loc_status_pub_;
+    bool send_pose_ = true, localization_ready_ = true;
+    double body_mps_ = 0.0, pose_x_ = 0.0, last_pose_at_ = 0.0;
+#endif
     vector<double> observed_motor_erpm_;
     // Stop ramp tests: the reported ERPM follows each speed command (trailing by follow_lag_, capped at follow_cap_)
     // and drops to 0 on a brake/handbrake command. Times of the speed commands and of the brake/handbrake commands.
@@ -1473,14 +1609,18 @@ void testStopRamp() {
         {"stop_handbrake_min_current_a",12.5},{"stop_handbrake_load_gain",1.45},
         {"stop_handbrake_rolling_current_a",6.0},{"stop_handbrake_margin_a",8.0}};
     for(const string scenario:{"LPP STOP","expiry","climb hold","second publisher","blocked",
-                               "cancel","cancel then flat","speed 0","operator STOP","VESC fault","invalid message"}){
+                               "cancel","cancel then flat","speed 0","operator STOP","VESC fault","invalid message",
+                               "noisy end","link resume","shutdown","shutdown while driving","slip display"}){
         // Scenarios that act during the ramp use a 1 s ramp so they still act while it runs on a slow machine.
         const bool acts_during=scenario=="cancel"||scenario=="cancel then flat"||scenario=="speed 0"||
-                               scenario=="operator STOP"||scenario=="VESC fault"||scenario=="invalid message";
+                               scenario=="operator STOP"||scenario=="VESC fault"||scenario=="invalid message"||
+                               scenario=="noisy end";
         auto with_ramp=parameters;
         for(auto& parameter:with_ramp)
             if(parameter.get_name()=="planning.stop_ramp_s")parameter=rclcpp::Parameter("planning.stop_ramp_s",acts_during?1.0:.3);
         RosRig rig(true,true,true,true,false,with_ramp);rig.runStopRamp(scenario,acts_during?1.0:.3);
+        // 2026-11-17 (5a): the commission output rules hold in every scenario.
+        rig.checkOutputInvariants("stop ramp ("+scenario+") output: ",12.5,30.0,scenario=="VESC fault");
     }
     const vector<rclcpp::Parameter> base={{"mode","commission"},{"planning.headless",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.feedback_limit_erpm",1200.0}};
