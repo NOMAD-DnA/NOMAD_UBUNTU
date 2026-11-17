@@ -334,7 +334,7 @@ bool RawTrialController::beginStopRamp(const string& reason, double steady_now, 
     const double start = min(commanded_erpm_, max(0.0, sample_->raw_erpm));
     if (!(start > end_erpm)) return false;
     commanded_erpm_ = start;
-    stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt};
+    stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt, 0, nullopt};
     stalled_since_.reset();
     reason_ = "speed ramp before planning stop: " + reason;
     return true;
