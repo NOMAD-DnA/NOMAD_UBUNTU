@@ -1429,11 +1429,14 @@ private:
             // 2026-11-17: the link/loop window (link_stats.hpp) as another separate line.
             // - The GUI tails only about 1 KiB of this log per second. control_trace, vesc_trace and a repeating
             //   [PLANNING_WAIT] already use most of that.
-            // - So the line is printed only for a window with something to see (an expiry, a command gap over 0.2 s,
-            //   a control tick over 40 ms late), and otherwise every 10 s. status_json carries every window.
+            // - So the line is printed only for a window with something to see (an expiry, a control tick over
+            //   40 ms late, or a gap over 0.2 s while commands were arriving), and otherwise every 10 s.
+            //   status_json carries every window.
+            // - A window with no command at all is not news. Either the planner is off, or an outage is in
+            //   progress: its start shows as expired=1, and its full length shows when the next command arrives.
             // - na = no command (or no valid stamp) in the window.
-            const bool link_news=link_window&&(link_window->expiries>0||link_window->max_gap_s>0.2||
-                                               link_window->max_tick_s>0.04);
+            const bool link_news=link_window&&(link_window->expiries>0||link_window->max_tick_s>0.04||
+                                               (link_window->commands>0&&link_window->max_gap_s>0.2));
             if(link_window&&(link_news||steady_now-link_trace_at_>=10.0)){
                 link_trace_at_=steady_now;
                 const auto& w=*link_window;
