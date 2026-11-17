@@ -557,4 +557,42 @@ private:
     std::deque<DriveSample> samples_;
 };
 
+// Long-hold warning (2026-11-17). Display only: the hold current is not changed.
+// - Lowering a hold automatically is unsafe. While the handbrake holds, the VESC reports ERPM ~0, so a slip on a
+//   slope would go unseen.
+// - The motor temperature is not measured. The copper loss during a hold is about 1.5 * R * I^2, the same
+//   estimate as the load-sized hold notes above: ~15 W at 30 A, ~2.6 W at 12.5 A.
+// - Field history: on 11-13 the motor got very hot after tens of seconds at 30 A during LPP pauses
+//   (vesc_config_20261112/README.md). On 11-16, 3 of 60 holds at 30 A lasted over 10 s.
+inline constexpr double kMotorPhaseResistanceOhm = 0.0112; // VESC motor configuration (motor R)
+inline constexpr double kLongHoldCurrentA = 25.0;           // warn for a hold at or above this current
+inline constexpr double kLongHoldWarnS = 10.0;              // that lasts this long,
+inline constexpr double kLongHoldRepeatS = 30.0;            // and again every 30 s while it lasts
+
+inline double holdCopperLossW(double current_a) {
+    return 1.5 * kMotorPhaseResistanceOhm * current_a * current_a;
+}
+
+inline bool longHold(double hold_s, double current_a) {
+    return current_a >= kLongHoldCurrentA && hold_s >= kLongHoldWarnS;
+}
+
+class LongHoldWarning {
+public:
+    // hold_s: how long the current hold has lasted (0 when not holding). True when a warning line is due:
+    // once when a hold reaches kLongHoldWarnS, then every kLongHoldRepeatS while it lasts.
+    bool due(double hold_s, double current_a) {
+        const bool new_hold = hold_s < last_hold_s_;
+        last_hold_s_ = hold_s;
+        if (new_hold || hold_s <= 0.0 || current_a < kLongHoldCurrentA) next_s_ = kLongHoldWarnS;
+        if (hold_s <= 0.0 || current_a < kLongHoldCurrentA || hold_s < next_s_) return false;
+        next_s_ = hold_s + kLongHoldRepeatS;
+        return true;
+    }
+
+private:
+    double next_s_ = kLongHoldWarnS;
+    double last_hold_s_ = 0.0;
+};
+
 } // namespace nomad

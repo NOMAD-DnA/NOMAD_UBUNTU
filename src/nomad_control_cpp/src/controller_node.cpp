@@ -9,6 +9,8 @@
 #include "nomad_control_cpp/control_limits.hpp"
 #include "nomad_control_cpp/stop_output.hpp"
 #include "nomad_control_cpp/vesc_telemetry.hpp"
+#include "nomad_control_cpp/wire_stamp.hpp"
+#include "nomad_control_cpp/link_stats.hpp"
 #include "nomad_thermal/thermal_guard.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
@@ -177,7 +179,9 @@ public:
             });
         steering_range_service_=create_service<SteeringRange>("~/steering_test_range",
             [this](const shared_ptr<SteeringRange::Request> request,shared_ptr<SteeringRange::Response> response){
-                const double sent=rclcpp::Time(request->stamp).seconds(),age=now().seconds()-sent;
+                // 2026-11-17: a malformed stamp (sec < 0) is refused here; rclcpp::Time(stamp) threw and ended the node.
+                const auto sent=stampSeconds(request->stamp);
+                const double age=sent?now().seconds()-*sent:NAN;
                 response->accepted=commissioning_&&isfinite(age)&&age>=-limits::kFutureStampToleranceS&&age<=limits::kWifiManualCommandMaxAgeS&&
                     raw_controller_->setSteeringTestSpan(request->span,steadySeconds(),now().seconds());
                 response->reason=response->accepted?"steering-only range applied; no actuator command sent":
@@ -301,16 +305,24 @@ private:
         // 초기값 사용 동의는 출력 변환에만 적용합니다. 실측 피드백 유효 상태는 바꾸지 않습니다.
         if(planning_allow_estimated_)execution_calibration.verified=true;
         planning_guard_=std::make_unique<PlanningCommandGuard>(execution_calibration,raw_options_.motor_max_erpm);
+        // Reliable, as the team interface contract states (nomad_interfaces/README.md). 11-17: best effort was
+        // considered, so that a command lost on Wi-Fi is not re-sent ahead of newer ones. It was not adopted: with best
+        // effort, a STOP that the planner sends only once can be lost for good, and in the latching profiles the lease
+        // does not cover that. Switching needs the planner to repeat STOP every cycle (planner agreement first).
         planning_sub_=create_subscription<nomad_interfaces::msg::DriveCommand>(
             "/nomad/planning/drive_command",rclcpp::QoS(1).reliable().durability_volatile(),
             [this](nomad_interfaces::msg::DriveCommand::ConstSharedPtr msg){
                 PlanningCommand c;
-                c.stamp=static_cast<double>(msg->header.stamp.sec)+msg->header.stamp.nanosec*1e-9;
-                c.valid_for=static_cast<double>(msg->valid_for.sec)+msg->valid_for.nanosec*1e-9;
+                // The guard keeps the lenient conversion (wire_stamp.hpp). A STOP with a malformed nanosec still
+                // clears the live command, and a malformed move is refused through frame "invalid".
+                c.stamp=rawStampSeconds(msg->header.stamp);
+                c.valid_for=rawStampSeconds(msg->valid_for);
                 c.frame=msg->header.frame_id;c.speed_mps=msg->target_speed;
                 c.steering_rad=msg->target_steering_angle;c.stop=msg->stop_requested;
                 if(msg->header.stamp.nanosec>=1000000000u||msg->valid_for.nanosec>=1000000000u)c.frame="invalid";
                 const auto ros=now().seconds(),steady=steadySeconds();
+                const auto wire_stamp=stampSeconds(msg->header.stamp); // link figures only: malformed adds no age
+                link_stats_.onCommand(steady,wire_stamp?optional<double>{ros-*wire_stamp}:nullopt);
                 // STOP도 먼저 guard에 전달해 이전 이동 명령의 stamp 재사용을 막습니다.
                 const bool received=planning_guard_->receive(c,ros,steady);
                 if(planning_headless_&&c.stop){
@@ -329,6 +341,7 @@ private:
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
                     // The car is already stopping in a stop ramp; an invalid or stale message does not cut it short.
                     if(raw_controller_->stopRampActive())return;
+                    if(supervisor_.active())link_stats_.onExpiry();
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
@@ -396,13 +409,15 @@ private:
             if(!planningReady(steady,ros))return false;
             const bool ok=raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),
                 0,steady,ros,exclusiveDriverReady());
-            if(ok){supervisor_.activate();autonomous_heartbeat_=steady-max(0.0,ros-rclcpp::Time(request.stamp).seconds());commissioning_axis_=4;}
+            // handleSession has already refused malformed or stale stamps; value_or only keeps this conversion non-throwing.
+            if(ok){supervisor_.activate();autonomous_heartbeat_=steady-max(0.0,ros-stampSeconds(request.stamp).value_or(ros));commissioning_axis_=4;}
             return ok;
         },[&]{
             const double steady=steadySeconds();
             if(!supervisor_.active())return false;
             if(steady-autonomous_heartbeat_>limits::kOperatorHeartbeatS){activeStop("operator heartbeat expired");return false;}
-            autonomous_heartbeat_=steady-max(0.0,now().seconds()-rclcpp::Time(request.stamp).seconds());return true;
+            const double ros=now().seconds();
+            autonomous_heartbeat_=steady-max(0.0,ros-stampSeconds(request.stamp).value_or(ros));return true;
         },limits::kWifiManualCommandMaxAgeS);
         if(!response.accepted&&!supervisor_.active())response.reason="autonomy requires one fresh planner and verified m/s/rad calibration; stop manual control first";
     }
@@ -561,6 +576,7 @@ private:
             if(target->erpm>0&&!planning_start_gate_->ready(steady))execution_erpm=0;
         }
         if(!planningReady(steady,ros)||!target){
+            link_stats_.onExpiry();
             onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
         }
@@ -629,7 +645,7 @@ private:
                 }
                 const double n=sqrt(norm),x=q.x/n,y=q.y/n,z=q.z/n,w=q.w/n;
                 AttitudeSample s;
-                s.stamp_s=static_cast<double>(m->header.stamp.sec)+m->header.stamp.nanosec*1e-9;
+                s.stamp_s=rawStampSeconds(m->header.stamp);
                 s.roll=atan2(2*(w*x+y*z),1-2*(x*x+y*y));
                 s.pitch=asin(clamp(2*(w*y-z*x),-1.0,1.0));
                 s.roll_rate=m->angular_velocity.x; s.pitch_rate=m->angular_velocity.y;
@@ -718,7 +734,8 @@ private:
             return;
         }
         const auto axis = static_cast<RawAxis>(request.axis);
-        const double command_stamp = static_cast<double>(request.stamp.sec) + request.stamp.nanosec * 1e-9;
+        // handleSession refuses malformed stamps before either lambda runs; value_or keeps this non-throwing.
+        const double command_stamp = stampSeconds(request.stamp).value_or(0.0);
         const double max_command_age = limits::commandMaxAge(axis == RawAxis::Manual, raw_options_.manual_timeout_s);
         handleSession(request, response,
             [&] {
@@ -754,7 +771,7 @@ private:
             if (request.action == Commissioning::Request::UPDATE && last_accepted_raw_update_at_) {
                 const double gap_ms = (received_at - *last_accepted_raw_update_at_) * 1000.0;
                 if (gap_ms > 150.0) {
-                    const double stamp = static_cast<double>(request.stamp.sec) + request.stamp.nanosec * 1e-9;
+                    const double stamp = stampSeconds(request.stamp).value_or(0.0);
                     RCLCPP_INFO(get_logger(), "raw timing action=UPDATE accepted_gap_ms=%.1f command_age_ms=%.1f",
                                 gap_ms, (now().seconds() - stamp) * 1000.0);
                 }
@@ -789,9 +806,10 @@ private:
             if (activeState()==TrialState::Running) stopAndRelease(response.reason);
             return;
         }
-        const double stamp = static_cast<double>(request.stamp.sec) + request.stamp.nanosec * 1e-9;
+        const auto wire_stamp = stampSeconds(request.stamp);
+        const double stamp = wire_stamp.value_or(0.0);
         const double age = now().seconds() - stamp;
-        if (request.stamp.nanosec >= 1000000000u || stamp <= 0.0 || age < -limits::kFutureStampToleranceS || age > max_command_age_s || sessions_exhausted_ ||
+        if (!wire_stamp || stamp <= 0.0 || age < -limits::kFutureStampToleranceS || age > max_command_age_s || sessions_exhausted_ ||
             closed_sessions_.size() >= 4096 || closed_sessions_.count(request.session)) return;
         if (request.action == Request::START) {
             if (!manual_session_.empty()) return;
@@ -972,7 +990,7 @@ private:
 
     void onTelemetry(const VescState& message) {
         const auto& s = message.state;
-        const double stamp = static_cast<double>(message.header.stamp.sec) + message.header.stamp.nanosec * 1e-9;
+        const double stamp = rawStampSeconds(message.header.stamp); // lenient as before (wire_stamp.hpp)
         const TelemetrySample sample{stamp, s.speed, s.current_motor, s.current_input, s.voltage_input, s.fault_code};
         const bool was_running = activeState() == TrialState::Running;
         if (commissioning_) raw_controller_->observe(sample, steadySeconds(), now().seconds());
@@ -1125,6 +1143,7 @@ private:
     void controlTick() {
         const double steady_now = steadySeconds();
         const double ros_now = now().seconds();
+        link_stats_.onTick(steady_now);
         bool driver_ready = exclusiveDriverReady(false);
 #ifdef NOMAD_ENABLE_PLANNING
         if(planning_guard_&&last_tick_ros_&&ros_now<*last_tick_ros_-1e-3){
@@ -1175,6 +1194,12 @@ private:
 #endif
         }
         if (!activeManual()) closeManualSession();
+#ifdef NOMAD_ENABLE_PLANNING
+        // 2026-11-17: every control tick (~50 Hz; was 10 Hz, with the status). The Jetson planner holds its output when
+        // this state is older than 0.3 s (vehicle_timeout). At 10 Hz, three Wi-Fi packets lost in a row did that; at
+        // 50 Hz it takes about fifteen. The publisher stays reliable so a reliable planner subscription still matches.
+        publishVehicleState(activeHealthy(steady_now, ros_now), driver_ready);
+#endif
         if (steady_now - last_status_at_ < 0.1) return;
         last_status_at_ = steady_now;
         publishStatus(steady_now, ros_now, driver_ready);
@@ -1185,9 +1210,8 @@ private:
     void publishStatus(double steady_now, double ros_now, [[maybe_unused]] bool driver_ready) {
         const bool fresh = activeHealthy(steady_now, ros_now);
         const bool stationary = activeStationary(steady_now, ros_now);
-#ifdef NOMAD_ENABLE_PLANNING
-        publishVehicleState(fresh,driver_ready);
-#endif
+        // 2026-11-17 link/loop window (link_stats.hpp), closed once a second; logged as link_trace below.
+        [[maybe_unused]] const auto link_window = link_stats_.roll(steady_now);
         const auto speed = commissioning_ ? optional<double>{} : controller_->measuredSpeed();
         optional<ActuatorCommand> preview;
         if (!commissioning_) {
@@ -1323,6 +1347,29 @@ private:
         data["stop_output"]=stop_output_.last()?stopOutputKindName(stop_output_.last()->kind):"none";
         data["stop_output_a"]=stop_output_.last()?stop_output_.last()->current_a:0.0;
         data["stop_hold_s"]=stop_output_.holdSeconds(steady_now);
+        // 2026-11-17 long hold (stop_output.hpp): an estimate for the GUI; the hold current is not changed and the
+        // motor temperature is not measured.
+        const double hold_a=stop_output_.holding()&&stop_output_.last()?stop_output_.last()->current_a:0.0;
+        const double hold_s=hold_a>0.0?stop_output_.holdSeconds(steady_now):0.0;
+        data["stop_hold_heat_w"]=holdCopperLossW(hold_a);
+        data["stop_hold_long"]=longHold(hold_s,hold_a);
+        if(long_hold_warning_.due(hold_s,hold_a))
+            RCLCPP_WARN(get_logger(),"[HOLD_LONG] handbrake %.1f A held %.0f s (basis=%s); estimated motor copper loss ~%.0f W; "
+                        "the motor temperature is not measured",hold_a,hold_s,holdBasisName(stop_output_.holdBasis()),
+                        holdCopperLossW(hold_a));
+        {
+            // Last closed link/loop window (null before the first one); see link_stats.hpp.
+            const auto& w=link_stats_.last();
+            const auto ms=[](optional<double> seconds){
+                return seconds?nlohmann::json(1000.0*(*seconds)):nlohmann::json(nullptr);};
+            data["link_window_s"]=w?nlohmann::json(w->length_s):nlohmann::json(nullptr);
+            data["link_commands"]=w?nlohmann::json(w->commands):nlohmann::json(nullptr);
+            data["link_cmd_max_gap_ms"]=w?ms(w->max_gap_s):nlohmann::json(nullptr);
+            data["link_cmd_age_min_ms"]=w?ms(w->min_age_s):nlohmann::json(nullptr);
+            data["link_cmd_age_max_ms"]=w?ms(w->max_age_s):nlohmann::json(nullptr);
+            data["link_expiries"]=w?nlohmann::json(w->expiries):nlohmann::json(nullptr);
+            data["control_tick_max_ms"]=w?ms(w->max_tick_s):nlohmann::json(nullptr);
+        }
         // false while the handbrake is held: the VESC then reports a frozen ERPM 0, not a measurement.
         data["erpm_valid"]=stop_output_.erpmValid();
         data["vesc_fault"]=activeVescFault();
@@ -1374,11 +1421,29 @@ private:
             // the GUI tail's 400-character cut. servo_cmd is the command sent, not a measured steering position.
             const auto& v=vesc_display_;
             RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
-                "vesc_trace voltage_v=%.2f input_current_a=%.2f power_w=%.1f iq_a=%.2f duty=%.3f fault_code=%d fault=%s servo_cmd=%.3f servo_target=%.3f hold_basis=%s telemetry_age_ms=%.0f",
+                "vesc_trace voltage_v=%.2f input_current_a=%.2f power_w=%.1f iq_a=%.2f duty=%.3f fault_code=%d fault=%s servo_cmd=%.3f servo_target=%.3f hold_basis=%s telemetry_age_ms=%.0f hold_s=%.1f",
                 last_voltage_,v.input_current_a,inputPowerW(last_voltage_,v.input_current_a),v.iq_a,v.duty,last_fault_,
                 vescFaultName(last_fault_),raw_controller_->commandedServoPosition(),raw_controller_->requestedServoPosition(),
                 holdBasisName(stop_output_.holdBasis()),
-                last_telemetry_rx_?1000.0*max(0.0,steady_now-*last_telemetry_rx_):-1.0);
+                last_telemetry_rx_?1000.0*max(0.0,steady_now-*last_telemetry_rx_):-1.0,hold_s);
+            // 2026-11-17: the link/loop window (link_stats.hpp) as another separate line.
+            // - The GUI tails only about 1 KiB of this log per second. control_trace, vesc_trace and a repeating
+            //   [PLANNING_WAIT] already use most of that.
+            // - So the line is printed only for a window with something to see (an expiry, a command gap over 0.2 s,
+            //   a control tick over 40 ms late), and otherwise every 10 s. status_json carries every window.
+            // - na = no command (or no valid stamp) in the window.
+            const bool link_news=link_window&&(link_window->expiries>0||link_window->max_gap_s>0.2||
+                                               link_window->max_tick_s>0.04);
+            if(link_window&&(link_news||steady_now-link_trace_at_>=10.0)){
+                link_trace_at_=steady_now;
+                const auto& w=*link_window;
+                const auto ms=[](optional<double> seconds){
+                    if(!seconds)return string("na");
+                    char text[32];snprintf(text,sizeof(text),"%.0f",1000.0*(*seconds));return string(text);};
+                RCLCPP_INFO(get_logger(),"link_trace n=%d gap_ms=%.0f age_min_ms=%s age_max_ms=%s expired=%d tick_max_ms=%.0f",
+                            w.commands,1000.0*w.max_gap_s,ms(w.min_age_s).c_str(),ms(w.max_age_s).c_str(),w.expiries,
+                            1000.0*w.max_tick_s);
+            }
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
         data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
@@ -1465,6 +1530,9 @@ private:
     double last_raw_erpm_ = 0.0, last_voltage_ = 0.0, last_current_ = 0.0;
     int last_fault_ = -1;
     VescDisplay vesc_display_;
+    LinkStats link_stats_;              // 2026-11-17 link/loop window (link_trace, link_* status keys)
+    double link_trace_at_ = -1e9;       // steady time of the last link_trace line
+    LongHoldWarning long_hold_warning_; // 2026-11-17 [HOLD_LONG] warning lines
 };
 } // namespace
 

@@ -8,14 +8,14 @@ Pi의 최신 실차 제어 소스와 설정을 포함합니다. `controller_node
 
 | 방향 | 토픽 | 타입·단위 |
 |---|---|---|
-| LPP → 제어기 | `/nomad/planning/drive_command` | `nomad_interfaces/msg/DriveCommand`: m/s, rad, STOP, stamp, valid_for |
+| LPP → 제어기 | `/nomad/planning/drive_command` | `nomad_interfaces/msg/DriveCommand`: m/s, rad, STOP, stamp, valid_for. reliable 구독(계약대로) |
 | VESC → 제어기 | `/nomad_bench/sensors/core` | `vesc_msgs/msg/VescStateStamped`: ERPM, A, V, 오류 |
 | 제어기 → VESC | `/nomad_bench/commands/motor/speed` | `std_msgs/msg/Float64`, ERPM |
 | 제어기 → VESC | `/nomad_bench/commands/servo/position` | `std_msgs/msg/Float64`, 0~1 |
 | 제어기 → VESC | `/nomad_bench/commands/motor/current` | `std_msgs/msg/Float64`, 정지 시 0 A(정지 브레이크·유지를 끈 경우, 또는 VESC 고장 코드로 잠긴 경우) |
 | 제어기 → VESC | `/nomad_bench/commands/motor/brake` | `std_msgs/msg/Float64`, A. 정지 중 핸드브레이크를 걸지 않은 동안(\|ERPM\| > `stop_handbrake_below_erpm`, 상태값 끊김, 유지 포기) |
 | 제어기 → VESC | `/nomad_bench/commands/motor/handbrake` | `std_msgs/msg/Float64`, A. 정지 중 정상 상태값이 그 이하일 때 걸고 다음 구동 명령까지 유지. **패치한 VESC 드라이버 필요** |
-| 제어기 → LPP | `/nomad/control/vehicle_state` | `nomad_interfaces/msg/VehicleState` |
+| 제어기 → LPP | `/nomad/control/vehicle_state` | `nomad_interfaces/msg/VehicleState`. 제어 주기(약 50 Hz, 11-17부터), reliable |
 | 제어기 → GUI·로그 | `/nomad_vesc_trial/status_json` | `std_msgs/msg/String`, JSON 상태 |
 
 `DriveCommand`는 `frame_id=base_link`, 증가하는 ROS stamp, `0 < valid_for <= 0.5초`를 사용합니다. 같은 stamp의 이동 명령으로 유효기간을 연장하지 않습니다. 수신 후 0.35초 이상 갱신되지 않아도 출력을 해제합니다. LPP 자율주행은 전진·정지만 허용합니다(후진은 GUI 수동 조종만, 아래 '수동 후진').
@@ -156,10 +156,42 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - `telemetry_age_s`: 마지막 VESC 상태값을 받은 뒤 지난 시간.
   - `estimated_speed_mps`·`estimated_speed_verified`: ERPM ÷ `planning.erpm_per_mps`(3721.88)로 계산한 바퀴 속도. 지면 속도가 아니고 환산값도 실측 검증 전이라 `estimated_speed_verified`는 지금 false입니다. 핸드브레이크 중에는 0으로 고정됩니다(`erpm_valid` false).
 - **`vesc_trace` 로그 줄**(1초에 1번, `control_trace` 바로 뒤): 자율주행 모드에는 HTTP 상태가 없어 GUI가 제어기 로그를 읽으므로, 거기서 볼 값을 따로 남깁니다. `control_trace`는 GUI·로그 분석 도구가 읽는 형식이라 그대로 두고, 각 줄이 GUI 로그 읽기의 400자 제한 안에 들어가도록 나눴습니다.
-  `vesc_trace voltage_v= input_current_a= power_w= iq_a= duty= fault_code= fault= servo_cmd= servo_target= hold_basis= telemetry_age_ms=`
+  `vesc_trace voltage_v= input_current_a= power_w= iq_a= duty= fault_code= fault= servo_cmd= servo_target= hold_basis= telemetry_age_ms= hold_s=`(`hold_s`는 11-17 추가)
   `servo_cmd`는 실제로 보낸 서보 명령(0~1), `servo_target`은 변화율을 적용하기 전 목표입니다. 둘 다 명령값이며 조향 측정값이 아닙니다(서보 피드백 없음). `telemetry_age_ms`는 상태값이 없으면 −1입니다.
 - 이미 있던 값: `raw_erpm`, `current_a`, `voltage_v`, `fault_code`, `esc_temp_c`·`esc_temp_state`, `erpm_valid`, `stop_output`·`stop_output_a`·`stop_hold_basis`, `commanded_servo_position`·`requested_servo_position`, `commanded_motor_erpm`·`target_motor_erpm`, `telemetry_fresh`, `driver_ready`. `control_trace`에는 `esc_temp_c`, `thermal`, `stop`, `stop_a`, `erpm_valid`가 이미 있습니다.
 - VESC는 알지만 지금 드라이버가 넘기지 않는 값(드라이버 수정 필요): VESC 명령 타임아웃 상태(응답 마지막 바이트), 가동 시간(재부팅 감지), 펌웨어·하드웨어 이름. 드라이버는 `temp_fet`·`temp_motor`를 읽고도 메시지에 넣지 않아 늘 0입니다(모터 온도 센서는 원래 없음).
+
+### 통신·제어 주기 기록과 정지 유지 경고 (2026-11-17)
+
+11-16 야지에서 Jetson 플래너와 Pi4 제어기 사이 Wi-Fi가 끊겨 명령 만료 정지가 31번 났습니다. 그중 12번은 0.3초 안에 다시 이어진 짧은 끊김이었고, 나머지는 1~7초 끊김이었습니다. 이번 변경은 끊김을 숫자로 남기고, 차량 상태를 더 자주 보내는 것입니다. 멈추고 출발하는 판단과 정지 출력 전류는 바뀌지 않았습니다(잘못된 시각을 받은 조향 범위 서비스가 종료 대신 거절하는 것만 다름).
+
+- **`link_trace` 로그 줄**(`vesc_trace` 다음): `link_trace n= gap_ms= age_min_ms= age_max_ms= expired= tick_max_ms=`. 1초 창마다 계산하지만, 줄은 볼 것이 있는 창(만료, 0.2초 넘는 명령 공백, 40 ms 넘는 제어 주기)에만 찍고 그 밖에는 10초에 1번 찍습니다. GUI가 이 로그를 1초에 약 1 KiB만 읽기 때문입니다. 모든 창은 `status_json`에 있습니다.
+  - `n`: 그 1초 동안 받은 LPP 명령 수(플래너는 약 20 Hz).
+  - `gap_ms`: 명령이 오지 않은 가장 긴 시간. 1초 창이 닫힐 때까지 이어지는 끊김도 포함합니다. 그래서 몇 초 끊기면 매초 커지다가, 다음 명령이 오면 전체 길이가 찍힙니다. 명령을 한 번도 안 받았으면 0입니다.
+  - `age_min_ms`·`age_max_ms`: 명령을 받은 순간 이 노드의 ROS 시각에서 보낸 쪽 stamp를 뺀 값입니다. 네트워크 지연과 보드 간 시계 차이가 섞여 있고, 음수면 보낸 쪽 시계가 앞선 것입니다. 명령이 없으면 `na`입니다.
+  - `expired`: LPP로 달리던 중 입력이 끊기거나 무효가 되어 감속 정지·대기가 시작된 횟수.
+  - `tick_max_ms`: 20 ms 제어 주기 사이 가장 긴 간격. 크면 네트워크가 아니라 CPU 부하로 이 프로세스가 늦게 돈 것입니다.
+- **`status_json` 키**(마지막으로 닫힌 1초 창, 첫 창 전에는 `null`): `link_window_s`, `link_commands`, `link_cmd_max_gap_ms`, `link_cmd_age_min_ms`, `link_cmd_age_max_ms`, `link_expiries`, `control_tick_max_ms`.
+- **LPP 명령 구독은 reliable 그대로 둡니다.**
+  - best_effort로 바꾸면 Wi-Fi에서 잃은 명령을 다시 보내느라 새 명령이 밀리는 일은 없어집니다.
+  - 하지만 플래너가 STOP을 한 번만 보내면 그 STOP을 영영 잃을 수 있습니다. 정지를 잠그는 설정에서는 유효기간 검사도 이 경우를 막지 못합니다.
+  - 팀 인터페이스 계약(`nomad_interfaces/README.md`)도 Reliable입니다.
+  - 그래서 플래너가 STOP을 매 주기 반복해 보내기로 합의한 뒤에 바꿉니다(11-17 검토).
+- **`/nomad/control/vehicle_state`를 10 Hz → 제어 주기(약 50 Hz)로 올렸습니다.**
+  - Jetson 플래너는 이 값이 0.3초 넘게 늦으면 출력을 막습니다(`VEHICLE_STATE_STALE`). 10 Hz에서는 연달아 3개만 잃어도 막혔고, 50 Hz에서는 약 15개를 잃어야 막힙니다.
+  - 발행은 reliable 그대로 둡니다. 플래너 구독이 reliable이어도 연결되게 하려는 것입니다. 플래너 구독을 best_effort로 바꾸는 것은 플래너 담당 결정입니다.
+- **정지 유지 경고**(전류는 바꾸지 않음):
+  - `status_json`에 `stop_hold_heat_w`(지금 유지 전류의 모터 구리 손실 추정, 1.5 × 0.0112 Ω × I², 30 A에서 약 15 W)와 `stop_hold_long`(25 A 이상을 10초 이상 유지)을 넣었습니다.
+  - 25 A 이상 유지가 10초가 되면 `[HOLD_LONG]` 경고 줄이 나오고, 이어지는 동안 30초마다 다시 나옵니다.
+  - `vesc_trace` 끝에 `hold_s=`(지금 유지가 이어진 초)를 붙였습니다.
+  - 모터 온도는 재지 않습니다. 정지 유지 중에는 ERPM이 0으로 고정돼 미끄러져도 알 수 없습니다. 그래서 전류를 자동으로 낮추지 않습니다(사용자 결정).
+- **입력 시각 처리:**
+  - 메시지·서비스로 들어온 시각은 `wire_stamp.hpp`를 거쳐서만 바꿉니다.
+    - 서비스 요청 시각은 `stampSeconds()`로 바꾸고, 음수 초나 10억 이상 나노초는 거절합니다.
+    - LPP 명령 검사, VESC 상태값, IMU에는 예전과 같은 계산(`rawStampSeconds()`)을 그대로 씁니다. 동작을 바꾸지 않기 위해서입니다(예: 나노초가 잘못된 STOP도 지금처럼 명령을 지움).
+  - 예전에는 `~/steering_test_range`에 음수 시각이 오면 `rclcpp::Time`이 예외를 던졌습니다. 콜백 예외는 곧 제어기 종료이므로(`controller_main.cpp`), 이제는 거절만 합니다.
+  - 규칙: 메시지·서비스 입력으로 예외를 던지지 않습니다(`rclcpp::Time(stamp)`, JSON `at()`, `stod` 등 금지).
+- 시험: 단위 시험 `field_diagnostics`(시각, 1초 창, 정지 유지 경고). ROS 시험은 새 상태 키, 잘못된 시각 거절 뒤에도 제어기가 살아 있는지, 차량 상태 50 Hz, 만료 횟수를 확인합니다.
 
 현재 설정은 이 README와 YAML을 기준으로 확인하세요. 날짜가 붙은 기존 `.ko.txt` 문서는 당시 시험·배포 기록이며 최신 실행 설정과 다를 수 있습니다.
 
@@ -285,7 +317,15 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 4e64c7e | (11-16) 4d48523 서보(조향) 표시를 사용자 결정으로 되돌림: `status_json`의 `servo_moving`·`steering_estimate_deg`·`steering_target_estimate_deg`, `control_trace`의 서보 값, 웹 GUI 조향 게이지, 미리보기 서보 왕복, `PlanningCalibration::radFor()`와 그 시험을 모두 뺌(코드는 230259c와 같음) |
 | 8d90802 | (11-16) 4e64c7e Pi4 배포 기록(`92523911…`) |
 | 515c704 | (11-16) 팀 GUI용 VESC 값: `status_json`에 입력 전류·전력·iq·id·duty·vd/vq·MOSFET 3개·Ah/Wh·타코·VESC ID·고장 이름·상태값 나이·추정 속도, 자율주행용 1초 `vesc_trace` 로그 줄, 시험 `vesc_telemetry_display`와 ROS 시험 검사. 표시 전용(제어 판단 바뀜 없음) |
-| (이 커밋) | (11-16) 515c704 Pi4 배포 기록(`c515287e…`) |
+| 5a457c2 | (11-16) 515c704 Pi4 배포 기록(`c515287e…`) |
+| (이 커밋) | (11-17) 현장 진단:
+  - `link_trace` 로그와 `link_*`·`control_tick_max_ms` 상태 키(명령 간격·지연·만료·제어 주기)
+  - `vehicle_state` 50 Hz
+  - 정지 유지 발열 추정·`[HOLD_LONG]` 경고·`vesc_trace hold_s`(전류는 그대로)
+  - 조향 범위 서비스의 음수 시각 종료 수정(`wire_stamp.hpp`)
+  - 시험 `field_diagnostics`와 ROS 검사
+
+  독립 검토 4건 반영: 시각 계산은 예전대로, QoS는 reliable 유지, 로그 줄 빈도 제한, 시험 null 처리 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
@@ -294,7 +334,7 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 1. VESC 전류 한계 정리: 11-13 VESC에 적용(모터 ±50 A, 배터리 30 A, 회생 −30 A, 같은 날 `s_pid_ki` 0.04·`s_pid_kp` 0.010). 정지 브레이크 때문에 `l_current_min`은 −30 A 이하로 둡니다(지금 −50 A). 설정 파일 `vesc_config_20261112/VESC_설정파일/mcconf_20261113_PID_kp010.xml`.
 2. 수동 GUI VESC 점검(`ensure_gui.sh`): 11-13 새 VESC 값으로 맞춤(모터 ≤50 A·하한 −50~−30 A, 배터리 ≤30 A·회생 −30~0 A, PID 최소 50). 자율주행 경로(`run_planning_output.sh`)에는 VESC 설정 점검이 없습니다. Pi4 `~/vesc_ws/inspect_vesc.py --bench-current-a`는 VESC 전류 한계를 써 버리므로(회생 0 A) 쓰지 마세요.
 3. 리뷰에서 나온 개선 후보(미수정): 전류 피크 직후 재출발 대기 없음, 과속 감속 명령이 VESC PID 최소값 아래로 내려감, 운영자 STOP 후 복구하면 곧바로 출발.
-4. 플래너 쪽 합의: 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복, LPP STOP 뒤 감속 정지로 STOP→핸드브레이크 약 0.4~0.46초(예전보다 약 0.35~0.4초 더, 가파른 내리막은 200 유지 최대 0.6초 뒤 브레이크로 넘어가면 상한 없음)·거리 약 4~6 cm 증가(11-13 감속 정지).
+4. 플래너 쪽 합의: 명령 유효시간 0.15 → 0.3초(11-16 짧은 끊김 정지 12번 해당), `vehicle_state` 구독 best_effort, STOP을 매 주기 반복 발행(그 뒤 제어기 명령 구독 best_effort 가능), 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복, LPP STOP 뒤 감속 정지로 STOP→핸드브레이크 약 0.4~0.46초(예전보다 약 0.35~0.4초 더, 가파른 내리막은 200 유지 최대 0.6초 뒤 브레이크로 넘어가면 상한 없음)·거리 약 4~6 cm 증가(11-13 감속 정지).
 5. HFI 적용 후 통합시험(ERPM 모드)에서 턱 넘기·바퀴 걸림 감시·모터 발열 확인. VIO duty 모드는 계속 사용 금지(Pi4의 `nomad_vio_duty_control`에도 11-12에 같은 정지 출력과 온도 보호가 들어갔지만 실차 미시험, 이 저장소 밖).
 6. 정지 출력 개선(다음 경사 시험 전): 1단계(유지 고정·표시, VESC 고장 0 A, 실제 설정 ROS 시험, 대기 사유)는 11-13에 완료. 재출발은 VESC 속도 PID 조정(VESC Tool, `vesc_config_20261112` 6절, 11-13 `s_pid_ki` 0.04·`s_pid_kp` 0.010 적용, `mcconf_20261113_PID_kp010.xml`)과 `[RESTART_TRACE]` 기록으로 진행(출발 보조는 넣지 않음). 3단계(부하에 맞춘 유지 전류 12.5~30 A)는 11-13 구현, 실차 확인 남음(`[STOP_OUTPUT] handbrake hold` 로그로 경사별 전류와 미끄러짐을 같이 보고 구름저항 6 A·배율 1.45·여유 8 A를 맞춤. 7°·10° 경사의 오르막 전류와 미끄러지지 않는 핸드브레이크 값, 평지 주행 전류 측정이 있으면 좋음). 남은 것: 4단계 VIO로 미끄러짐 감지(그때 유지 중 RESET·재출발이 ERPM 0을 정지로 믿지 않게), 5단계 밀리는 중·내리막 정지 때 능동 정지 후 유지.
 7. 데스크톱 Qt GUI 도움말(`desktop/main.cpp`)의 '실제 차량에서는 브레이크가 아닙니다' 문구는 Qt6 빌드 확인 뒤 고칩니다. 웹 GUI는 실제 정지 설정을 표시합니다.

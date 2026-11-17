@@ -205,6 +205,24 @@ public:
         return future.get()->accepted;
     }
 
+    // Nullable numeric status key (json::value() throws on null and would end the whole suite).
+    double statusNumber(const string& key, double fallback) const {
+        return status_.contains(key) && status_.at(key).is_number() ? status_.at(key).get<double>() : fallback;
+    }
+
+    // 2026-11-17: ~/steering_test_range with an explicit wire stamp (a malformed one must be refused, not crash).
+    bool steeringRange(int32_t sec, uint32_t nanosec, double span = 0.1) {
+        auto client = fake_->create_client<nomad::SteeringRange>(prefix_ + "/nomad_vesc_trial/steering_test_range");
+        const double deadline = steadySeconds() + 3.0;
+        while (!client->service_is_ready() && steadySeconds() < deadline) pump(0.01);
+        auto request = make_shared<nomad::SteeringRange::Request>();
+        request->stamp.sec = sec; request->stamp.nanosec = nanosec; request->span = span;
+        auto future = client->async_send_request(request);
+        while (future.wait_for(chrono::milliseconds(0)) != future_status::ready && steadySeconds() < deadline) pump(0.005);
+        if (future.wait_for(chrono::milliseconds(0)) != future_status::ready) throw runtime_error("steering range service timeout");
+        return future.get()->accepted;
+    }
+
     void runCommissionGate() {
         pump(0.7);
         expect(!commission(1, 1, string(32, '1')), "raw setup/timeout gate refuses start");
@@ -439,6 +457,8 @@ public:
                "stop profile: LPP STOP at standstill holds with the 15 A handbrake");
         expect(stop_output()=="hold"&&!status_.value("erpm_valid",true)&&status_.value("stop_output_a",0.0)==15.0,
                "stop profile: status reports the hold and frozen ERPM");
+        expect(abs(statusNumber("stop_hold_heat_w",-1.0)-1.5*0.0112*15.0*15.0)<1e-9&&!status_.value("stop_hold_long",true),
+               "stop profile: status estimates the hold heat (15 A, short hold: no long-hold flag)");
         // Resume ends the hold.
         moves=moving_messages_;
         send_planning_=true;pump(.5);
@@ -529,6 +549,8 @@ public:
         drive_then_stop(0.0,0.0,.25,false);
         expect(last_handbrake_==30.0&&basis()!="load"&&status_.value("stop_output",string())=="hold",
                "load hold: a drive that never settled holds with the maximum");
+        expect(abs(statusNumber("stop_hold_heat_w",-1.0)-1.5*0.0112*30.0*30.0)<1e-9,
+               "load hold: status estimates the 30 A hold heat (~15 W)");
         expect(status_.value("stop_handbrake_min_current_a",0.0)==12.5&&status_.value("stop_handbrake_current_a",0.0)==30.0&&
                status_.value("stop_handbrake_load_gain",0.0)==1.45&&status_.value("stop_handbrake_rolling_current_a",0.0)==6.0&&
                status_.value("stop_handbrake_margin_a",0.0)==8.0,"load hold: status reports the configuration");
@@ -743,9 +765,19 @@ public:
     }
     void runPlanning() {
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
-        auto vehicle=fake_->create_subscription<nomad_interfaces::msg::VehicleState>(prefix_+"/vehicle_state",1,
-            [](nomad_interfaces::msg::VehicleState::ConstSharedPtr msg){expect(!msg->steering_valid,"servo command never presented as measured angle");});
+        int vehicle_states=0;
+        auto vehicle=fake_->create_subscription<nomad_interfaces::msg::VehicleState>(prefix_+"/vehicle_state",10,
+            [&vehicle_states](nomad_interfaces::msg::VehicleState::ConstSharedPtr msg){
+                ++vehicle_states;expect(!msg->steering_valid,"servo command never presented as measured angle");});
         pump(.8);
+        {
+            // 2026-11-17: vehicle_state every control tick (~50 Hz; was 10 Hz).
+            const int before=vehicle_states;pump(.5);
+            expect(vehicle_states-before>=15,"vehicle_state is published at the control rate, not 10 Hz");
+            pump(.6);
+            expect(statusNumber("link_commands",0)>=10&&statusNumber("link_cmd_age_max_ms",-1e9)>-1e9&&
+                   statusNumber("link_cmd_max_gap_ms",1e9)<500.0,"status reports received LPP commands and their stamp age");
+        }
         const string id(32,'a'),other(32,'b');
         expect(moving_messages_==0,"planner reception alone cannot actuate");
         expect(commission(1,4,id,1,0,.5,0),"explicit LPP session starts");
@@ -754,6 +786,12 @@ public:
         expect(commission(2,4,id,2,0,.5,0),"operator LPP heartbeat accepted");
         send_planning_=false;pump(.45);
         expect(status_.value("state","")!="RUNNING"&&!status_.value("autonomous_active",true),"expired LPP stops despite GUI heartbeat");
+        {
+            // The expiry is counted in the window it happened in; that window closes within about a second.
+            bool counted=statusNumber("link_expiries",0)>=1;
+            for(int i=0;i<30&&!counted;++i){pump(.05);counted=statusNumber("link_expiries",0)>=1;}
+            expect(counted,"an LPP expiry while driving is counted in the link window");
+        }
         send_planning_=true;const int before=moving_messages_;pump(.2);
         expect(moving_messages_==before,"planner reconnect never restarts output");
         expect(call("reset"),"stationary reset after LPP expiry");
@@ -874,6 +912,23 @@ public:
         expect(status_.contains("estimated_speed_mps") && !status_.value("estimated_speed_verified", true),
                "raw status labels the ERPM speed estimate as unverified");
 #endif
+        // 2026-11-17 link/loop window and long-hold estimate (closed once a second; no planner in this fixture).
+        pump(0.5);
+        for (int i = 0; i < 30 && statusNumber("control_tick_max_ms", -1.0) < 0.0; ++i) pump(0.05);
+        expect(status_.at("control_tick_max_ms").is_number() && status_.value("control_tick_max_ms", 0.0) > 0.0 &&
+               status_.value("link_commands", -1) == 0 && status_.value("link_cmd_max_gap_ms", -1.0) == 0.0 &&
+               status_.at("link_cmd_age_max_ms").is_null() && status_.value("link_expiries", -1) == 0,
+               "status reports the link/loop window (no planner: no commands, no gap, no age)");
+        expect(status_.value("stop_hold_heat_w", -1.0) == 0.0 && !status_.value("stop_hold_long", true),
+               "no hold: no estimated hold heat, no long-hold flag");
+        // A malformed wire stamp (sec < 0) used to throw inside the service callback and end the controller.
+        expect(!steeringRange(-5, 0), "steering range with a negative stamp is refused");
+        expect(!steeringRange(1, 1000000000u), "steering range with nanosec >= 1e9 is refused");
+        {
+            status_ = nomad::Json::object();
+            pump(0.25);
+            expect(status_.value("commissioning", false), "controller keeps running after malformed stamps");
+        }
         expect(!call("start_test") && !manual(1, a), "commission rejects both calibrated start paths");
         expect(commission(3, 0, a), "raw STOP with no axis/goals accepted");
         expect(!commission(1, 1, a), "raw delayed START after STOP rejected");
