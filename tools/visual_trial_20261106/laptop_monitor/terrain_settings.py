@@ -34,8 +34,12 @@ GUI_RADIUS = "startup_radius_m"
 class _Spec(SettingsSpec):
     def validate(self, configs: dict) -> dict:
         import slope_k
+        import math
         out = super().validate(configs)
         cfg = out["terrain"]
+        distance = cfg["oak_max_horizontal_distance_m"]
+        if not math.isfinite(distance) or not 0.1 <= distance <= 30.0:
+            raise ValueError("OAK 점군 누적 최대 수평거리: 0.1~30m의 유한한 값이어야 합니다")
         cfg["slope_score_per_deg"] = slope_k.check_k(cfg["slope_score_per_deg"])
         cfg["slope_block_deg"] = slope_k.block_deg(cfg["slope_score_per_deg"])
         px = cfg[GUI_KEY][GUI_PX]
@@ -109,7 +113,7 @@ class SettingsDialog(_Dialog):
         super().__init__(parent, state_root, SPEC, "기존 매퍼 개선 설정 · 시험 시작 때 Jetson에 적용",
                          "Jetson에 저장된 '기존 매퍼 개선' 값입니다. 경사·인지·비용 계산은 기존 매퍼와 같고, "
                          "여기서는 지도 크기, 경사 각도 기준, 경사 고정, 의미분할 이미지 누적, 경사 점수 계수, "
-                         "클래스 경계 px·초기 안전영역 반경(표 맨 아래, 비우면 보드 파일 값)을 바꿉니다. "
+                         "OAK 점군 누적 최대 수평거리(기본 2m), 클래스 경계 px와 초기 안전영역 반경을 바꿉니다. "
                          "'시험 설정'에서 지도를 '기존 매퍼 개선'으로 고르면 시작할 때 이 값으로 켜집니다.", board=board)
         # 2026-11-16: '경사 막힘 각도' follows '경사 점수 계수' (80/k) and is read-only.
         import slope_k

@@ -17,5 +17,6 @@
   "gui_overrides": {
     "boundary_margin_px": null,
     "startup_radius_m": null
-  }
+  },
+  "oak_max_horizontal_distance_m": 2.0
 }

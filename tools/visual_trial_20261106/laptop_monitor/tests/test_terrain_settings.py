@@ -25,6 +25,22 @@ class TerrainSettingsTest(unittest.TestCase):
         self.assertEqual(ok["terrain"]["map_length_m"], 30.0)
         self.assertTrue(ok["terrain"]["label_accumulation"]["enabled"])
 
+    def test_oak_horizontal_limit(self):
+        key = "oak_max_horizontal_distance_m"
+        self.assertEqual(terrain_settings.defaults()["terrain"][key], 2.0)
+        self.assertEqual(terrain_settings.validate({"terrain": {}})["terrain"][key], 2.0)
+        for value in (0.1, 2.0, 3.5, 30.0):
+            cfg = {"terrain": {key: value}}
+            self.assertEqual(terrain_settings.board_json(cfg)[key], value)
+        for value in (0, -1, 30.1, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                terrain_settings.validate({"terrain": {key: value}})
+        doc = terrain_settings.SPEC.docs()["terrain"][key]
+        self.assertIn("XY", doc["description"])
+        self.assertIn("LiDAR", doc["description"])
+        self.assertIn('"oak_max_horizontal_distance_m": 2.0',
+                      terrain_settings.upload_script({"terrain": {}}))
+
     def test_docs_cover_every_value(self):
         docs = terrain_settings.SPEC.docs()["terrain"]
         from module_settings import leaves
