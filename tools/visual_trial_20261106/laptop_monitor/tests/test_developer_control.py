@@ -109,6 +109,43 @@ class ControlDeveloperTest(unittest.TestCase):
         child.update_snapshot({})
         self.assertEqual(child.values['requested_erpm'].text(), '미수신')
 
+    def test_four_log_records_share_the_order_and_restart_rules(self):
+        # 2026-11-19: control_trace, vesc_trace, link_trace and [SLIP] keep their last value under one rule
+        # (_keep_log_record): a line older than the one shown is ignored; a controller startup line clears only the
+        # older values; a new session clears all four.
+        child = self.child()
+        now = time.time()
+        pre = '[controller] [{level}] [{t:.9f}] [nomad_vesc_trial]: '
+        lines = {
+            '_trace': lambda t, v: pre.format(level='INFO', t=t) + f'control_trace phase=RUNNING requested_erpm={v}',
+            '_vesc': lambda t, v: pre.format(level='INFO', t=t) + f'vesc_trace voltage_v={v} fault_code=0',
+            '_link': lambda t, v: pre.format(level='INFO', t=t) + f'link_trace n={v} gap_ms=52 expired=0',
+            '_slip': lambda t, v: pre.format(level='WARN', t=t) + f'[SLIP] stuck end after {v} s',
+        }
+        seq = 1
+        def send(text, session='fixture'):
+            nonlocal seq
+            seq += 1
+            child.append_module_log(log(text, seq=seq, session=session))
+        key = {'_trace': 'requested_erpm', '_vesc': 'voltage_v', '_link': 'n', '_slip': 'duration_s'}
+        for name, make in lines.items():
+            send(make(now, 10))
+            send(make(now - 1, 20))        # older: ignored
+            self.assertEqual(getattr(child, name)[key[name]], 10.0, name)
+            send(make(now + 1, 30))        # newer: kept
+            self.assertEqual(getattr(child, name)[key[name]], 30.0, name)
+        # A startup line older than the values shown clears nothing; a newer one clears all four.
+        send(pre.format(level='INFO', t=now - 5) + 'mode=commission; raw units')
+        self.assertTrue(all(getattr(child, name) for name in lines))
+        send(pre.format(level='INFO', t=now + 2) + 'mode=commission; raw units')
+        self.assertTrue(all(getattr(child, name) is None for name in lines))
+        for name, make in lines.items():
+            send(make(now + 3, 40))
+        self.assertTrue(all(getattr(child, name) for name in lines))
+        send(lines['_trace'](now - 100, 50), session='other')  # a new session starts empty, even with an old stamp
+        self.assertEqual(child._trace['requested_erpm'], 50.0)
+        self.assertTrue(all(getattr(child, name) is None for name in ('_vesc', '_link', '_slip')))
+
     def test_permission_is_received_not_inferred_from_trace_or_path(self):
         child = self.child()
         child.append_module_log(log(trace()))

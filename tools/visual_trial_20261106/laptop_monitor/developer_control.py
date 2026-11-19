@@ -71,6 +71,16 @@ def trace_from_line(line):
     return trace
 
 
+# 2026-11-19: 제어기 로그에서 읽어 마지막 값을 두는 줄 4종 (창 속성 이름, 해석 함수). 한 줄은 이 순서로 처음 맞는
+# 종류 하나로만 읽는다. 시각 순서 확인·세션 초기화·제어기 재시작 초기화는 넷 모두 같은 규칙이다 (_keep_log_record).
+_LOG_RECORDS = (
+    ("_trace", trace_from_line),
+    ("_vesc", vesc_status.vesc_trace_from_line),
+    ("_link", vesc_status.link_trace_from_line),
+    ("_slip", vesc_status.slip_event_from_line),
+)
+
+
 class ServoCommandBar(QtWidgets.QProgressBar):
     """Read-only 0..1 reference with a fixed 0.50 center and no fake sample."""
 
@@ -160,10 +170,10 @@ class ControlWindow(QtWidgets.QMainWindow):
         self.resize(1220, 770)
         self.setStyleSheet(STYLE)
         self._log_session = None
-        self._trace = None
-        self._vesc = None
-        self._link = None  # 2026-11-17: 마지막 link_trace (통신·제어 주기)
-        self._slip = None  # 2026-11-17 오후: 마지막 [SLIP] 줄 (미끄러짐·막힘 표시)
+        # 2026-11-19: 제어기 로그 줄 4종의 마지막 값 (_LOG_RECORDS)
+        # _trace control_trace · _vesc vesc_trace · _link link_trace(통신·제어 주기, 11-17) · _slip [SLIP](미끄러짐·막힘, 11-17 오후)
+        for name, _parse in _LOG_RECORDS:
+            setattr(self, name, None)
         body = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(body)
         layout.setSpacing(9)
@@ -298,60 +308,41 @@ class ControlWindow(QtWidgets.QMainWindow):
             return 0
         session = str(event.get("run_id", event.get("session", "")))
         if session != self._log_session:
-            self._log_session, self._trace, self._vesc, self._link, self._slip = session, None, None, None, None
+            self._log_session = session
+            for name, _parse in _LOG_RECORDS:
+                setattr(self, name, None)
         for row in rows:
             clean = _ANSI.sub("", row)
-            trace = trace_from_line(clean)
-            vesc = vesc_status.vesc_trace_from_line(clean) if trace is None else None
-            link = vesc_status.link_trace_from_line(clean) if trace is None and vesc is None else None
-            slip = vesc_status.slip_event_from_line(clean) if trace is None and vesc is None and link is None else None
-            if slip is not None:
-                previous_stamp = self._slip.get("stamp") if self._slip else None
-                if finite(previous_stamp) and (not finite(slip["stamp"]) or slip["stamp"] <= previous_stamp):
-                    continue
-                slip.update(event_stamp=event.get("t"),
-                            received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
-                self._slip = slip
-            elif link is not None:
-                previous_stamp = self._link.get("stamp") if self._link else None
-                if finite(previous_stamp) and (not finite(link["stamp"]) or link["stamp"] <= previous_stamp):
-                    continue
-                link.update(event_stamp=event.get("t"),
-                            received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
-                self._link = link
-            elif vesc is not None:
-                previous_stamp = self._vesc.get("stamp") if self._vesc else None
-                if finite(previous_stamp) and (not finite(vesc["stamp"]) or vesc["stamp"] <= previous_stamp):
-                    continue
-                vesc.update(event_stamp=event.get("t"),
-                            received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
-                self._vesc = vesc
-            elif trace is not None:
-                previous_stamp = self._trace.get("stamp") if self._trace else None
-                if finite(previous_stamp) and (not finite(trace["stamp"]) or trace["stamp"] <= previous_stamp):
-                    continue
-                trace.update(event_stamp=event.get("t"),
-                             received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
-                self._trace = trace
-                self._record_trace(trace)
-            elif clean.lstrip().startswith("[controller]") and re.search(r"\bmode=commission\b", clean):
-                # The tail helper may keep a session when the controller restarts.
-                # Do not carry a previous run's numbers over its startup line.
-                stamp = _ROS_STAMP.search(clean)
-                value = _number(stamp.group(1)) if stamp else None
-                old = self._trace.get("stamp") if self._trace else None
-                if not finite(old) or not finite(value) or value >= old:
-                    self._trace = None
-                old = self._vesc.get("stamp") if self._vesc else None
-                if not finite(old) or not finite(value) or value >= old:
-                    self._vesc = None
-                old = self._link.get("stamp") if self._link else None
-                if not finite(old) or not finite(value) or value >= old:
-                    self._link = None
-                old = self._slip.get("stamp") if self._slip else None
-                if not finite(old) or not finite(value) or value >= old:
-                    self._slip = None
+            # 한 줄은 _LOG_RECORDS 순서로 처음 맞는 종류 하나로만 읽는다.
+            for name, parse in _LOG_RECORDS:
+                record = parse(clean)
+                if record is not None:
+                    if self._keep_log_record(name, record, event, session) and name == "_trace":
+                        self._record_trace(record)
+                    break
+            else:
+                if clean.lstrip().startswith("[controller]") and re.search(r"\bmode=commission\b", clean):
+                    # The tail helper may keep a session when the controller restarts.
+                    # Do not carry a previous run's numbers over its startup line.
+                    stamp = _ROS_STAMP.search(clean)
+                    value = _number(stamp.group(1)) if stamp else None
+                    for name, _parse in _LOG_RECORDS:
+                        record = getattr(self, name)
+                        old = record.get("stamp") if record else None
+                        if not finite(old) or not finite(value) or value >= old:
+                            setattr(self, name, None)
         return added
+
+    def _keep_log_record(self, name, record, event, session):
+        """record를 그 종류의 마지막 값으로 둔다. 같은 세션에서 원본 로그 시각이 이전 값보다 늦지 않으면 버린다."""
+        previous = getattr(self, name)
+        previous_stamp = previous.get("stamp") if previous else None
+        if finite(previous_stamp) and (not finite(record["stamp"]) or record["stamp"] <= previous_stamp):
+            return False
+        record.update(event_stamp=event.get("t"),
+                      received_monotonic=getattr(self, "_display_now", time.monotonic()), session=session)
+        setattr(self, name, record)
+        return True
 
     def _clear_debug(self):
         self._traces = []
