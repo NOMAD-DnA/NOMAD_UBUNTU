@@ -334,7 +334,7 @@ bool RawTrialController::beginStopRamp(const string& reason, double steady_now, 
     const double start = min(commanded_erpm_, max(0.0, sample_->raw_erpm));
     if (!(start > end_erpm)) return false;
     commanded_erpm_ = start;
-    stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt, 0, nullopt};
+    stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt, 0u, nullopt};
     stalled_since_.reset();
     reason_ = "speed ramp before planning stop: " + reason;
     return true;
@@ -524,7 +524,8 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
 // Planning stop ramp: the running floor and the stall check do not apply. The command stays at end_erpm until the
 // measured speed is there (then the stop output starts with the handbrake, not a brake pulse), at most
 // kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle). "There" means
-// kStopRampEndSamples telemetry samples in a row (2026-11-17), so a lone HFI ERPM drop does not end the ramp.
+// kStopRampEndLow of the last kStopRampEndWindow telemetry samples (2026-11-18; 3 in a row on 11-17), so a lone HFI
+// ERPM drop does not end the ramp.
 // True when it handed over to the planning wait.
 bool RawTrialController::tickStopRamp(double steady_now, double dt) {
     commanded_erpm_ = max(stop_ramp_->end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
@@ -535,9 +536,13 @@ bool RawTrialController::tickStopRamp(double steady_now, double dt) {
     // The control tick (20 ms) and the telemetry (50 Hz) are not in step: count each new sample once.
     if (!stop_ramp_->counted_stamp || sample_->stamp_s != *stop_ramp_->counted_stamp) {
         stop_ramp_->counted_stamp = sample_->stamp_s;
-        stop_ramp_->low_samples = sample_->raw_erpm <= stop_ramp_->end_erpm ? stop_ramp_->low_samples + 1 : 0;
+        const unsigned window = (1u << kStopRampEndWindow) - 1u;
+        stop_ramp_->recent_low = ((stop_ramp_->recent_low << 1) |
+                                  (sample_->raw_erpm <= stop_ramp_->end_erpm ? 1u : 0u)) & window;
     }
-    if (stop_ramp_->low_samples >= kStopRampEndSamples || settled_too_long) {
+    int low = 0;
+    for (unsigned bits = stop_ramp_->recent_low; bits; bits >>= 1) low += static_cast<int>(bits & 1u);
+    if (low >= kStopRampEndLow || settled_too_long) {
         const string reason = stop_ramp_->reason;
         pauseOrLatch(reason, true); // a stop ramp exists only with planning recovery: always the wait
         return true;

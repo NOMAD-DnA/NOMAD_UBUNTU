@@ -945,9 +945,9 @@ void testPlanningStopRamp() {
            r.controller.planningWaitActive() && r.controller.reason() == "LPP pause; waiting for fresh command" &&
            !r.controller.stopRampActive() && r.controller.commandedMotorErpm() == 0 && previous == 200,
            "the ramp ends once the measured speed is at 200 ERPM, as pausePlanning does: stopped, planning wait, the LPP reason");
-    // 2026-11-17: the measured speed must be at or below 200 for 3 samples in a row (2 more ticks than before).
-    expect(drive_ticks >= 16 && drive_ticks <= 18,
-           "1000 -> 200 ERPM takes about ramp_s (0.3 s at 20 ms ticks), then 3 readings in a row at 200");
+    // 2026-11-18: 2 of the last 3 readings at or below 200 (one more tick than the single reading before 11-17).
+    expect(drive_ticks >= 15 && drive_ticks <= 17,
+           "1000 -> 200 ERPM takes about ramp_s (0.3 s at 20 ms ticks), then 2 of 3 readings at 200"); 
     {
         // The VESC speed PID trails the ramp: the command stays at 200 until the reported speed is there.
         Rig lag; lag.prime(); cruise(lag); begin(lag);
@@ -997,8 +997,8 @@ void testPlanningStopRamp() {
             slows.feed(.02, ticks < 18 ? 450 : 190);
             if (slows.controller.tick(slows.steady, slows.ros, true, 1000).kind != OutputKind::Drive) break;
         }
-        expect(ticks == 20 && slows.controller.state() == TrialState::Stopped,
-               "while waiting at 200, the stop output follows on the third reading in a row at or below 200");
+        expect(ticks == 19 && slows.controller.state() == TrialState::Stopped,
+               "while waiting at 200, the stop output follows on the second reading at or below 200");
     }
     r.feed(.02, 150);
     expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "a fresh command resumes after the ramp stop");
@@ -1021,26 +1021,36 @@ void testPlanningStopRamp() {
     early.feed(.02, 180);
     expect(early.controller.tick(early.steady, early.ros, true, 1000).kind == OutputKind::Drive,
            "one reading at 180 does not end the ramp yet");
-    early.feed(.02, 180); early.controller.tick(early.steady, early.ros, true, 1000);
     early.feed(.02, 180);
     expect(early.controller.tick(early.steady, early.ros, true, 1000).kind == OutputKind::Release &&
            early.controller.state() == TrialState::Stopped && early.controller.planningWaitActive(),
-           "the ramp ends early once the measured speed stays at or below 200 ERPM for 3 readings (slope or obstacle)");
+           "the ramp ends early once 2 of the last 3 readings are at or below 200 ERPM (slope or obstacle)");
     {
-        // 2026-11-17: lone low readings (sensorless HFI noise) do not end the ramp; three in a row do.
+        // 2026-11-18: lone low readings (sensorless HFI noise) do not end the ramp; 2 of the last 3 do.
         Rig g; g.prime(); cruise(g); begin(g, .8);
         bool running = true;
-        for (double erpm : {900.0, 0.0, 880.0, 0.0, 0.0, 860.0}) {
+        for (double erpm : {900.0, 0.0, 880.0, 870.0, 0.0, 860.0, 850.0}) {
             g.feed(.02, erpm);
             running = running && g.controller.tick(g.steady, g.ros, true, 1000).kind == OutputKind::Drive;
         }
-        expect(running && g.controller.stopRampActive(), "one or two lone low ERPM readings keep the ramp running");
-        int ticks = 0;
-        for (; ticks < 3; ++ticks) {
-            g.feed(.02, 0.0);
-            if (g.controller.tick(g.steady, g.ros, true, 1000).kind != OutputKind::Drive) break;
+        expect(running && g.controller.stopRampActive(), "lone low ERPM readings two samples apart keep the ramp running");
+        g.feed(.02, 0.0);
+        expect(g.controller.tick(g.steady, g.ros, true, 1000).kind == OutputKind::Drive, "one low reading: still running");
+        g.feed(.02, 860.0);
+        expect(g.controller.tick(g.steady, g.ros, true, 1000).kind == OutputKind::Drive, "then a high one: still running");
+        g.feed(.02, 0.0);
+        expect(g.controller.tick(g.steady, g.ros, true, 1000).kind != OutputKind::Drive &&
+               g.controller.state() == TrialState::Stopped, "low, high, low (2 of the last 3) ends the ramp");
+        // 11-18 parking-garage pattern: readings straddling 200 at the end no longer run to the 0.6 s cap.
+        Rig s; s.prime(); cruise(s); begin(s);
+        int straddle_ticks = 0;
+        for (double erpm : {700.0, 500.0, 444.0, 122.0, 348.0, 338.0, 190.0, 230.0, 180.0, 240.0, 170.0}) {
+            s.feed(.02, erpm);
+            if (s.controller.tick(s.steady, s.ros, true, 1000).kind != OutputKind::Drive) break;
+            ++straddle_ticks;
         }
-        expect(ticks == 2 && g.controller.state() == TrialState::Stopped, "three low readings in a row end the ramp");
+        expect(straddle_ticks == 8 && s.controller.state() == TrialState::Stopped,
+               "readings straddling 200 (190/230/180) end the ramp on the second low reading of three");
         // A control tick without a new telemetry sample does not count the same sample twice.
         Rig h; h.prime(); cruise(h); begin(h, .8);
         h.feed(.02, 0.0);

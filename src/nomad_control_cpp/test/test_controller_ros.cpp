@@ -756,16 +756,16 @@ public:
                   "an invalid LPP message during the ramp does not cut it short");
             check(wait_status(held,ramp_s+1.0)&&!status_.value("planning_reset_required",true),"the ramp still ends in the hold");
         }else if(scenario=="noisy end"){
-            // 2026-11-17 (2nd bundle, item 1): lone low ERPM readings (sensorless HFI noise) must not end the ramp;
-            // three in a row do. On 11-16, 57 of 95 field ramps ended on such a lone drop while the car still moved.
+            // 2nd bundle item 1 (11-18 rule: 2 of the last 3): a lone low ERPM reading (sensorless HFI noise) must not
+            // end the ramp; two in a row do. On 11-16, 57 of 95 field ramps ended on a lone drop while the car moved.
             check(wait_status(ramp_running,.3),"the ramp runs before the ERPM glitch");
             const size_t outputs_before=stop_output_times_.size();
-            glitch_samples_=2;pump(.12);
+            glitch_samples_=1;pump(.12);
             check(stop_output_times_.size()==outputs_before&&status_.value("stop_ramp_active",false),
-                  "two lone low ERPM samples do not end the ramp");
-            glitch_samples_=3;
+                  "one lone low ERPM sample does not end the ramp");
+            glitch_samples_=2;
             check(wait_status(held,.35)&&stop_output_times_.size()>outputs_before,
-                  "three low ERPM samples in a row end the ramp (the speed really dropped)");
+                  "two low ERPM samples in a row end the ramp (the speed really dropped)");
         }else if(scenario=="link resume"){
             // 2026-11-17 (2nd bundle, item 2): a stop from LPP input loss (Wi-Fi) resumes only after 0.3 s of
             // continuous fresh commands; one late command does not restart the car. A planner STOP is not a link loss.
@@ -791,8 +791,9 @@ public:
             send_planning_=false;
             check(wait_status(held,2.0)&&wait_status([&]{return status_.value("planning_link_pause",false);},.5),
                   "a second expiry sets the link check");
-            lpp(true,0.0);pump(.1);
-            check(!status_.value("planning_link_pause",true),"a planner STOP clears the link check");
+            lpp(true,0.0);
+            // status_json comes every 0.10-0.12 s: wait for it instead of reading it once after a fixed time.
+            check(wait_status([&]{return !status_.value("planning_link_pause",true);},.4),"a planner STOP clears the link check");
             const double t1=steadySeconds();send_planning_=true;
             check(wait_status(active,1.0)&&steadySeconds()-t1<.25,
                   "after a planner STOP, fresh commands resume without the link wait");
