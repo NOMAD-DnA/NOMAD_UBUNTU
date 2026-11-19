@@ -1,0 +1,517 @@
+{
+  "snapshot_at_kst": "2026-11-19T20:11:00.545902+09:00",
+  "scope": "기존 매퍼 개선 nomad_terrain_mapper",
+  "remote": {
+    "installed_binary_sha256": "f0341ac97bd19790d246de0cb3900a5a4e3804684a01a7ae24f65e227186de5b",
+    "source_workspace": "/home/nvidia/nomad_terrain_ws",
+    "resolved_workspace": "/mnt/ssd/nomad/nomad_terrain_ws"
+  },
+  "active_terrain_config": {
+    "map_length_m": 10.0,
+    "slope_angle_reference": "gravity",
+    "freeze_slope_after_first_valid": true,
+    "retry_slope_score_at_least_100": true,
+    "startup_seed_keep_frozen": false,
+    "label_accumulation": {
+      "enabled": false,
+      "max_labels_per_tick": 3
+    },
+    "keep_slope_on_failure": true,
+    "cost_area": "known_cells",
+    "max_map_cells": 0,
+    "map_keep_radius_m": 6.0,
+    "slope_score_per_deg": 8.0,
+    "slope_block_deg": 10.0,
+    "gui_overrides": {
+      "boundary_margin_px": 2,
+      "startup_radius_m": 1.4999999999999996
+    },
+    "oak_max_horizontal_distance_m": 2.0,
+    "oak_lidar_max_abs_z_difference_cm": 5.0
+  },
+  "files": {
+    "src/nomad_terrain_core/CMakeLists.txt": {
+      "sha256": "b88e9508765310203a8c2af03264ee32a3b6815baa35cee369c9d0a885e6f7d0",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/CMakeLists.txt"
+    },
+    "src/nomad_terrain_core/include/nomad_costmap/camera_model.hpp": {
+      "sha256": "9c29765736d8ed71d677045bee0beca1ba90788403a63c3f15622d80ba751e25",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/include/nomad_costmap/camera_model.hpp"
+    },
+    "src/nomad_terrain_core/include/nomad_costmap/cell_executor.hpp": {
+      "sha256": "4db439e5bf7d9db8009b03e6ca926f6f72d9b51831d006014e6388125b906669",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/include/nomad_costmap/cell_executor.hpp"
+    },
+    "src/nomad_terrain_core/include/nomad_costmap/core.hpp": {
+      "sha256": "1c08e484a58c38bf7db36003ce26bf4da3e42bee26f39d8fc06b413beda43a73",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/include/nomad_costmap/core.hpp"
+    },
+    "src/nomad_terrain_core/include/nomad_costmap/detail.hpp": {
+      "sha256": "ed7b63f2cddef7e65e6ca68dc62696eac044546ba38dba9f9edb4c45ece7acad",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/include/nomad_costmap/detail.hpp"
+    },
+    "src/nomad_terrain_core/include/nomad_costmap/moving_front_free_region.hpp": {
+      "sha256": "aa75a5b0eeae79a74a10d26b8829b37522bc57dcab1448289b8ad97b046a0aec",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/include/nomad_costmap/moving_front_free_region.hpp"
+    },
+    "src/nomad_terrain_core/package.xml": {
+      "sha256": "25d1ca6db6d9c667d232ecd267aaf41918e6d6cb03ee1fc4a663780d51cdbaa8",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/package.xml"
+    },
+    "src/nomad_terrain_core/src/camera_model.cpp": {
+      "sha256": "c575dc3a48f64e6e9cd889d16d0d3f0b5155ccbc944a6474da743a02a671fff7",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/src/camera_model.cpp"
+    },
+    "src/nomad_terrain_core/src/cell_executor.cpp": {
+      "sha256": "9a9e4c200c878876e9de680277fbecaca065ba1e39831bc80ccb949f97c9b58c",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/src/cell_executor.cpp"
+    },
+    "src/nomad_terrain_core/src/common.cpp": {
+      "sha256": "2e6937c833ab157d938a27380baa4590443144457cf92dea63c0f9d11ced1d3e",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/src/common.cpp"
+    },
+    "src/nomad_terrain_core/src/slope.cpp": {
+      "sha256": "42588d1d15ec38add4a954ced8511dc429b0f8e7c1cc43dbd93ccd77de50f6ea",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/src/slope.cpp"
+    },
+    "src/nomad_terrain_core/vendor/LICENSE-nanoflann.txt": {
+      "sha256": "3c277659d8dae2877c3694a0b24fe62b4cbe963a24c4556faaabc57490b2d22d",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/LICENSE-nanoflann.txt"
+    },
+    "src/nomad_terrain_core/vendor/LICENSE-nlohmann.txt": {
+      "sha256": "7c38f08817ef2ecc12cbe7a8a955a52de0e746ba48dbbd82fe1f9aeb4eb83df1",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/LICENSE-nlohmann.txt"
+    },
+    "src/nomad_terrain_core/vendor/include/nanoflann.hpp": {
+      "sha256": "fab6b6a7081be7ab159d9fa07098c6b467774a5c5996e1214adb9bebcb898750",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nanoflann.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/adl_serializer.hpp": {
+      "sha256": "242b578e1a41c97dec6890bd88bdb824cdb76a9edd849c108299a59469d327e0",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/adl_serializer.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/byte_container_with_subtype.hpp": {
+      "sha256": "c7dc197cbb54b9168373b4b9a3e1cc57cc5583bfcf5008b722b363335bc53511",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/byte_container_with_subtype.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/abi_macros.hpp": {
+      "sha256": "1c7dc7c5062b199a35853f4056ed00ed359ef8fa5c7fb15a58bc79598ec21422",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/abi_macros.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/conversions/from_json.hpp": {
+      "sha256": "b37ced0ba32f8ac5834b4c96058ca5e445bccea27f46299a359eed0ecbf2e58e",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/conversions/from_json.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/conversions/to_chars.hpp": {
+      "sha256": "5fe11205c45dbd08373244d743f38e89ceefb8c9b5fc4c68077117c786d53bef",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/conversions/to_chars.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/conversions/to_json.hpp": {
+      "sha256": "73bad524856d475a6071fd7b5422f80df13ba7586f0d4b48141c2ec60cebcf89",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/conversions/to_json.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/exceptions.hpp": {
+      "sha256": "55299c55106de2624ca7aa6a5705ad6ff53814c1b52f8fe8d2872f13c956c95a",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/exceptions.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/hash.hpp": {
+      "sha256": "74a9e3af772127cf0b12ee794abc8c47b5bea74ce658d0d20179a26be5d95d0d",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/hash.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/input/binary_reader.hpp": {
+      "sha256": "484bcc276c4fa6c7c61a93a8223f3e53bb4dc966e688e96641a93a50d7e503e9",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/input/binary_reader.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/input/input_adapters.hpp": {
+      "sha256": "bd549419506089c82c94446f939587362ff01516b8e6624c472e704d27b1be42",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/input/input_adapters.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/input/json_sax.hpp": {
+      "sha256": "9147c9d07784a5f3de890d68401ae07d03d0bc0db24ebcbe7beb8a31cfd858a0",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/input/json_sax.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/input/lexer.hpp": {
+      "sha256": "550c275f09d55deb1705b97b8a15b02f211ea0ba87e95452e7a023b854bb024c",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/input/lexer.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/input/parser.hpp": {
+      "sha256": "094aed22cfdd641ac15ef59bfef8dd1e23fd92373633a92ed928cb580f0cbd7e",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/input/parser.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/input/position_t.hpp": {
+      "sha256": "0c9c5be26020c0a7929f3cc1e7e0065589d6a8f4dc1bd2ee13f10ef1a7efaa24",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/input/position_t.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/internal_iterator.hpp": {
+      "sha256": "e75cf5e3c9ae358055bf3335fa2c5b6bbfbd1e24ea3dfdb62c187f37a8e2b485",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/internal_iterator.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/iter_impl.hpp": {
+      "sha256": "70d81ebb931db43a19fe3872a3fb1bc91fab27509c8d29ee4c4dd247b384cae1",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/iter_impl.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/iteration_proxy.hpp": {
+      "sha256": "839efba147f6f15c693c741039daa3d383c2f4afb8fe653e4dad49a9f998d1d1",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/iteration_proxy.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/iterator_traits.hpp": {
+      "sha256": "04b0edaeb214aa1c932b9078849a8fbbbda9c7a241b4cbc28a90b6d11c959443",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/iterator_traits.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/json_reverse_iterator.hpp": {
+      "sha256": "031b45c4f90ab7d64ecb6606fad880d867a23fc63a431f0de34f0fc104307b66",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/json_reverse_iterator.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/primitive_iterator.hpp": {
+      "sha256": "6c949107bb779cecb8beba0835f7292656b52b08c3f6a6d3b27229b58c28aefe",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/iterators/primitive_iterator.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/json_custom_base_class.hpp": {
+      "sha256": "70da7c5b17777f8da6d83310d6526856542585efa8a078db61227b11aaf9ec0b",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/json_custom_base_class.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/json_pointer.hpp": {
+      "sha256": "4cf537ad88b2d686d5a349b26da7e012ba9a58b01a0ab2badaa796d9150e69bb",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/json_pointer.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/json_ref.hpp": {
+      "sha256": "1660750dd10a562aac1eea37021f1e7138a5d6d50b051815708497a8d30bf60d",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/json_ref.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/macro_scope.hpp": {
+      "sha256": "70d2b2aa49a93170ded3d0c0d1b0f76103fdd09704ba5ecc862bc03095920847",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/macro_scope.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/macro_unscope.hpp": {
+      "sha256": "5f7040df475e2c943d9b22c335b61600deb14b1e48a69b3450de4c4a08c320bc",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/macro_unscope.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/call_std/begin.hpp": {
+      "sha256": "379660c15a30b84ff2a67e22734638f608cc37b34648461c7e9167da1153d861",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/call_std/begin.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/call_std/end.hpp": {
+      "sha256": "deca609bf200442f452b848c19f28ee30879df0ca35e959ed3b41f861c92df55",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/call_std/end.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/cpp_future.hpp": {
+      "sha256": "486ba5a3724131d0c1646e36d9a4a9877505b2914078347e6067bb65593f01ce",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/cpp_future.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/detected.hpp": {
+      "sha256": "f79aa1f107e4dfd4554753e6fe05364a1147ef4498d3125cfc939a5534d2d527",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/detected.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/identity_tag.hpp": {
+      "sha256": "bba9559dec8519de3044b537e96a59a601831797a5a3c38bf8023a6d949118d0",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/identity_tag.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/is_sax.hpp": {
+      "sha256": "1f81d6098b9aad02a95c27ec333bbb13eec3c5171b968e39b7ecb1b06b16c55b",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/is_sax.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/std_fs.hpp": {
+      "sha256": "fb514154ea8c11c04a00efeb2e89edbfd40f149ed39ef36568d9b2a1062e85e0",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/std_fs.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/type_traits.hpp": {
+      "sha256": "1f901f9e4bcd585ff22c6b0c0956566ba8a4a1238a490a64e7755a2c313040d5",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/type_traits.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/void_t.hpp": {
+      "sha256": "581e7b157457eb9c488793f2cd7066b2c1ba31d5e9fea6f0d67c8c732b5088e4",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/meta/void_t.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/output/binary_writer.hpp": {
+      "sha256": "665ce1ea5fb2cb425896b713bdd8d8d5a6d69688924fa6e2efaffb4e9d132011",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/output/binary_writer.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/output/output_adapters.hpp": {
+      "sha256": "1e0bcc375b4d84180649198e2f8061f5968a10a6913231fee097689d281ed565",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/output/output_adapters.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/output/serializer.hpp": {
+      "sha256": "259c611d4b1147e3626d25bc05994b28f91f4fcca2e578e486dcf51c0234e5c8",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/output/serializer.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/string_concat.hpp": {
+      "sha256": "e8001630045f800c0ebcfc19e2b2f90139a4d20a9a359e134657767fd6fa9aa2",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/string_concat.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/string_escape.hpp": {
+      "sha256": "3bf6687ffa7f6fd3034591adfdd6ea073584df83694c6b57feed9ada965801e7",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/string_escape.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/detail/value_t.hpp": {
+      "sha256": "60a7e24b34e93b8ba40eecf310a40c55042754328271c246f9cc1069f6a25958",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/detail/value_t.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/json.hpp": {
+      "sha256": "2432cbf7f4258453538eca193cd937fc777462ae2ce8ee9f46e6ee460ef56bea",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/json.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/json_fwd.hpp": {
+      "sha256": "c5b950b428534861b5869254fd773afc724112fc9e141bd1fc89189640a3ae5d",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/json_fwd.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/ordered_map.hpp": {
+      "sha256": "31d1bb02500b734e09c27ce2cc216c8af188344fbc19a6946ae301a12c7b62df",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/ordered_map.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/thirdparty/hedley/hedley.hpp": {
+      "sha256": "20d6c1c6d6c30365f68a45093798937971b593919fb3051431f0c015dfa671fb",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/thirdparty/hedley/hedley.hpp"
+    },
+    "src/nomad_terrain_core/vendor/include/nlohmann/thirdparty/hedley/hedley_undef.hpp": {
+      "sha256": "0f8902f26872f40a2514e9c9be2fcebfce6cde0022e9364fddd17fb49575b146",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/include/nlohmann/thirdparty/hedley/hedley_undef.hpp"
+    },
+    "src/nomad_terrain_core/vendor/source_manifest.json": {
+      "sha256": "e580f1bd4eba8f6c83b92608724761edc6d19b325c1f991e624b0ce6d1280ba0",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_core/vendor/source_manifest.json"
+    },
+    "src/nomad_terrain_cost/CMakeLists.txt": {
+      "sha256": "1b419fb5bdc6b0838b1e70cfc03a334c9089678cd6c72d125a2c785f0844e71f",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_cost/CMakeLists.txt"
+    },
+    "src/nomad_terrain_cost/package.xml": {
+      "sha256": "22763d35caf0d494182cdb17b67ad86e0d2148558823bff417f5f737f4c8c998",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_cost/package.xml"
+    },
+    "src/nomad_terrain_cost/src/cost.cpp": {
+      "sha256": "5f576e5098dc14438b76e4ef9bb267453cff12abe717c0f5e4169fad4ed15e1c",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_cost/src/cost.cpp"
+    },
+    "src/nomad_terrain_mapper/CMakeLists.txt": {
+      "sha256": "15ca3c9ae66b774e4c79b35e2f242d315d1b5e2da2a26a4173e597a1148d09a3",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/CMakeLists.txt"
+    },
+    "src/nomad_terrain_mapper/config/terrain.json": {
+      "sha256": "e1a1c2ca5b8c0ec410f219473c69f0630899ca099a54e18c61fefc999778084e",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/config/terrain.json"
+    },
+    "src/nomad_terrain_mapper/config/terrain_doc.json": {
+      "sha256": "4ec0750bc4c568f443396c8161c721dc746c6f4f8083276f54a4df1c597e7490",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/config/terrain_doc.json"
+    },
+    "src/nomad_terrain_mapper/include/nomad_costmap/executor_event.hpp": {
+      "sha256": "a2b0531d2f7bc125a206b60b078536dbff59cee49caac705f445c28142e66b57",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/include/nomad_costmap/executor_event.hpp"
+    },
+    "src/nomad_terrain_mapper/include/nomad_costmap/input_health.hpp": {
+      "sha256": "2e00996c843f5c469c572293b82008c50d9fb630acf15802b64449fac010b525",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/include/nomad_costmap/input_health.hpp"
+    },
+    "src/nomad_terrain_mapper/include/nomad_costmap/oak_height_override.hpp": {
+      "sha256": "6559ac0cff95e6c7d5120ec467598c8ef8fd13d3cf2dbabc5ee46fe9178cd039",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/include/nomad_costmap/oak_height_override.hpp"
+    },
+    "src/nomad_terrain_mapper/include/nomad_costmap/oak_horizontal_crop.hpp": {
+      "sha256": "d08df9bf0df164640589402890a3a6f7023e10e75e99074e923dbc9fe0d396f8",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/include/nomad_costmap/oak_horizontal_crop.hpp"
+    },
+    "src/nomad_terrain_mapper/include/nomad_costmap/ros_util.hpp": {
+      "sha256": "541fb938a7b60f6b599a46cc76f0447507ff948655195cae117148c2ff0c8863",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/include/nomad_costmap/ros_util.hpp"
+    },
+    "src/nomad_terrain_mapper/package.xml": {
+      "sha256": "601f2c01ca25db4c9579fe942990b5d01c2fd1b70ccca2bf95d5a4e18e6c4fe5",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/package.xml"
+    },
+    "src/nomad_terrain_mapper/scripts/run_terrain_mapper.sh": {
+      "sha256": "73b5a6e4bf697aa10b458c4b8f6c995dce560cb96546924451ecf45093c1f3fc",
+      "mode": 509,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/scripts/run_terrain_mapper.sh"
+    },
+    "src/nomad_terrain_mapper/src/mapper.cpp": {
+      "sha256": "fc382db88781ddc5f15c47383729f358accc731d18150f04e308238ed376b46c",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/src/mapper.cpp"
+    },
+    "src/nomad_terrain_mapper/src/oak_height_override_test.cpp": {
+      "sha256": "6f1feeae2dc41cba91213407adfbcf87a0588a696b3b809f56a0438fc11fc9be",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/src/oak_height_override_test.cpp"
+    },
+    "src/nomad_terrain_mapper/src/oak_horizontal_crop_test.cpp": {
+      "sha256": "a256e9cc6600b889016829b733eccc4986d53e90a1e953a2e71861153d68b9ec",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_mapper/src/oak_horizontal_crop_test.cpp"
+    },
+    "src/nomad_terrain_semantic/CMakeLists.txt": {
+      "sha256": "472130fdd7fff491ba5a55eda66c02b46aecdacace4e4ad0195af328492a0072",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_semantic/CMakeLists.txt"
+    },
+    "src/nomad_terrain_semantic/package.xml": {
+      "sha256": "16a984ed13f09db84e7ec301f27f25af43132d98febb192b54b4428c664f380e",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_semantic/package.xml"
+    },
+    "src/nomad_terrain_semantic/src/semantic.cpp": {
+      "sha256": "368d3df042ca349b9973c9f6ed6bb99142839bb79a9a284b56e9e6c830029a0b",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_terrain_ws/src/nomad_terrain_semantic/src/semantic.cpp"
+    },
+    "active_config/terrain.json": {
+      "sha256": "aeb4c7e480692a428e0ffe17e6e6991c858927a414f1975375b6e15f98bb2046",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_terrain_ws/active_config/terrain.json"
+    },
+    "src/nomad_interfaces/CMakeLists.txt": {
+      "sha256": "b10b69c99b0573c7aaeb943f6b6cbb1cb4c8ac75eaf7e0d67a948ce869ad21f0",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/CMakeLists.txt"
+    },
+    "src/nomad_interfaces/README.md": {
+      "sha256": "fbe5fe4afd4e3d90da49cb6b82527b42af4d8e515edea12fa54dc4691baf8b9a",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/README.md"
+    },
+    "src/nomad_interfaces/msg/DriveCommand.msg": {
+      "sha256": "e9e55b9ad80d35c1f4df106c4b53184d1fe9a971986de833ada7cd1b48edd1e2",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/msg/DriveCommand.msg"
+    },
+    "src/nomad_interfaces/msg/GnssQuality.msg": {
+      "sha256": "7182dfcee5560f71b0cd707da99893c2f7c82f3726d1aca50d84bcff48cab9b0",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/msg/GnssQuality.msg"
+    },
+    "src/nomad_interfaces/msg/ModuleStatus.msg": {
+      "sha256": "b42ccd2e75725364b539991a2f9d2393ee4bf222048b0cb2cc5ddbf39e509be6",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/msg/ModuleStatus.msg"
+    },
+    "src/nomad_interfaces/msg/PlannedMotion.msg": {
+      "sha256": "bf7322f433697bc6968b4d5df43a4337774b2d9a34b64e51a147784aa988cbd8",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/msg/PlannedMotion.msg"
+    },
+    "src/nomad_interfaces/msg/PlanningCostLayers.msg": {
+      "sha256": "f30c8d3b8db0917fd044a0b7ff2fce846ebfc0c4bc64a81bdf53e21d638a624c",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/msg/PlanningCostLayers.msg"
+    },
+    "src/nomad_interfaces/msg/VehicleState.msg": {
+      "sha256": "3d41b90ceffc0a32a08ca1e671261f2daa8ac9b0744784c39836542ed0aea72c",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/msg/VehicleState.msg"
+    },
+    "src/nomad_interfaces/package.xml": {
+      "sha256": "0b46cfcca97980125ffac498c43dfe1636e489ff36c255659174a609fdc3ca2e",
+      "mode": 436,
+      "origin": "/home/nvidia/nomad_ws/src/nomad_interfaces/package.xml"
+    },
+    "runtime-config/semantic.real.json": {
+      "sha256": "9603891f7d76fb61724fdf1526d22243c1c4f5c1a91f991147bea1b500927d72",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_ws/tools/visual_trial_20261106/runtime-map-preview/share/nomad_costmap_cpp/config/semantic.real.json"
+    },
+    "runtime-config/slope.json": {
+      "sha256": "624c9ce0e87f7963dc86c0926f992603260ec5e2d9c31a1754c645dcf571d276",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_ws/tools/visual_trial_20261106/runtime-map-preview/share/nomad_costmap_cpp/config/slope.json"
+    },
+    "runtime-config/oak_g2b_selected_20261030.json": {
+      "sha256": "fdbbef027953b404aedf59aed2b9c999481ba24fd387fdd72bc01d1d5978c49c",
+      "mode": 420,
+      "origin": "/home/nvidia/nomad_ws/tools/visual_trial_20261106/runtime-map-preview/share/nomad_costmap_cpp/config/oak_g2b_selected_20261030.json"
+    },
+    "gui-integration/terrain_settings.py": {
+      "sha256": "00240c491c0ef46131eebd26e8e23687f8d9cf1e8679f1c89d61b0a310dd454c",
+      "origin": "/home/hyeonsu/team-shared/NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106/laptop_monitor/terrain_settings.py",
+      "mode": 420
+    },
+    "gui-integration/terrain_config/terrain.json": {
+      "sha256": "61338a0811c3e86b47a443b62a1dbf7e929ca958abe3390ace7f98daad6d4bc6",
+      "origin": "/home/hyeonsu/team-shared/NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106/laptop_monitor/terrain_config/terrain.json",
+      "mode": 420
+    },
+    "gui-integration/terrain_config/terrain_doc.json": {
+      "sha256": "3fe17593577e5220d686ef75c6c0ee7c738ce794548632bc6c8206904a5489c3",
+      "origin": "/home/hyeonsu/team-shared/NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106/laptop_monitor/terrain_config/terrain_doc.json",
+      "mode": 420
+    },
+    "gui-integration/tests/test_terrain_settings.py": {
+      "sha256": "0e4b14cf9b80fc8bba4573f9f02af909055d1c968eced53f2c9a196aae5b6db6",
+      "origin": "/home/hyeonsu/team-shared/NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106/laptop_monitor/tests/test_terrain_settings.py",
+      "mode": 420
+    }
+  },
+  "verified_against_20261119_deployment": true,
+  "fresh_build_performed": false,
+  "board_modified": false
+}

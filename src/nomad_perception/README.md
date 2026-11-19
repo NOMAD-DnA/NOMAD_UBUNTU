@@ -115,3 +115,7 @@ With record_results enabled, terrain/obstacle_diagnostics.jsonl records each sav
 ## 실물 LiDAR/OAK/ZED 인지
 
 `./scripts/run_real_perception.sh`로 별도 실행한다. Pi 5 융합 pose를 사용하고 기존 Planning 계약에 맞춰 발행한다. 웹 화면과 실험 결과 저장은 포함하지 않는다. 실행 파일 목록, 외부 센서 의존성, 미완성 실물 설정 및 검사 방법은 [실물 인지 안내](docs/real_perception.md)를 참고한다.
+
+## 기존 매퍼 개선 Jetson 소스 (2026-11-19)
+
+GUI의 "기존 매퍼 개선"으로 실행하는 `nomad_terrain_mapper`의 전체 소스와 수집 당시 설정은 [terrain_mapper/](terrain_mapper/README.md)에 보관했습니다. OAK 수평거리 제한과 높이 차이 GUI 설정을 포함합니다. 독립 ROS 2 Humble 작업공간이며 `COLCON_IGNORE`로 상위 인지 패키지 빌드와 분리합니다. 기존 `traversability/` 및 시뮬레이션 인지 구현은 그대로 유지합니다.

@@ -1,0 +1,23 @@
+{
+ "map_length_m": 10.0,
+ "slope_angle_reference": "gravity",
+ "freeze_slope_after_first_valid": true,
+ "retry_slope_score_at_least_100": true,
+ "startup_seed_keep_frozen": false,
+ "label_accumulation": {
+  "enabled": false,
+  "max_labels_per_tick": 3
+ },
+ "keep_slope_on_failure": true,
+ "cost_area": "known_cells",
+ "max_map_cells": 0,
+ "map_keep_radius_m": 6.0,
+ "slope_score_per_deg": 8.0,
+ "slope_block_deg": 10.0,
+ "gui_overrides": {
+  "boundary_margin_px": 2,
+  "startup_radius_m": 1.4999999999999996
+ },
+ "oak_max_horizontal_distance_m": 2.0,
+ "oak_lidar_max_abs_z_difference_cm": 5.0
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_terrain_cost</name>
+  <version>1.0.0</version>
+  <description>Legacy NOMAD cost fusion (build_cost).</description>
+  <maintainer email="nomad@example.com">NOMAD</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>nomad_terrain_core</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

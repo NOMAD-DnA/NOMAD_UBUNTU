@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_terrain_mapper</name>
+  <version>1.0.0</version>
+  <description>Single-process legacy NOMAD mapper node (no JSON IPC).</description>
+  <maintainer email="nomad@example.com">NOMAD</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>nomad_terrain_core</depend>
+  <depend>nomad_terrain_semantic</depend>
+  <depend>nomad_terrain_cost</depend>
+  <depend>rclcpp</depend>
+  <depend>sensor_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>diagnostic_msgs</depend>
+  <depend>tf2_ros</depend>
+  <depend>nomad_interfaces</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

@@ -1,0 +1,132 @@
+{
+ "map_length_m": {
+  "title": "지도 크기",
+  "description": "차량 중심 정사각형 지도의 한 변이에요. 이 밖의 칸 기록은 지워서 오래 주행해도 계산량이 늘지 않아요. 0이면 기존처럼 관측한 모든 칸을 계속 들고 있어요.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 100.0,
+  "default": 20.0
+ },
+ "slope_angle_reference": {
+  "title": "경사 각도 기준",
+  "description": "gravity: 추정한 평면과 중력 방향 사이 각도예요. 차가 어느 쪽을 보든 같은 값이고, 비용은 4×각도, 20° 이상은 막힘이에요. heading: 기존 방식으로 차가 보는 방향 기준 오르막/내리막이에요(내리막 −10°~0°는 비용 0).",
+  "unit": "선택",
+  "options": [
+   "gravity",
+   "heading"
+  ],
+  "default": "gravity"
+ },
+ "freeze_slope_after_first_valid": {
+  "title": "첫 경사 고정",
+  "description": "켜면 기존처럼 한 칸의 경사를 한 번 구하면 고정해요. 끄면 새 점이 들어올 때마다 다시 계산해요.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "retry_slope_score_at_least_100": {
+  "title": "막힌 경사만 재계산",
+  "description": "'첫 경사 고정'을 켰을 때만 의미가 있어요. 점수 100(막힘)인 칸만 다시 계산해요(기존 설정).",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "startup_seed_keep_frozen": {
+  "title": "시작 평지 가정 고정",
+  "description": "시작 위치 주변을 평지(0°)로 가정한 칸을 계속 0°로 유지해요(기존). 끄면 실제 점이 들어온 칸은 다시 계산해요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "label_accumulation.enabled": {
+  "title": "의미분할 이미지 누적",
+  "description": "켜면 아직 반영하지 않은 라벨 이미지를 시간 순서대로 모두 반영해요(슬라이딩 윈도우). 끄면 기존처럼 가장 새 이미지 1장만 써요. 의미분할 Hz가 지도 갱신보다 빠를 때 차이가 나요.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "label_accumulation.max_labels_per_tick": {
+  "title": "한 번에 반영할 이미지 수",
+  "description": "지도 갱신 1번에 처리할 라벨 이미지 최대 수예요. 넘치면 오래된 것부터 건너뛰어요(CPU 보호).",
+  "unit": "장",
+  "min": 1,
+  "max": 32,
+  "default": 4
+ },
+ "keep_slope_on_failure": {
+  "title": "경사 재계산 실패 시 유지",
+  "description": "켜면 이미 경사를 구한 칸에서 다시 계산이 실패해도(점 부족·평면 불량) 이전 경사를 그대로 둬요. 끄면 기존처럼 '모름'으로 덮어써서 경사 칸이 깜빡이며 사라질 수 있어요. 성공하면 언제나 새 값으로 바뀌어요.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "cost_area": {
+  "title": "비용 계산 범위",
+  "description": "map_window: 지도 크기 정사각형 전체(20 m면 25,600칸)를 매번 계산해요. known_cells: 실제로 측정한 칸을 감싸는 사각형만 계산해요(기존 매퍼 방식, 보통 수천 칸이라 빨라요). 지도 크기 밖은 어느 쪽이든 없어요.",
+  "unit": "선택",
+  "options": [
+   "map_window",
+   "known_cells"
+  ],
+  "default": "map_window"
+ },
+ "max_map_cells": {
+  "title": "칸 개수 상한",
+  "description": "0이면 끔. 켜면(1000 이상) 경사·의미 기록을 이 개수까지만 들고, 넘치면 가장 오래 안 본 칸부터 지워요. 차 주변 '보호 반경' 안은 지우지 않아요. 지도 크기와 함께 써도 되고, 지도 크기를 0으로 두면 상한만으로 관리해요(이때 지나온 길이 길면 비용 사각형이 커질 수 있어요).",
+  "unit": "칸",
+  "min": 0,
+  "max": 1000000,
+  "default": 0
+ },
+ "map_keep_radius_m": {
+  "title": "보호 반경",
+  "description": "칸 개수 상한으로 지울 때 차 중심에서 이 거리 안의 칸은 절대 지우지 않아요(뒤쪽 지도가 갑자기 사라지는 것 방지).",
+  "unit": "m",
+  "min": 1.0,
+  "max": 30.0,
+  "default": 6.0
+ },
+ "slope_score_per_deg": {
+  "title": "경사 점수 계수",
+  "description": "막힘 각도 미만에서 경사 점수 = 계수 × 경사(도)(80점 미만), 막힘 각도 = 80 ÷ 계수 이상은 100(막힘)이에요. 기존 값 4면 15°는 60점, 20° 이상 막힘. 8이면 10°부터, 2면 40°부터 막힘. 4가 아닐 때만 Jetson terrain.json에 써요. 보드 매퍼가 이 키를 모르는 빌드면 시작할 때 빼고 기존(4·20°)으로 켜며 '경사 계수 미적용: 개선 매퍼 재빌드 필요'를 보여 줘요.",
+  "unit": "점/도",
+  "min": 1.78,
+  "max": 16.0,
+  "default": 4.0
+ },
+ "slope_block_deg": {
+  "title": "경사 막힘 각도",
+  "description": "경사 점수 계수에서 자동 계산(80 ÷ 계수)돼 직접 고칠 수 없어요. 이 각도 이상인 칸은 100(막힘)이에요.",
+  "unit": "deg",
+  "min": 5.0,
+  "max": 45.0,
+  "default": 20.0
+ },
+ "gui_overrides.boundary_margin_px": {
+  "title": "클래스 경계 px",
+  "description": "라벨 이미지에서 다른 클래스와 이 픽셀 거리 안에 있는 점은 의미 정보에 쓰지 않아요(경계 오분류 방지). 키우면 경계 근처가 '모름'으로 남는 칸이 늘어요. 비우면 Jetson의 semantic.real.json 값(boundary_margin_px)을 그대로 써요. 실행 때마다 사본에만 적용하고 원본 파일·기존 매퍼는 바꾸지 않아요. 이 값은 GUI 전용 칸(gui_overrides)이라 개선 매퍼 프로그램에는 넘기지 않아요.",
+  "unit": "px",
+  "min": 0,
+  "max": 20,
+  "default": null
+ },
+ "gui_overrides.startup_radius_m": {
+  "title": "초기 안전영역 반경",
+  "description": "시작 위치 둘레 원 안을 평지(0°)·의미 비용 0으로 가정해요(semantic.real.json startup_free_region.radius_m). 비우면 Jetson 파일 값을 써요. 0이면 끔. 실행 때마다 사본에만 적용해요.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 5.0,
+  "default": null
+ },
+ "oak_max_horizontal_distance_m": {
+  "title": "OAK 점군 누적 최대 수평거리",
+  "description": "점군 촬영 시각의 차량 위치와 전방을 VIO odom 좌표계로 변환해, 전방 반원 안의 XY 수평거리만 사용합니다. 범위 밖 OAK 점은 누적 전에 버리므로 의미 판단과 경사 계산에도 사용하지 않습니다. 높이 Z는 거리 계산에서 제외하고 실제 높이는 유지합니다. LiDAR와 이미 누적된 지도의 보존 규칙은 바꾸지 않습니다. 다음 시험 시작부터 적용합니다.",
+  "unit": "m",
+  "min": 0.1,
+  "max": 30.0,
+  "default": 2.0
+ },
+ "oak_lidar_max_abs_z_difference_cm": {
+  "title": "OAK/LiDAR 높이 차이 제거 기준",
+  "description": "OAK 점 주변 XY 수평 반경 12cm 안의 최근접 LiDAR 지면점과 odom Z 높이 차이의 절댓값이 이 값 이상이면 OAK 점을 경사 계산에서 제거합니다. 예: 12cm 설정이면 12cm 이상 제거, 12cm 미만은 이 검사를 통과합니다. 비교할 LiDAR 점이 없으면 이 검사로 제거하지 않습니다. 수평 비교 반경과 LiDAR 점은 바꾸지 않습니다. 다음 시험 시작부터 적용합니다.",
+  "unit": "cm",
+  "min": 0.1,
+  "max": 100.0,
+  "default": 12.0
+ }
+}

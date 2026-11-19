@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_terrain_semantic</name>
+  <version>1.0.0</version>
+  <description>Legacy NOMAD semantic grid / local ground labelling.</description>
+  <maintainer email="nomad@example.com">NOMAD</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>nomad_terrain_core</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>
