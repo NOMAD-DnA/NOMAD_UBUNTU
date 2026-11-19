@@ -50,10 +50,16 @@ nomad_vesc_trial:
     stop_handbrake_load_gain: 1.45
     stop_handbrake_rolling_current_a: 6.0
     stop_handbrake_margin_a: 8.0
-    # 2026-11-13: after each restart (stop output -> speed command) log '[RESTART_TRACE]' every control tick
-    # (cmd/measured ERPM, current_a, VESC avg_iq) for this many seconds, to judge VESC speed-PID tuning
-    # (s_pid_kp/ki) on slopes; 3 s also covers slow restarts with the current gains. 0 = off.
+    # 2026-11-13: after each restart (stop output -> speed command) trace this many seconds (cmd/measured ERPM,
+    # current_a, VESC avg_iq), to judge VESC speed-PID tuning (s_pid_kp/ki) on slopes; 3 s also covers slow
+    # restarts with the current gains. 0 = off.
+    # 2026-11-19: a start line and one summary line at the end ('[RESTART_TRACE] end ... reach_s= iq_peak_a= ...').
     restart_trace_s: 3.0
+    # 2026-11-19: true = also one '[RESTART_TRACE]' / '[STOP_RAMP]' line per control tick (50 per second), as before
+    # 11-19. Off: the team GUI reads only the last 1 KiB of this log each second; in the 11-18 corridor run these
+    # lines were 39 % of the log, and a stop right before a restart lost its '[STOP_RAMP] end' line under them.
+    # Turn on only for bench analysis that reads the full log file on the Pi4.
+    trace_every_tick: false
     # 후보 시험 한계이며 측정된 속도/각도 또는 기계적 안전 범위가 아닙니다.
     commissioning.motor_max_erpm: 1850.0
     # 2026-11-15: GUI 수동 조종 후진 최대 ERPM(크기). 0이면 전진만(이전 동작). 자율주행(플래너) 경로는 항상 전진만.

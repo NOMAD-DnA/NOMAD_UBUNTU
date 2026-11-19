@@ -9,7 +9,11 @@
 #endif
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <rcutils/logging.h>
 #include <cmath>
+#include <cstdarg>
+#include <cstdlib>
+#include <mutex>
 #include <iostream>
 #include <set>
 #include <string>
@@ -30,6 +34,48 @@ void expect(bool ok, const char* name) {
     ++checks;
     if (!ok) { ++failures; cerr << "FAIL: " << name << '\n'; }
 }
+
+// 2026-11-19: the controller's trace lines, captured from the ROS log (still printed as before), to check which
+// lines the team GUI would see. Only the [STOP_RAMP], [RESTART_TRACE] and [PLANNING_WAIT] lines are kept.
+mutex log_mutex;
+vector<pair<rcutils_time_point_value_t, string>> trace_lines;  // log time (ns), text
+rcutils_logging_output_handler_t previous_log_handler = nullptr;
+void captureTraceLine(const rcutils_log_location_t* location, int severity, const char* name,
+                      rcutils_time_point_value_t timestamp, const char* format, va_list* args) {
+    va_list copy;
+    va_copy(copy, *args);
+    char text[1024];
+    vsnprintf(text, sizeof(text), format, copy);
+    va_end(copy);
+    const string line(text);
+    if (line.find("[STOP_RAMP]") != string::npos || line.find("[RESTART_TRACE]") != string::npos ||
+        line.find("[PLANNING_WAIT]") != string::npos) {
+        lock_guard<mutex> lock(log_mutex);
+        trace_lines.emplace_back(timestamp, line);
+    }
+    if (previous_log_handler) previous_log_handler(location, severity, name, timestamp, format, args);
+}
+#ifdef NOMAD_ENABLE_PLANNING  // only the planning stop-ramp checks read them
+size_t traceMark() { lock_guard<mutex> lock(log_mutex); return trace_lines.size(); }
+// Captured lines since mark that start with prefix (e.g. "[STOP_RAMP] end"), with their log time.
+vector<pair<rcutils_time_point_value_t, string>> traceLinesSince(size_t mark, const string& prefix) {
+    lock_guard<mutex> lock(log_mutex);
+    vector<pair<rcutils_time_point_value_t, string>> out;
+    for (size_t i = mark; i < trace_lines.size(); ++i)
+        if (trace_lines[i].second.rfind(prefix, 0) == 0) out.push_back(trace_lines[i]);
+    return out;
+}
+vector<string> traceSince(size_t mark, const string& prefix) {
+    vector<string> out;
+    for (const auto& line : traceLinesSince(mark, prefix)) out.push_back(line.second);
+    return out;
+}
+// The integer after "name=" in a log line, or -1.
+long traceNumber(const string& line, const string& name) {
+    const auto at = line.find(" " + name + "=");
+    return at == string::npos ? -1 : strtol(line.c_str() + at + name.size() + 2, nullptr, 10);
+}
+#endif
 
 class RosRig {
 public:
@@ -1619,9 +1665,69 @@ void testStopRamp() {
         auto with_ramp=parameters;
         for(auto& parameter:with_ramp)
             if(parameter.get_name()=="planning.stop_ramp_s")parameter=rclcpp::Parameter("planning.stop_ramp_s",acts_during?1.0:.3);
+        const size_t log_mark=traceMark();
         RosRig rig(true,true,true,true,false,with_ramp);rig.runStopRamp(scenario,acts_during?1.0:.3);
         // 2026-11-17 (5a): the commission output rules hold in every scenario.
         rig.checkOutputInvariants("stop ramp ("+scenario+") output: ",12.5,30.0,scenario=="VESC fault");
+        // 2026-11-19: no per-tick trace lines by default (trace_every_tick false); summaries at the end instead.
+        const string label="stop ramp ("+scenario+") log: ";
+        expect(traceSince(log_mark,"[STOP_RAMP] t=").empty()&&traceSince(log_mark,"[RESTART_TRACE] t=").empty(),
+               (label+"no per-tick [STOP_RAMP]/[RESTART_TRACE] lines").c_str());
+        if(scenario=="LPP STOP"||scenario=="expiry"||scenario=="noisy end"){
+            // These ramps end on samples ("2 of the last 3" at or below 200, noisy end before the command reaches 200):
+            // the end line's erpm_last includes the deciding sample.
+            const auto ends=traceLinesSince(log_mark,"[STOP_RAMP] end");
+            const string end=ends.empty()?string():ends.back().second;
+            vector<long> last;
+            const auto at=end.find(" erpm_last=");
+            if(at!=string::npos){
+                const char* text=end.c_str()+at+11;char* next=nullptr;
+                for(long value=strtol(text,&next,10);next!=text;value=strtol(text,&next,10)){
+                    last.push_back(value);text=next;if(*text!='/')break;++text;}
+            }
+            int low=0;
+            for(size_t i=last.size()>=3?last.size()-3:0;i<last.size();++i)low+=last[i]<=200;
+            const bool summary=!ends.empty()&&end.find(" wait_s=")!=string::npos&&end.find(" end_samples=")!=string::npos&&
+                traceNumber(end,"end_above")>=0&&low>=2;
+            expect(summary,(label+"the ramp end line carries the summary with the deciding samples").c_str());
+            if(!summary&&!ends.empty())cerr<<"  "<<end<<'\n';
+            // No ~420-byte wait line in the burst of the end line (it pushed the end out of the GUI's 1 KiB read).
+            bool near_wait=false;
+            if(!ends.empty())
+                for(const auto& wait:traceLinesSince(log_mark,"[PLANNING_WAIT]"))
+                    near_wait=near_wait||llabs(static_cast<long long>(wait.first-ends.back().first))<50000000LL;
+            expect(!ends.empty()&&!near_wait,(label+"no [PLANNING_WAIT] in the tick of the ramp end line").c_str());
+        }
+        if(scenario=="LPP STOP"){
+            // The drive start was a restart: its trace ends when the stop ramp begins, with the 1000 ERPM reached.
+            const auto ends=traceSince(log_mark,"[RESTART_TRACE] end");
+            const bool summary=!ends.empty()&&ends.back().find("reason=stop_ramp")!=string::npos&&
+                ends.back().find(" reach_s=")!=string::npos&&ends.back().find("reach_s=na")==string::npos&&
+                ends.back().find("iq_peak_a=na")==string::npos;
+            expect(summary,(label+"the restart trace ends at the ramp with one summary line (reached, iq peak)").c_str());
+            if(!summary&&!ends.empty())cerr<<"  "<<ends.back()<<'\n';
+        }
+        if(scenario=="VESC fault"){
+            // A latched stop during the ramp keeps its wait line (endpoint counts, fault fields): nothing repeats it.
+            bool fault_wait=false;
+            for(const auto& wait:traceSince(log_mark,"[PLANNING_WAIT]"))fault_wait=fault_wait||wait.find("state=FAULT")!=string::npos;
+            expect(fault_wait,(label+"a VESC fault during the ramp still logs its [PLANNING_WAIT] line").c_str());
+        }
+        if(scenario=="shutdown while driving"){
+            const auto ends=traceSince(log_mark,"[RESTART_TRACE] end");
+            expect(!ends.empty()&&ends.back().find("reason=shutdown ticks=")!=string::npos,
+                   (label+"a shutdown still prints the restart summary").c_str());
+        }
+    }
+    {
+        // trace_every_tick true: the per-tick lines come back (bench analysis), the summaries stay.
+        auto every=parameters;
+        every.emplace_back("trace_every_tick",true);
+        const size_t log_mark=traceMark();
+        RosRig rig(true,true,true,true,false,every);rig.runStopRamp("LPP STOP",.3);
+        expect(!traceSince(log_mark,"[STOP_RAMP] t=").empty()&&!traceSince(log_mark,"[RESTART_TRACE] t=").empty()&&
+               !traceSince(log_mark,"[STOP_RAMP] end").empty(),
+               "stop ramp (trace_every_tick): per-tick lines and the end line");
     }
     const vector<rclcpp::Parameter> base={{"mode","commission"},{"planning.headless",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.feedback_limit_erpm",1200.0}};
@@ -1692,6 +1798,8 @@ void testRawMetadataConfiguration() {
 
 int main(int argc, char* argv[]) {
     rclcpp::init(argc, argv);
+    previous_log_handler = rcutils_logging_get_output_handler();
+    rcutils_logging_set_output_handler(captureTraceLine);
     try {
 #ifdef NOMAD_ENABLE_PLANNING
         if(argc>1&&string(argv[1])=="--running-floor-only"){

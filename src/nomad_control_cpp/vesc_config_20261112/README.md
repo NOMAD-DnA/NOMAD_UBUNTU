@@ -135,6 +135,8 @@ HFI 사용 시 저속 주행 중 고주파 '삐' 소리는 정상이다. 반복 
 7. 고르는 기준: 경사에서 안 밀리고 약 0.5초 안에 출발, 평지에서 출렁임 없음, 출발·턱 넘은 직후 최고 ERPM 1200 이하(자율 `planning.feedback_limit_erpm`; 2500을 넘으면 제어기 과속 잠금), IQ가 50 A 한계에 계속 붙어 있지 않음(붙어 있으면 이득이 아니라 전류 한계가 모자란 것).
 8. 고른 값을 쓰고 `VESC_설정파일/mcconf_<날짜>_PID.xml`로 저장한 뒤 `SHA256SUMS.txt`를 갱신하고, 2절 '그대로 둔 값'의 전류 한계를 새 값으로 고칩니다.
 9. 실차(제어기 포함) 경사 시험에서 `[RESTART_TRACE]` 로그로 확인합니다. 재출발 뒤 `restart_trace_s`(기본 3초) 동안 매 주기 `measured_erpm`, `current_a`, `iq_a`(VESC `avg_iq`)가 남습니다. `measured_erpm`이 음수로 가지 않고 `iq_a`가 빨리 오르면 성공입니다. 첫 줄과 출발 직후 1~2줄의 `iq_a`는 직전 핸드브레이크 유지 전류(12.5~30 A, 첫 줄 `from=hold`의 `stop_a`)가 섞인 값이라 구동 힘이 아닙니다.
+   - **2026-11-19부터:** 매 주기 줄은 기본으로 꺼져 있고(`trace_every_tick: false`), 시작 줄과 끝 요약 줄만 남습니다. 끝 줄 기준: `erpm_min`이 음수가 아님(음수 = 뒤로 밀림), `reach_s`(명령의 90 %에 처음 닿은 시각)가 약 0.5초 안. `current_max_a`·`iq_peak_a`는 출발 뒤 두 번째 VESC 상태값부터 셉니다(유지 전류는 시작 줄에 있음). 정지 램프가 시작되면 `reason=stop_ramp`로 일찍 끝납니다.
+   - IQ가 오르는 모양을 보려면 이 시험 동안 `config/commissioning.yaml`의 `trace_every_tick`을 `true`로 두고, 매 주기 줄은 팀 GUI가 아니라 Pi4의 전체 로그 파일에서 봅니다. GUI는 1초에 약 1 KiB만 읽어 줄이 빠집니다.
 
 3번에서 찾은 전류에 여유를 더한 값(최대 30 A)으로 핸드브레이크 유지 전류(`stop_handbrake_current_a`)를 정합니다(제어기 설정, Pi4 빌드 때 반영).
 

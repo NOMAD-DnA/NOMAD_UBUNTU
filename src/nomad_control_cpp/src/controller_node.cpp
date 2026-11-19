@@ -12,6 +12,7 @@
 #include "nomad_control_cpp/wire_stamp.hpp"
 #include "nomad_control_cpp/link_stats.hpp"
 #include "nomad_control_cpp/slip_monitor.hpp"
+#include "nomad_control_cpp/trace_summary.hpp"
 #include "nomad_thermal/thermal_guard.hpp"
 #ifdef NOMAD_ENABLE_PLANNING
 #include <nomad_interfaces/msg/drive_command.hpp>
@@ -112,6 +113,10 @@ public:
         restart_trace_s_ = parameter<double>("restart_trace_s", 3.0);
         if (!isfinite(restart_trace_s_) || restart_trace_s_ < 0.0 || restart_trace_s_ > 5.0)
             throw invalid_argument("restart_trace_s must be within 0..5 s");
+        // 2026-11-19: the per-tick [RESTART_TRACE]/[STOP_RAMP] lines (50 per second) are off by default; each
+        // restart and stop ramp ends with one summary line instead (trace_summary.hpp: the team GUI reads only
+        // about 1 KiB of this log per second). true = also the per-tick lines, for bench PID analysis.
+        trace_every_tick_ = parameter<bool>("trace_every_tick", false);
         // 정지 유지(브레이크·핸드브레이크)는 후보 설정입니다. 핸드브레이크 중에는 VESC ERPM이 0으로 고정돼
         // 미끄러짐을 볼 수 없고 내리막 정지는 시험하지 않았으므로 지상/경사 주행 모드는 계속 막습니다.
         const auto environment = parameter<string>("operation_environment", "raised_bench");
@@ -247,6 +252,15 @@ public:
             try { releaseMotor(); } catch (...) { break; }
             if (activeOwnsOutput()) this_thread::sleep_for(chrono::milliseconds(20));
         }
+        // 2026-11-19: after the stop output, the end lines of a restart trace or stop ramp cut off by the shutdown
+        // (no control tick runs any more; without the per-tick lines they would leave only a start/begin line).
+        try {
+            const double steady = steadySeconds();
+            endRestartTrace(steady, "shutdown");
+#ifdef NOMAD_ENABLE_PLANNING
+            if (raw_controller_) tickStopRampTrace(steady);  // activeStop already ended the ramp
+#endif
+        } catch (...) {}
     }
 
 private:
@@ -415,7 +429,13 @@ private:
         // The same end value for both: StopOutput judges the ramp samples when the command reaches it.
         stop_output_.beginStopRamp(steady,end);
         planning_guard_->clear();
+        // 2026-11-19: the restart summary covers the drive only. Ramp ticks would count the falling command as reached
+        // and their braking iq as the peak.
+        endRestartTrace(steadySeconds(),"stop_ramp");
         stop_ramp_started_=steady;
+        stop_ramp_summary_.emplace(end);
+        // Like raw_trial's end rule, the first ramp tick counts the sample it sees, even one received before the ramp.
+        stop_ramp_seen_rx_.reset();
         RCLCPP_INFO(get_logger(),"[STOP_RAMP] begin reason=%s cmd_erpm=%.0f measured_erpm=%.0f ramp_from_erpm=%.0f end_erpm=%.0f ramp_s=%.2f iq_a=%.2f",
                     reason.c_str(),from,last_raw_erpm_,raw_controller_->commandedMotorErpm(),end,planning_stop_ramp_s_,last_iq_);
         return true;
@@ -425,19 +445,35 @@ private:
         const double hold_below=stop_output_.config().hold_below_erpm;
         return hold_below>0?hold_below:200.0;
     }
-    // One trace line per control tick while a stop ramp runs, then how it ended.
+    // While a stop ramp runs: the summary figures each control tick (and with trace_every_tick one line per
+    // tick), then one line on how it ended with the summary (trace_summary.hpp StopRampSummary).
     void tickStopRampTrace(double steady) {
         if(!stop_ramp_started_)return;
         const double t=steady-*stop_ramp_started_;
         if(raw_controller_->stopRampActive()){
-            RCLCPP_INFO(get_logger(),"[STOP_RAMP] t=%.3f cmd_erpm=%.0f measured_erpm=%.0f iq_a=%.2f",
-                        t,raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_iq_);
+            const bool new_sample=last_telemetry_rx_&&last_telemetry_rx_!=stop_ramp_seen_rx_;
+            stop_ramp_seen_rx_=last_telemetry_rx_;
+            if(stop_ramp_summary_)
+                stop_ramp_summary_->onTick(t,raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_iq_,new_sample);
+            if(trace_every_tick_)
+                RCLCPP_INFO(get_logger(),"[STOP_RAMP] t=%.3f cmd_erpm=%.0f measured_erpm=%.0f iq_a=%.2f",
+                            t,raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_iq_);
             return;
         }
-        RCLCPP_INFO(get_logger(),"[STOP_RAMP] end t=%.3f measured_erpm=%.0f state=%s reason=%s",
-                    t,last_raw_erpm_,trialStateName(activeState()),activeReason().c_str());
+        // The raw controller ended the ramp on this tick's sample, before this trace saw it.
+        const bool new_sample=last_telemetry_rx_&&last_telemetry_rx_!=stop_ramp_seen_rx_;
+        stop_ramp_seen_rx_=last_telemetry_rx_;
+        if(stop_ramp_summary_)stop_ramp_summary_->onEndTick(t,last_raw_erpm_,last_iq_,new_sample);
+        RCLCPP_INFO(get_logger(),"[STOP_RAMP] end t=%.3f measured_erpm=%.0f state=%s reason=%s %s",
+                    t,last_raw_erpm_,trialStateName(activeState()),activeReason().c_str(),stopRampFields().c_str());
         stop_ramp_started_.reset();
+        stop_ramp_summary_.reset();
     }
+    // A ramp ended on this tick and its [STOP_RAMP] end line is still to come (it is printed last in the tick).
+    bool stopRampEndPending() const {
+        return stop_ramp_started_&&raw_controller_&&!raw_controller_->stopRampActive();
+    }
+    string stopRampFields() const { return stop_ramp_summary_?stop_ramp_summary_->fields():string("wait_s=na"); }
     bool planningReady(double steady,double ros) const {
         return commissioning_&&planning_guard_&&planning_sub_&&
             count_publishers(planning_sub_->get_topic_name())==1&&planning_guard_->target(ros,steady).has_value();
@@ -494,8 +530,27 @@ private:
         if(driver_seen&&brake_pub_&&graph_brake_subscribers_==0)return "VESC brake topic has no subscriber; waiting";
         return "driver endpoints unavailable; waiting";
     }
+    // 2026-11-19: printed when what it says changes (at most once a second), at the start of a new wait, and
+    // otherwise every 10 s (trace_summary.hpp RepeatGate). It used to print every second while waiting: about
+    // 400 characters, 10 % of the 11-18 corridor log the team GUI could read. The key leaves out the ages, current
+    // and voltage, which change every call.
     void logPlanningWait(const string& reason,double steady,double ros) {
-        RCLCPP_WARN_THROTTLE(get_logger(),*get_clock(),1000,
+        char counts[160];
+        snprintf(counts,sizeof(counts),"|%zu,%zu,%zu,%zu|%zu,%zu,%zu,%zu|%zu,%zu,%zu,%zu|%d|%d",
+                 graph_telemetry_publishers_,graph_speed_subscribers_,graph_current_subscribers_,graph_servo_subscribers_,
+                 graph_speed_publishers_,graph_current_publishers_,graph_servo_publishers_,graph_other_publishers_,
+                 graph_brake_publishers_,graph_brake_subscribers_,graph_handbrake_publishers_,graph_handbrake_subscribers_,
+                 static_cast<int>(last_fault_),static_cast<int>(supervisor_.blocked()));
+        const string key=reason+"|"+trialStateName(activeState())+"|"+raw_controller_->telemetryIssue()+counts;
+        // The [STOP_RAMP] end line of this tick already says state= and reason=. A ~420-byte wait line in the same
+        // burst pushed it out of the GUI's 1 KiB read (11-18 corridor: 2 of 5 ends lost). A soft wait is held back
+        // 2 s (still waiting then = its detail line). A latched stop (fault, competing publisher) prints at once: no
+        // later call repeats it, and its endpoint counts and fault fields are not in the end line.
+        if(stopRampEndPending()&&!supervisor_.blocked()&&activeState()!=TrialState::Fault){
+            planning_wait_log_.defer(steady,2.0);return;
+        }
+        if(!planning_wait_log_.due(key,steady))return;
+        RCLCPP_WARN(get_logger(),
             "[PLANNING_WAIT] reason=%s state=%s telemetry=%s receive_age=%.3f source_age=%.3f "
             "telemetry_publishers=%zu speed_subscribers=%zu current_subscribers=%zu servo_subscribers=%zu "
             "command_publishers=%zu,%zu,%zu other_publishers=%zu brake_pub_sub=%zu,%zu handbrake_pub_sub=%zu,%zu "
@@ -598,12 +653,13 @@ private:
         if(raw_controller_->stopRampActive()){
             // A fresh moving LPP command cancels the ramp and the drive goes on; otherwise the raw tick ramps on.
             if(!target||target->erpm<=0||!planningReady(steady,ros))return;
-            RCLCPP_INFO(get_logger(),"[STOP_RAMP] cancelled t=%.3f: fresh LPP command %.0f ERPM at cmd_erpm=%.0f measured_erpm=%.0f",
+            RCLCPP_INFO(get_logger(),"[STOP_RAMP] cancelled t=%.3f: fresh LPP command %.0f ERPM at cmd_erpm=%.0f measured_erpm=%.0f %s",
                         stop_ramp_started_?steady-*stop_ramp_started_:0.0,target->erpm,
-                        raw_controller_->commandedMotorErpm(),last_raw_erpm_);
+                        raw_controller_->commandedMotorErpm(),last_raw_erpm_,stopRampFields().c_str());
             raw_controller_->cancelStopRamp(steady);
             stop_output_.cancelStopRamp();
             stop_ramp_started_.reset();
+            stop_ramp_summary_.reset();
             planning_link_pause_=false; // the drive goes on
             resetPlanningSpeedFeedback();
         }
@@ -1160,14 +1216,19 @@ private:
         }
     }
 
-    // Restart trace: one line per control tick for restart_trace_s after a not-driving -> driving change.
+    // Restart trace: for restart_trace_s after a not-driving -> driving change, a start line, then one summary
+    // line at the end (trace_summary.hpp RestartSummary); with trace_every_tick also one line per control tick.
     // t is seconds since the first speed command; iq_a is the VESC avg_iq (current_a is the sign-weighted
     // avg_motor_current that under-reads at standstill).
     void startRestartTrace(double erpm) {
         if (restart_trace_s_ <= 0.0) return;
         const double steady = steadySeconds();
+        endRestartTrace(steady, "restarted");  // a pause and resume between two ticks never reached tickRestartTrace
         restart_trace_start_ = steady;
         restart_trace_until_ = steady + restart_trace_s_;
+        restart_summary_ = RestartSummary{};
+        restart_seen_rx_ = last_telemetry_rx_;
+        restart_new_samples_ = 0;
         const auto& last = stop_output_.last();
         RCLCPP_INFO(get_logger(), "[RESTART_TRACE] start from=%s hold_s=%.2f stop_a=%.1f cmd_erpm=%.0f measured_erpm=%.0f "
                     "current_a=%.2f iq_a=%.2f",
@@ -1189,18 +1250,33 @@ private:
             reversal_wait_started_.reset();
         }
     }
+    // The end line with the summary: window (restart_trace_s over), stopped, stop_ramp (a planning stop ramp
+    // began; its own lines follow), restarted (a new trace replaced it) or shutdown. No-op without a running trace.
+    void endRestartTrace(double steady, const char* reason) {
+        if (!restart_trace_until_) return;
+        RCLCPP_INFO(get_logger(), "[RESTART_TRACE] end t=%.3f reason=%s %s", max(0.0, steady - restart_trace_start_),
+                    reason, restart_summary_.fields().c_str());
+        restart_trace_until_.reset();
+    }
     void tickRestartTrace(double steady, double commanded_erpm) {
         if (!restart_trace_until_) return;
         if (steady > *restart_trace_until_ || !driving_) {
-            RCLCPP_INFO(get_logger(), "[RESTART_TRACE] end t=%.3f reason=%s", steady - restart_trace_start_,
-                        driving_ ? "window" : "stopped");
-            restart_trace_until_.reset();
+            endRestartTrace(steady, driving_ ? "window" : "stopped");
             return;
         }
+        const double t = max(0.0, steady - restart_trace_start_);
+        const double age_ms = last_telemetry_rx_ ? 1000.0 * (steady - *last_telemetry_rx_) : -1.0;
+        if (last_telemetry_rx_ && last_telemetry_rx_ != restart_seen_rx_) {
+            ++restart_new_samples_;
+            restart_seen_rx_ = last_telemetry_rx_;
+        }
+        // Current/iq peaks from the second sample received after the speed command (trace_summary.hpp).
+        restart_summary_.onTick(t, commanded_erpm, last_raw_erpm_, last_current_, last_iq_, age_ms,
+                                restart_new_samples_ >= 2);
+        if (!trace_every_tick_) return;
         RCLCPP_INFO(get_logger(), "[RESTART_TRACE] t=%.3f cmd_erpm=%.0f measured_erpm=%.0f current_a=%.2f iq_a=%.2f "
                     "telemetry_age_ms=%.0f state=%s",
-                    max(0.0, steady - restart_trace_start_), commanded_erpm, last_raw_erpm_, last_current_, last_iq_,
-                    last_telemetry_rx_ ? 1000.0 * (steady - *last_telemetry_rx_) : -1.0, trialStateName(activeState()));
+                    t, commanded_erpm, last_raw_erpm_, last_current_, last_iq_, age_ms, trialStateName(activeState()));
     }
 
     void controlTick() {
@@ -1237,7 +1313,6 @@ private:
             tickRestartTrace(steady_now, output.motor_erpm);
             tickReversalTrace(steady_now);
 #ifdef NOMAD_ENABLE_PLANNING
-            tickStopRampTrace(steady_now);
             if(slip_enabled_)tickSlip(steady_now);
 #endif
         } else {
@@ -1257,6 +1332,12 @@ private:
             supervisor_.onRawNotRunning(false);
 #endif
         }
+#ifdef NOMAD_ENABLE_PLANNING
+        // 2026-11-19: after the raw transition and the wait line, so only the 1 s status lines (control_trace,
+        // vesc_trace, link_trace, below) can follow the [STOP_RAMP] end line in this tick: the GUI keeps the last
+        // 1 KiB of each read, so later bytes push a line out.
+        if(commissioning_)tickStopRampTrace(steady_now);
+#endif
         if (!activeManual()) closeManualSession();
 #ifdef NOMAD_ENABLE_PLANNING
         // 2026-11-17: every control tick (~50 Hz; was 10 Hz, with the status). The Jetson planner holds its output when
@@ -1557,6 +1638,9 @@ private:
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr slip_odom_sub_;
     rclcpp::Subscription<nomad_interfaces::msg::ModuleStatus>::SharedPtr slip_status_sub_;
     optional<double> stop_ramp_started_;     // steady time the running stop ramp began ([STOP_RAMP] trace)
+    optional<StopRampSummary> stop_ramp_summary_; // the running ramp's figures for its end line (2026-11-19)
+    optional<double> stop_ramp_seen_rx_;     // last_telemetry_rx_ at the previous ramp tick (new-sample test)
+    RepeatGate planning_wait_log_;           // [PLANNING_WAIT] repeat rule (2026-11-19)
     bool planning_measured_speed_control_=false,planning_feedback_reducing_=false;
     double planning_feedback_target_=0;
     optional<double> planning_feedback_tick_;
@@ -1592,6 +1676,10 @@ private:
     bool driving_ = false; // last motor output was a nonzero speed command
     double restart_trace_s_ = 3.0, restart_trace_start_ = 0.0, last_iq_ = 0.0;
     optional<double> restart_trace_until_;
+    RestartSummary restart_summary_;         // 2026-11-19: the running restart trace's end-line figures
+    optional<double> restart_seen_rx_;       // last_telemetry_rx_ at the previous restart tick (new-sample test)
+    int restart_new_samples_ = 0;            // samples received since the speed command (peaks from the 2nd)
+    bool trace_every_tick_ = false;          // trace_every_tick: per-tick [RESTART_TRACE]/[STOP_RAMP] lines
     bool vesc_fault_release_logged_ = false;
     optional<double> last_telemetry_rx_;
     size_t graph_telemetry_publishers_=0,graph_speed_subscribers_=0,graph_current_subscribers_=0,graph_servo_subscribers_=0;

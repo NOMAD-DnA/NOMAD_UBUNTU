@@ -105,14 +105,14 @@ LPP가 자주 멈췄다 가는데, 멈출 때마다 약 1000 ERPM에서 브레�
 - **감속 중 LPP 메시지:** 새 이동 명령(속도 > 0, 플래너 발행자 1개)이면 감속을 취소하고 그대로 주행합니다(멈추지 않음, 1000 ERPM 하한 다시 적용). 속도 0 명령·STOP·잘못되거나 오래된 메시지는 감속을 끊지 않고 끝까지 마칩니다(이미 멈추는 중이라, 바로 세우면 처음의 뒤뚱거림이 다시 생김).
 - **유지 전류:** 감속 시작 순간에 멈춘 것처럼 정합니다(감속 중 떨어지는 속도와 줄어드는 전류는 '안정 아님'이나 경사로 읽지 않음). 감속 시작 0.15초 뒤부터의 샘플은 값을 올리기만 합니다: 감속 중에 경사를 만나 전류가 오르거나, 내리막에서 속도 PID가 속도를 못 줄이고 크게 제동하는 경우(`stop_output.hpp` `beginStopRamp`). 명령이 200에 닿아 PID가 세게 제동하기 시작하면, 아직 판정 안 된 감속 샘플을 바로 앞 구간으로도 판정해 봅니다(뒤의 급제동 때문에 내리막 신호가 묻히지 않게). 이때 부하 근거가 되는 샘플이 2개 이상일 때만 그 결과를 쓰고, 나머지는 원래대로 앞뒤 구간으로 판정합니다(측정 속도 지연과 잡음 때문에 평지 샘플 하나가 내리막으로 읽히는 것을 막음. 리뷰 모의에서 평지 정지 평균 12.60 → 12.69 A). 감속 중 간 거리도 '제자리'·'짧게 기어감' 거리에 넣습니다(보수적: 0.16~0.3초짜리 짧은 평지 출발 뒤 정지는 20~30 A로 잡힐 수 있음). **한계(경사 경계):** 정지 직전에 넘은 경사 경계는 전류에 아직 안 보여 평지 값으로 잡힐 수 있습니다. 리뷰 모의(실제 코드, 경계 위치를 바꿔 가며 미끄러지는 경계 위치의 폭)에서 내리막 경계(앞으로 미끄러짐)는 12~20°에서 2.3~3.8 cm로 예전 즉시 정지(4.9~5.5 cm)와 1afcbb1(4.9~8.9 cm)보다 좁습니다(감속 0.3초 기준; 0.4~0.5초로 바꿔도 1afcbb1보다 넓어지지 않음). 오르막 경계(뒤로 경사 시작점까지 몇 cm 밀리고 섬)는 감속으로 더 가는 만큼 12°에서 8.9 cm, 14°에서 7.1 cm로 예전(약 5 cm)보다 넓습니다.
 - **플래너 팀 전달:** 1000 ERPM(약 0.27 m/s)에서 STOP 뒤 핸드브레이크까지 약 0.4~0.46초(예전보다 약 0.35~0.4초 더)이고, 정지 거리가 약 4~6 cm 늘어납니다(감속과 200 유지 중 약 3.5~4 전기회전 ≈ 6 cm, 예전 브레이크 정지는 약 1~2 cm; 리뷰 모의 4.1~5.7 cm). 가파른 내리막에서는 200 유지가 최대 0.6초(STOP 뒤 약 0.9초)이고, 그래도 200 이하가 안 되면 브레이크 20 A로 넘어가며 이때는 시간 상한이 없습니다. 명령 만료로 멈출 때는 마지막 명령 뒤 유효시간 0.3초가 더해집니다.
-- **기록:** `[STOP_RAMP] begin reason= cmd_erpm= measured_erpm= ramp_from_erpm= end_erpm= ramp_s= iq_a=`, 감속 중 매 주기 `[STOP_RAMP] t= cmd_erpm= measured_erpm= iq_a=`, 끝에 `[STOP_RAMP] end t= measured_erpm= state= reason=` 또는 `[STOP_RAMP] cancelled`. 바로 핸드브레이크로 넘기면(end의 `measured_erpm` 200 이하) 같은 주기에 `[STOP_OUTPUT] handbrake hold`가 `[STOP_RAMP] end`보다 먼저 찍히고, 그 뒤 `raw transition=STOPPED_OUTPUT ... raw_erpm=`(넘길 때 측정 속도)입니다. 0.6초를 기다린 뒤 넘기면 `[STOP_RAMP] end` → `raw transition` → (브레이크, 로그 없음) → `[STOP_OUTPUT] handbrake hold` 순서입니다. `status_json`: `stop_ramp_active`, `planning_stop_ramp_s`, 감속 중 `planning_start_reason` = `speed ramp before stop`.
+- **기록:** `[STOP_RAMP] begin reason= cmd_erpm= measured_erpm= ramp_from_erpm= end_erpm= ramp_s= iq_a=`, 끝에 `[STOP_RAMP] end t= measured_erpm= state= reason=` 또는 `[STOP_RAMP] cancelled`. 11-19부터 끝 줄에 요약(`wait_s= end_samples= end_above= erpm_last= iq_peak_a=`, 아래 'GUI가 읽는 로그 줄이기')이 붙고, 감속 중 매 주기 줄 `[STOP_RAMP] t= cmd_erpm= measured_erpm= iq_a=`는 `trace_every_tick: true`일 때만 찍힙니다. 바로 핸드브레이크로 넘기면(end의 `measured_erpm` 200 이하) 같은 주기에 `[STOP_OUTPUT] handbrake hold` → `raw transition=STOPPED_OUTPUT ... raw_erpm=`(넘길 때 측정 속도) → `[STOP_RAMP] end` 순서입니다. 0.6초를 기다린 뒤 넘기면 (브레이크, 로그 없음) `raw transition` → `[STOP_RAMP] end` → 뒤 주기에 `[STOP_OUTPUT] handbrake hold` 순서입니다. 11-19 전 배포본은 `[STOP_RAMP] end`가 `raw transition`보다 먼저였습니다. `status_json`: `stop_ramp_active`, `planning_stop_ramp_s`, 감속 중 `planning_start_reason` = `speed ramp before stop`.
 - **실차 미확인:** VESC 속도 PID(kp 0.010·ki 0.04)가 감속을 얼마나 따라가는지, 200 ERPM 근처 저속 속도 제어(HFI)가 매끄러운지, 명령이 200에 닿은 뒤 0.6초 안에 측정 속도가 200 이하로 내려와 브레이크 없이 핸드브레이크로 넘어가는지는 실차 로그로 확인해야 합니다(11-13 22:52~11-15 배포본 1afcbb1(`369e3700…`)과 팀원 빌드(`915e9894…`)는 이 대기가 0.3초이므로 그때 로그는 0.3초 기준; 11-15 17:01 1d47cf0 배포부터 0.6초). `[STOP_RAMP] end`의 `measured_erpm`이 200 이하면 바로 핸드브레이크, 200보다 크면 0.6초를 기다린 뒤 브레이크를 거친 것입니다. 감속 시간을 늘려도 PID 뒤처짐은 남으므로(0.5초에서도 명령 200일 때 약 260~330 ERPM) 흔들림 해결책이 아닙니다.
 
 ### 재출발과 VESC 속도 PID (2026-11-13)
 
 - 핸드브레이크에서 속도 명령으로 넘어가면 VESC 속도 PID가 적분 0에서 다시 시작합니다(펌웨어 5.03). kp·ki 0.004에서는 1000 ERPM 오차에 약 10 A, 그 뒤 1초에 약 10 A씩만 늘어(모터 한계 50 A 기준) 경사 재출발이 1~2초 멈칫했습니다. 11-13 VESC Tool로 `s_pid_ki`를 0.04로 올렸고(적분이 1000 ERPM 오차에 1초 약 100 A, 14° 경사에서 명령 후 전류가 오르기까지 약 1.5초 → 약 0.15초), 평지 출발 때 1500 ERPM 넘게 튀는 출렁임 때문에 저녁에 `s_pid_kp`를 0.010으로 올렸습니다(처음 P 전류 25 A, 평지 첫 최고 약 1310 ERPM, 약 1.2초에 1000 근처 안정). 절차와 결과는 [`vesc_config_20261112/README.md`](vesc_config_20261112/README.md) 6절이고, 지금 VESC 설정 파일은 `vesc_config_20261112/VESC_설정파일/mcconf_20261113_PID_kp010.xml`이고, 실차(제어기 포함) 확인은 남았습니다.
 - 제어기 전류로 출발 순간만 밀어 주는 '출발 보조'도 구현해 검토했지만, 속도 명령으로 넘기는 순간 같은 초기화가 일어나고(전류 20~30 A → 거의 0), 그동안 VESC 적분이 쌓이지 않아 무거운 경사에서는 오히려 더 밀릴 수 있어 넣지 않았습니다.
-- **재출발 기록:** 정지 출력 뒤 다시 출발하면 `restart_trace_s`(기본 3초, 0이면 끔) 동안 매 제어 주기 `[RESTART_TRACE] t= cmd_erpm= measured_erpm= current_a= iq_a= telemetry_age_ms= state=` 줄을 남깁니다. 첫 줄은 직전 정지 출력(`from=hold` 등)과 유지 시간·전류를 적습니다. `iq_a`는 VESC `avg_iq`입니다(`current_a`는 정지 상태에서 작게 읽힘). 첫 줄과 출발 직후 1~2줄의 `iq_a`는 핸드브레이크 유지 전류가 섞인 값이라 구동 힘이 아닙니다. `status_json`의 `restart_trace_active`로 진행 여부를 볼 수 있습니다.
+- **재출발 기록:** 정지 출력 뒤 다시 출발하면 `restart_trace_s`(기본 3초, 0이면 끔) 동안 기록합니다. 11-19부터는 시작 줄과 끝 요약 줄 `[RESTART_TRACE] end t= reason= ticks= reach_s= cmd_erpm= erpm_min= erpm_max= current_max_a= iq_peak_a= iq_peak_t= telemetry_age_max_ms=`만 찍고, 매 제어 주기 줄 `[RESTART_TRACE] t= cmd_erpm= measured_erpm= current_a= iq_a= telemetry_age_ms= state=`는 `trace_every_tick: true`일 때만 찍습니다(아래 'GUI가 읽는 로그 줄이기'). 아래 '첫 줄과 출발 직후 1~2줄'은 매 주기 줄 이야기이고, 끝 요약의 전류 최대값은 이 줄들을 뺀 값입니다. 첫 줄은 직전 정지 출력(`from=hold` 등)과 유지 시간·전류를 적습니다. `iq_a`는 VESC `avg_iq`입니다(`current_a`는 정지 상태에서 작게 읽힘). 첫 줄과 출발 직후 1~2줄의 `iq_a`는 핸드브레이크 유지 전류가 섞인 값이라 구동 힘이 아닙니다. `status_json`의 `restart_trace_active`로 진행 여부를 볼 수 있습니다.
 
 ### 수동 후진 (2026-11-15, 팀원)
 
@@ -241,6 +241,29 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
 - 시험: 단위 시험 `slip_monitor`, `raw_commissioning_contract`(감속 정지 끝 3샘플·ERPM 튐), ROS `planning_stop_ramp_ros`.
 
 현재 설정은 이 README와 YAML을 기준으로 확인하세요. 날짜가 붙은 기존 `.ko.txt` 문서는 당시 시험·배포 기록이며 최신 실행 설정과 다를 수 있습니다.
+
+### GUI가 읽는 로그 줄이기 (2026-11-19, 미배포)
+
+팀 GUI는 이 제어기 로그를 1초에 한 번 마지막 1 KiB만 읽고(`board_tools/module_log_tail.cpp`), 한 줄을 400자에서 자릅니다. 그래서 어떤 줄 뒤에 다음 읽기 전까지 1 KiB 넘게 쓰이면 그 줄은 GUI에 안 보입니다. 11-18 밤 강의실 복도 주행(52초, 27890e1)에서는 Pi4 로그 갱신 62번 중 25번에서 앞 줄이 잘렸고, `[STOP_RAMP] end` 5개 중 2개가 빠졌습니다. 크기 비중은 `[RESTART_TRACE]` 32 %(재출발마다 3초 동안 50 Hz, 약 150줄), `control_trace` 22 %, `vesc_trace` 19 %, `[PLANNING_WAIT]` 10 %, `[STOP_RAMP]` 7 %, `link_trace` 1 %였습니다. 이번 변경은 로그만 바꿉니다. 멈춤·출발 판단과 출력 전류는 같습니다.
+
+- **매 주기 줄은 기본으로 끔:** 새 설정 `trace_every_tick`(기본 `false`, `config/commissioning.yaml`). `true`면 11-19 전처럼 `[RESTART_TRACE] t=`·`[STOP_RAMP] t=` 줄도 찍습니다. 전체 로그 파일을 읽는 벤치 분석에서만 켭니다.
+- **재출발 끝 요약**(`[RESTART_TRACE] end t= reason=` 뒤, `trace_summary.hpp` `RestartSummary`):
+  - `reason`: `window`(`restart_trace_s` 지남), `stopped`(정지 출력), `stop_ramp`(LPP 감속 정지 시작, 뒤는 `[STOP_RAMP]` 줄), `restarted`(다음 재출발이 덮음), `shutdown`(노드 종료).
+  - `ticks`: 기록한 제어 주기 수.
+  - `reach_s`: 측정 ERPM이 그 순간 명령의 90 %(같은 방향)에 처음 닿은 시각. 못 닿았으면 `na`. 감속 정지 구간은 넣지 않습니다(떨어지는 명령에 닿은 것으로 잘못 셀 수 있어서).
+  - `cmd_erpm`: 마지막 명령. `erpm_min`·`erpm_max`: 측정 ERPM 범위. 전진 출발에서 `erpm_min`이 음수면 뒤로 밀린 것입니다.
+  - `current_max_a`: `current_a` 크기의 최대. `iq_peak_a`·`iq_peak_t`: `avg_iq` 크기가 가장 컸던 값(부호 포함)과 그 시각. 둘 다 출발 뒤 **두 번째** VESC 상태값부터 셉니다. 그 전 값은 핸드브레이크 유지 전류가 섞입니다(11-18 10° 경사: 30 A 유지 뒤 t=0 30.4 A, t=0.019 29.3 A, t=0.041 14.0 A). 유지 전류는 시작 줄에 있습니다. 그런 값이 없으면 `na`.
+  - `telemetry_age_max_ms`: 가장 오래된 VESC 상태값 나이. 없었으면 `na`.
+- **감속 정지 끝 요약**(`[STOP_RAMP] end`·`cancelled` 줄 뒤, `StopRampSummary`):
+  - `wait_s`: 속도 명령이 끝 속도(200 ERPM)에 닿은 뒤 감속이 끝날 때까지. 0.60이면 측정 속도를 기다리다 시간 상한으로 끝난 것입니다. 닿기 전에 끝나거나 취소되면 `na`.
+  - `end_samples`·`end_above`: 그동안 받은 VESC 상태값 수와, 그중 200보다 컸던 수.
+  - `erpm_last`: 감속 시작부터 마지막 5개 측정 ERPM(오래된 것부터, 감속을 끝낸 값 포함). 마지막 3개 중 2개가 200 이하면 '최근 3개 중 2개' 규칙으로 끝난 것입니다(명령이 200에 닿기 전에도 적용). 200 근처에서 오르내리는 HFI 값도 여기서 봅니다.
+  - `iq_peak_a`: 감속 중 `avg_iq` 크기가 가장 컸던 값(음수 = 제동).
+- **줄 순서:** `[STOP_RAMP] end`는 정지 출력·`raw transition`·대기 처리 뒤에 찍습니다. 그 주기에서 뒤에 올 수 있는 것은 1초 줄(`control_trace`·`vesc_trace`·`link_trace`)뿐입니다. GUI는 각 읽기의 마지막 1 KiB를 보므로, 뒤에 쓰이는 바이트가 적을수록 남습니다. 그 주기의 `[PLANNING_WAIT]`(약 420바이트)은 2초 미룹니다(끝 줄에 같은 `state=`·`reason=`이 있음). 그때도 대기 중이면 그때의 자세한 줄이 나옵니다. 고장·발행자 중복처럼 잠기는 정지는 미루지 않고 바로 찍습니다(그 뒤로 다시 찍히지 않고, 연결 수·고장 값은 끝 줄에 없음).
+- **`[PLANNING_WAIT]`:** 내용(사유, 상태, 상태값 문제, 드라이버 연결 수, 고장 코드, 리셋 필요)이 바뀌면 찍되 1초에 1번까지만 찍습니다. 2초 넘게 대기 기록이 없다가 새 대기가 시작돼도 찍고, 같은 내용이 이어지면 10초마다 찍습니다. 예전에는 대기 중 매초 약 400자였습니다. 나이·전류·전압은 바뀌어도 새로 찍지 않습니다. 시계는 ROS 시계에서 단조 시계로 바꿨습니다. 이 줄은 앞머리까지 약 450자라 GUI에서는 끝이 잘립니다(예전과 같음).
+- **종료할 때:** 노드가 꺼지면 진행 중이던 재출발 기록과 감속 정지의 끝 줄을 정지 출력 뒤에 찍습니다(`reason=shutdown`, `reason=node shutting down`).
+- **크기(검토 계산, 실차 미확인):** LPP 주행 중 `control_trace`와 `vesc_trace`가 1초에 약 560바이트입니다. 정지 한 번은 begin 약 200, 유지 약 125, `raw transition` 약 146, end 약 250바이트입니다. 예전에는 end 뒤에 `[PLANNING_WAIT]`까지 약 560바이트가 더 쓰였고, 같은 읽기 안에 1초 줄 두 개가 오면 end가 빠졌습니다(검토 모의 약 50 %). 이제 보통은 end 뒤에 1초 줄 두 개와 `link_trace`(약 127)가 와도 약 930바이트라 1 KiB 안에 남습니다. 다만 0.6초 상한으로 끝나 유지 줄(약 123)이 뒤따르거나, 같은 1초 안에 다시 출발해 `[RESTART_TRACE]` 시작 줄(약 160)까지 겹치면 약 1.1 KiB가 되어 아직 빠질 수 있습니다(검토 계산). 정지가 잦으면(2~3초마다) 평균이 1 KiB/s를 넘어, 그 앞의 begin·유지·재출발 끝 줄도 빠질 수 있습니다. 빠짐 없는 기록은 Pi4의 전체 로그 파일에 있습니다. GUI 쪽 읽기 한도(`module_log_tail.cpp`의 1 KiB)를 늘리는 것이 근본 해결입니다.
+- 시험: 단위 시험 `field_diagnostics`(요약 값, 감속을 끝낸 샘플, 시간 상한 끝, 유지 전류 제외, 반복 규칙), ROS `planning_stop_ramp_ros`(매 주기 줄 없음, 끝 줄의 `erpm_last`에 규칙을 만족한 샘플, 끝 줄 주기에 `[PLANNING_WAIT]` 없음(풀리는 대기), VESC 고장으로 끝난 감속은 대기 줄을 바로 찍음, 재출발이 `reason=stop_ramp`로 끝남, 주행 중 종료에 `reason=shutdown`, `trace_every_tick: true`면 매 주기 줄이 다시 나옴). ROS 시험은 rcutils 로그 출력기를 감싸 줄을 모읍니다(화면 출력은 그대로). 독립 검토(에이전트 19개)에서 확정된 12건을 반영했습니다.
 
 ## VESC 설정 (2026-11-12, HFI)
 
@@ -380,7 +403,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | f7d4382 | (11-17) StopRamp 초기화 목록 경고 수정(동작 같음, 11-19 f5caad8 배포로 Pi4 반영) |
 | 69ab7fd | (11-17) 27890e1 Pi4 배포 기록(`9f5e479e…`) |
 | f5caad8 | (11-19) 감속 정지 끝 판정을 '연속 3개'에서 '최근 3개 중 2개'로(11-18 지하주차장에서 200 근처 오르내림으로 정지가 중앙값 0.63초, 2번은 상한까지). ROS 'link resume' STOP 확인을 상태값 대기로 |
-| (이 커밋) | (11-19) f5caad8 Pi4 배포 기록(`c55f03b8…`) |
+| 5c0cbf4 | (11-19) f5caad8 Pi4 배포 기록(`c55f03b8…`) |
+| (이 커밋) | (11-19) GUI가 읽는 로그 줄이기: 재출발·감속 정지 매 주기 줄을 끝 요약 줄로(`trace_summary.hpp`, `trace_every_tick` 기본 꺼짐), `[STOP_RAMP] end`를 주기 맨 끝에, 그 주기 `[PLANNING_WAIT]` 생략, 대기 줄은 바뀔 때·10초마다, 종료 때 끝 줄. 로그만 바뀜, 미배포 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
