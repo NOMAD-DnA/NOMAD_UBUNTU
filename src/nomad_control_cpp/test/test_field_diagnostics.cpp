@@ -185,6 +185,15 @@ static void repeatGate() {
     expect(!held_same.due("LPP pause", 6.0) && held_same.due("LPP pause", 7.0), "held back: same text still prints at 2 s");
 }
 
+static void periodGate() {
+    PeriodGate every(1.0);
+    int lines = 0;
+    for (double t = 0.0; t < 5.0; t += 0.1) lines += every.due(t);  // status every 0.1 s
+    expect(lines == 5, "status every 0.1 s: one line a second, the first at once");
+    PeriodGate late(1.0);
+    expect(late.due(100.0) && !late.due(100.99) && late.due(101.0), "at most once per second on the steady clock");
+}
+
 static void linkResumeWait() {
     LinkMonitor link;
     expect(near(link.resumeStableSeconds(), 0.3) && !link.paused() && !link.resumeWaiting(0.0), "default 0.3 s, no wait");
@@ -273,6 +282,7 @@ int main() {
         restartSummary();
         stopRampSummary();
         repeatGate();
+        periodGate();
         linkResumeWait();
         linkTraceRule();
         cout << checks << " field diagnostics checks PASS\n";

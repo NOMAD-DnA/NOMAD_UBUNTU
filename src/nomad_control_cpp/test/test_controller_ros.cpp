@@ -827,6 +827,8 @@ public:
     void runDeployedConfiguration(const vector<rclcpp::Parameter>& deployed) {
         const string label="deployed config: ";
         const auto check=[&](bool ok,const string& name){expect(ok,(label+name).c_str());};
+        const size_t trace_mark=traceMark();
+        const double trace_from=steadySeconds();
         for(const auto& parameter:deployed)
             check(controller_->has_parameter(parameter.get_name()),"the node reads "+parameter.get_name());
         const double deadline=steadySeconds()+2.0;
@@ -847,6 +849,11 @@ public:
         check(timing!="NONE","the keyboard window accepts the timing values (keyboard_drive.control_timing: "+timing+")");
         check(status_.contains("ground_drive_supported")&&status_["ground_drive_supported"].is_boolean()&&
               !status_["ground_drive_supported"].get<bool>(),"ground_drive_supported is false (scripts/ensure_gui.sh waits on it)");
+        // control_trace / vesc_trace once a second (the GUI's autonomy rows), on the steady clock since 11-19.
+        while(steadySeconds()-trace_from<2.6)pump(.05);
+        const auto controls=traceSince(trace_mark,"control_trace ").size(),vescs=traceSince(trace_mark,"vesc_trace ").size();
+        check(controls>=2&&controls<=3&&vescs==controls,"control_trace and vesc_trace once a second ("+
+              to_string(controls)+" and "+to_string(vescs)+" lines in 2.6 s)");
     }
 
     void runStopRamp(const string& scenario,double ramp_s) {

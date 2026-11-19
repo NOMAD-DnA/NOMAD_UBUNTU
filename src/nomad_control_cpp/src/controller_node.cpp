@@ -1368,6 +1368,9 @@ private:
 
     // Status text, status_json and the 1 Hz control_trace (every 0.1 s, from controlTick; 11-15: moved out of
     // controlTick unchanged).
+    // 2026-11-19 (refactor): publishStatus in parts. Same text line, same status_json keys and values (the JSON object
+    // keeps its keys sorted, so which part adds a key does not change the output), same log lines in the same order.
+    // One change: control_trace/vesc_trace keep their 1 s spacing on the steady clock (logStatusTraces).
     void publishStatus(double steady_now, double ros_now, [[maybe_unused]] bool driver_ready) {
         const bool fresh = activeHealthy(steady_now, ros_now);
         const bool stationary = activeStationary(steady_now, ros_now);
@@ -1379,6 +1382,32 @@ private:
             const auto& active = controller_->options();
             preview = convertTarget(active.target_speed_mps, active.target_steering_rad, calibration_).value;
         }
+        publishTextStatus(fresh, stationary, speed, preview);
+        nlohmann::json data = baseStatusJson(steady_now, fresh, stationary, driver_ready, speed, preview);
+        addVescStatus(data, steady_now);
+        const double hold_s = addStopOutputStatus(data, steady_now);
+        addLinkStatus(data);
+#ifdef NOMAD_ENABLE_PLANNING
+        addPlanningStatus(data, steady_now, ros_now, fresh);
+        if(commissioning_){
+            const auto requested=planning_guard_->target(ros_now,steady_now);
+            data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
+            logStatusTraces(steady_now, requested, hold_s, link_window);
+        }
+        data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
+        data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
+#else
+        (void)hold_s;
+        data["planning_supported"]=false;data["planning_ready"]=false;
+        data["estimated_speed_mps"]=nullptr;data["estimated_speed_verified"]=false;
+#endif
+        std_msgs::msg::String status;
+        status.data = data.dump();
+        status_json_pub_->publish(status);
+    }
+    // The plain-text ~/status line (key=value, older tools).
+    void publishTextStatus(bool fresh, bool stationary, const optional<double>& speed,
+                           const optional<ActuatorCommand>& preview) {
         ostringstream text;
         text << "state=" << trialStateName(activeState()) << " telemetry_fresh=" << fresh
              << " control_units=" << (commissioning_ ? "raw" : "calibrated")
@@ -1392,6 +1421,10 @@ private:
         std_msgs::msg::String status;
         status.data = text.str();
         status_pub_->publish(status);
+    }
+    // State, mode, stability, browser/keyboard timing and the raw or calibrated limits.
+    nlohmann::json baseStatusJson(double steady_now, bool fresh, bool stationary, bool driver_ready,
+                                  const optional<double>& speed, const optional<ActuatorCommand>& preview) {
         nlohmann::json data = {
             {"state", trialStateName(activeState())}, {"telemetry_fresh", fresh},
             {"control_units", commissioning_ ? "raw" : "calibrated"}, {"commissioning", commissioning_},
@@ -1465,6 +1498,11 @@ private:
             data["steering_max"] = calibration_.steering_max_rad;
         }
         data["autonomous_active"]=supervisor_.active();
+        data["restart_trace_active"]=restart_trace_until_.has_value();
+        return data;
+    }
+    // ESC temperature and the VESC values for the team GUI.
+    void addVescStatus(nlohmann::json& data, double steady_now) {
         data["esc_temp_c"]=thermal_.valid()?nlohmann::json(thermal_.temp_c()):nlohmann::json(nullptr);
         data["esc_temp_state"]=thermal_.state();
         // 2026-11-16: more VESC values for the team GUI (display only; null before the first telemetry sample).
@@ -1490,6 +1528,11 @@ private:
             data["tacho_abs"]=shown(v.tacho_abs);
             data["vesc_controller_id"]=shown(v.controller_id);
         }
+        data["vesc_fault"]=activeVescFault();
+    }
+    // Stop output: configuration, what it does now, the long-hold estimate and [HOLD_LONG]. Returns the hold time
+    // (vesc_trace hold_s).
+    double addStopOutputStatus(nlohmann::json& data, double steady_now) {
         // Stop output configured on this node (0 = not used); see releaseMotor for how it is chosen.
         data["stop_brake_current_a"]=brake_pub_?stop_output_.config().brake_current_a:0.0;
         data["stop_handbrake_current_a"]=handbrake_pub_?stop_output_.config().hold_current_a:0.0;
@@ -1518,6 +1561,13 @@ private:
             RCLCPP_WARN(get_logger(),"[HOLD_LONG] handbrake %.1f A held %.0f s (basis=%s); estimated motor copper loss ~%.0f W; "
                         "the motor temperature is not measured",hold_a,hold_s,holdBasisName(stop_output_.holdBasis()),
                         holdCopperLossW(hold_a));
+        // false while the handbrake is held: the VESC then reports a frozen ERPM 0, not a measurement.
+        data["erpm_valid"]=stop_output_.erpmValid();
+        data["stop_holds_abandoned"]=stop_output_.holdsAbandoned();
+        return hold_s;
+    }
+    // The last closed link/loop window (link_* keys).
+    void addLinkStatus(nlohmann::json& data) const {
         {
             // Last closed link/loop window (null before the first one); see link_stats.hpp.
             const auto& w=link_.last();
@@ -1531,12 +1581,10 @@ private:
             data["link_expiries"]=w?nlohmann::json(w->expiries):nlohmann::json(nullptr);
             data["control_tick_max_ms"]=w?ms(w->max_tick_s):nlohmann::json(nullptr);
         }
-        // false while the handbrake is held: the VESC then reports a frozen ERPM 0, not a measurement.
-        data["erpm_valid"]=stop_output_.erpmValid();
-        data["vesc_fault"]=activeVescFault();
-        data["stop_holds_abandoned"]=stop_output_.holdsAbandoned();
-        data["restart_trace_active"]=restart_trace_until_.has_value();
+    }
 #ifdef NOMAD_ENABLE_PLANNING
+    // LPP planning, the stop ramp and the slip/stuck display.
+    void addPlanningStatus(nlohmann::json& data, double steady_now, double ros_now, bool fresh) {
         data["planning_supported"]=true;
         data["planning_calibration_verified"]=planning_calibration_.verified;
         data["planning_headless"]=planning_headless_;
@@ -1580,10 +1628,15 @@ private:
         data["slip_last_backslide_m"]=slip_monitor_.lastBackslideM();
         data["planning_link_pause"]=link_.paused();
         data["stop_ramp_active"]=raw_controller_&&raw_controller_->stopRampActive();
-        if(commissioning_){
-            const auto requested=planning_guard_->target(ros_now,steady_now);
-            data["planning_requested_erpm"]=requested?nlohmann::json(requested->erpm):nlohmann::json(nullptr);
-            RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
+    }
+    // The 1 s status lines the team GUI tails in autonomy (control_trace, vesc_trace) and link_trace.
+    // 2026-11-19: the 1 s spacing is kept on the steady clock. RCLCPP_INFO_THROTTLE uses the ROS clock and prints only
+    // when now >= last + 1 s, so a wall clock set back (the Pi4 clock has been days off and was corrected by hand)
+    // would have silenced both lines for that long; it was also one static per call site, shared by all nodes.
+    void logStatusTraces(double steady_now, const optional<PlanningTarget>& requested, double hold_s,
+                         const optional<LinkWindow>& link_window) {
+        if(status_trace_every_.due(steady_now)){
+            RCLCPP_INFO(get_logger(),
                 "control_trace source=%s phase=%s requested_erpm=%.1f target_erpm=%.1f output_erpm=%.1f measured_erpm=%.1f current_a=%.2f esc_temp_c=%.1f thermal=%s stop=%s stop_a=%.1f erpm_valid=%d start_gate=%s reset_required=%d",
                 supervisor_.active()?"LPP":"IDLE/MANUAL",trialStateName(activeState()),requested?requested->erpm:0,
                 raw_controller_->targetMotorErpm(),raw_controller_->commandedMotorErpm(),last_raw_erpm_,last_current_,
@@ -1595,27 +1648,20 @@ private:
             // A separate line: control_trace stays as the GUI and log tools parse it, and each line stays under
             // the GUI tail's 400-character cut. servo_cmd is the command sent, not a measured steering position.
             const auto& v=vesc_display_;
-            RCLCPP_INFO_THROTTLE(get_logger(),*get_clock(),1000,
+            RCLCPP_INFO(get_logger(),
                 "vesc_trace voltage_v=%.2f input_current_a=%.2f power_w=%.1f iq_a=%.2f duty=%.3f fault_code=%d fault=%s servo_cmd=%.3f servo_target=%.3f hold_basis=%s telemetry_age_ms=%.0f hold_s=%.1f",
                 last_voltage_,v.input_current_a,inputPowerW(last_voltage_,v.input_current_a),v.iq_a,v.duty,last_fault_,
                 vescFaultName(last_fault_),raw_controller_->commandedServoPosition(),raw_controller_->requestedServoPosition(),
                 holdBasisName(stop_output_.holdBasis()),
                 last_telemetry_rx_?1000.0*max(0.0,steady_now-*last_telemetry_rx_):-1.0,hold_s);
-            // 2026-11-17: the link/loop window as another separate line, only for a window with news and otherwise
-            // every 10 s (link_monitor.hpp traceDue: the GUI reads about 1 KiB of this log per second); status_json
-            // carries every window.
-            if(link_window&&link_.traceDue(*link_window,steady_now))
-                RCLCPP_INFO(get_logger(),"link_trace %s",LinkMonitor::traceFields(*link_window).c_str());
         }
-        data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
-        data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
-#else
-        data["planning_supported"]=false;data["planning_ready"]=false;
-        data["estimated_speed_mps"]=nullptr;data["estimated_speed_verified"]=false;
-#endif
-        status.data = data.dump();
-        status_json_pub_->publish(status);
+        // 2026-11-17: the link/loop window as another separate line, only for a window with news and otherwise
+        // every 10 s (link_monitor.hpp traceDue: the GUI reads about 1 KiB of this log per second); status_json
+        // carries every window.
+        if(link_window&&link_.traceDue(*link_window,steady_now))
+            RCLCPP_INFO(get_logger(),"link_trace %s",LinkMonitor::traceFields(*link_window).c_str());
     }
+#endif
 
     bool commissioning_ = false;
     optional<double> reversal_wait_started_; // steady time a manual reversal wait began ([REVERSAL] trace)
@@ -1704,6 +1750,7 @@ private:
     int last_fault_ = -1;
     VescDisplay vesc_display_;
     LinkMonitor link_;                  // 2026-11-19: link/loop window, link-loss resume wait, link_trace rule
+    PeriodGate status_trace_every_{1.0};  // 2026-11-19: control_trace/vesc_trace spacing on the steady clock
     LongHoldWarning long_hold_warning_; // 2026-11-17 [HOLD_LONG] warning lines
 };
 } // namespace

@@ -181,4 +181,20 @@ private:
     std::optional<double> last_call_, last_print_;
 };
 
+// A line printed at most once per period_s on the steady clock; the first call prints (2026-11-19: control_trace and
+// vesc_trace, which used RCLCPP_INFO_THROTTLE on the ROS clock and went quiet when the wall clock was set back).
+class PeriodGate {
+public:
+    explicit PeriodGate(double period_s) : period_s_(period_s) {}
+    bool due(double steady) {
+        if (last_ && steady - *last_ < period_s_) return false;
+        last_ = steady;
+        return true;
+    }
+
+private:
+    double period_s_;
+    std::optional<double> last_;
+};
+
 }  // namespace nomad

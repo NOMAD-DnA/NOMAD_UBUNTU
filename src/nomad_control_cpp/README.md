@@ -305,6 +305,28 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - 정지·리셋은 대기를 풂, 0초 설정이면 기다리지 않음
   - `link_trace` 규칙과 글자 형식
 
+### 상태값·1초 로그 줄 만드는 부분 나누기 (2026-11-19, 리팩토링)
+
+`publishStatus`(약 230줄)를 역할별 함수로 나눴습니다. 코드 줄은 옮기기만 했습니다.
+
+- **나눈 함수:**
+  - `publishTextStatus`: `~/status` 텍스트 줄
+  - `baseStatusJson`: 상태·모드·안정·키보드 시간 값·raw/보정 한계
+  - `addVescStatus`: ESC 온도와 VESC 값
+  - `addStopOutputStatus`: 정지 출력과 오래 유지 경고 `[HOLD_LONG]`
+  - `addLinkStatus`: 통신 창
+  - `addPlanningStatus`: 플래닝·감속 정지·미끄러짐
+  - `logStatusTraces`: `control_trace`·`vesc_trace`·`link_trace`
+- **같은지 확인:** 바꾸기 전후의 실제 `controller_node`를 배포 설정 4개로 띄워 비교했습니다. 결과는 다음과 같습니다.
+  - `status_json` 키 147개, 값의 형식, 시간에 따라 변하는 것을 뺀 값이 모두 같음
+  - 텍스트 상태 줄이 같음
+  - `control_trace` 수가 같음
+  - JSON 객체는 키를 정렬해 내보내므로, 어느 함수가 키를 넣는지는 결과에 영향이 없습니다.
+- **의도한 변경 하나:** `control_trace`·`vesc_trace`의 1초 간격을 ROS 시계 대신 단조 시계로 잽니다(`trace_summary.hpp` `PeriodGate`).
+  - 전에는 `RCLCPP_INFO_THROTTLE`이 'ROS 시각 ≥ 마지막 + 1초'일 때만 찍었습니다. 그래서 Pi4 시계를 뒤로 맞추면 그 차이만큼 두 줄이 안 나와, GUI의 제어기 표시가 '미수신'이 될 수 있었습니다(Pi4 시계는 며칠씩 틀려 손으로 맞춘 적이 있음).
+  - 평소에는 같습니다. 첫 줄은 바로 찍고, 그 뒤 1초마다 두 줄을 함께 찍습니다.
+- **시험:** 단위 시험 `field_diagnostics`(`PeriodGate`), ROS `deployed_config_ros`(두 줄이 1초에 한 번).
+
 ## VESC 설정 (2026-11-12, HFI)
 
 센서리스 VESC가 정지 상태에서 회전자 위치를 못 잡아 책 높이 턱에서 바퀴가 떨기만 했습니다. VESC Tool 단위시험에서 `foc_sensor_mode`를 **HFI**로 바꾸자(Start 8 V, Run 4 V, Max 8 V, Samples 16, Sensorless ERPM HFI 2000) 턱을 넘었습니다. `s_pid_min_erpm`은 900→50으로 바꿨습니다(단독으로는 효과 없음). 전류 한계(±60 A, 배터리 250 A, 회생 −200 A)는 아직 그대로입니다.
@@ -446,7 +468,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 5c0cbf4 | (11-19) f5caad8 Pi4 배포 기록(`c55f03b8…`) |
 | b2d006a | (11-19) GUI가 읽는 로그 줄이기: 재출발·감속 정지 매 주기 줄을 끝 요약 줄로(`trace_summary.hpp`, `trace_every_tick` 기본 꺼짐), `[STOP_RAMP] end`를 주기 맨 끝에, 그 주기 `[PLANNING_WAIT]` 생략, 대기 줄은 바뀔 때·10초마다, 종료 때 끝 줄. 로그만 바뀜, 미배포 |
 | a3f6daf | (11-19) 배포 설정 시험(yaml 4개를 Pi4 순서로, 드라이버 토픽·조향 범위, 상태값의 배포 값), 팀 GUI 계약 시험(로그 줄 4종, HTTP 상태 키 68개, 키보드 시간 값), 시작 때 `[CONFIG]` 쓰이지 않는 설정 이름 경고, 가끔 실패하던 stale IMU·기울기 시험을 상태값 대기로. 차 동작은 같음 |
-| (이 커밋) | (11-19) 리팩토링: LPP 통신 상태(1초 창, 끊김 뒤 재출발 대기, `link_trace` 규칙)를 `link_monitor.hpp` `LinkMonitor` 하나로. 재출발 대기 단위 시험. 동작·로그·상태값 같음 |
+| a9598e1 | (11-19) 리팩토링: LPP 통신 상태(1초 창, 끊김 뒤 재출발 대기, `link_trace` 규칙)를 `link_monitor.hpp` `LinkMonitor` 하나로. 재출발 대기 단위 시험. 동작·로그·상태값 같음 |
+| (이 커밋) | (11-19) 리팩토링: `publishStatus`를 역할별 함수로(실제 노드 비교로 상태값·텍스트 줄 같음 확인). `control_trace`·`vesc_trace` 1초 간격을 단조 시계로(시계를 뒤로 맞추면 두 줄이 멈추던 문제) |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
