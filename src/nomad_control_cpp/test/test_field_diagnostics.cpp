@@ -1,5 +1,7 @@
 // 2026-11-17 field diagnostics: wire stamps, the link/loop window and the long-hold warning (ROS-free).
-// 2026-11-19: the restart / stop-ramp summary lines and the [PLANNING_WAIT] repeat rule (trace_summary.hpp).
+// 2026-11-19: the restart / stop-ramp summary lines and the [PLANNING_WAIT] repeat rule (trace_summary.hpp), and the
+// link-loss resume wait and link_trace rule (link_monitor.hpp), before only covered by the ROS tests.
+#include "nomad_control_cpp/link_monitor.hpp"
 #include "nomad_control_cpp/link_stats.hpp"
 #include "nomad_control_cpp/stop_output.hpp"
 #include "nomad_control_cpp/trace_summary.hpp"
@@ -183,6 +185,86 @@ static void repeatGate() {
     expect(!held_same.due("LPP pause", 6.0) && held_same.due("LPP pause", 7.0), "held back: same text still prints at 2 s");
 }
 
+static void linkResumeWait() {
+    LinkMonitor link;
+    expect(near(link.resumeStableSeconds(), 0.3) && !link.paused() && !link.resumeWaiting(0.0), "default 0.3 s, no wait");
+    // Commands at 20 Hz, then a Wi-Fi loss while driving.
+    double t = 0.0;
+    for (; t < 1.0; t += 0.05) { link.onCommand(t, 0.01); link.onAccepted(t); link.updateFlow(t, true); }
+    link.onLost();
+    link.updateFlow(t, false);  // as in the node: the loss came with no live target, so the count restarts
+    expect(link.paused() && link.resumeWaiting(t), "a loss sets the wait");
+    // One late command after 1.2 s: it alone does not end the wait (arrivals count, not its lease).
+    t = 2.2;
+    link.onCommand(t, 0.02); link.onAccepted(t);
+    bool waited = true;
+    for (double u = t; u < t + 0.45; u += 0.02) { link.updateFlow(u, true); waited = link.resumeWaiting(u) && waited; }
+    expect(waited, "one late command with a long lease keeps waiting (its arrival is over 0.15 s old)");
+    // A steady stream: the wait ends after 0.3 s of it, not before.
+    t = 3.0;
+    double first_free = -1.0;
+    for (double u = t; u < t + 0.6; u += 0.05) {
+        link.onCommand(u, 0.01); link.onAccepted(u);
+        for (double v = u; v < u + 0.049; v += 0.02) {
+            link.updateFlow(v, true);
+            if (first_free < 0 && !link.resumeWaiting(v)) first_free = v;
+        }
+    }
+    expect(first_free >= t + 0.3 - 1e-9 && first_free < t + 0.35, "0.3 s of continuous commands ends the wait");
+    // A gap over 0.15 s restarts the count; no live target restarts it too.
+    LinkMonitor gap;
+    gap.onLost();
+    gap.onAccepted(0.0); gap.updateFlow(0.0, true);
+    gap.updateFlow(0.2, true);               // last arrival 0.2 s ago: not flowing
+    gap.onAccepted(0.21); gap.updateFlow(0.21, true);
+    expect(gap.resumeWaiting(0.21) && gap.resumeWaiting(0.5), "a gap over 0.15 s restarts the count");
+    gap.onAccepted(0.55); gap.updateFlow(0.55, false);  // the guard has no live target (e.g. invalid)
+    expect(gap.resumeWaiting(0.55), "no live target restarts the count");
+    // Refused commands (received, not accepted by the guard: stale, out of order) do not count as arriving.
+    LinkMonitor refused;
+    refused.onLost();
+    bool refused_waits = true;
+    for (double u = 0.0; u < 0.6; u += 0.05) {
+        refused.onCommand(u, 0.5);  // only the window figures
+        refused.updateFlow(u, true);
+        refused_waits = refused.resumeWaiting(u) && refused_waits;
+    }
+    expect(refused_waits, "received but refused commands do not end the wait");
+    // Not a link loss: no wait. 0 s: no wait even after a loss (before 11-17).
+    LinkMonitor stop;
+    stop.onLost(); stop.clearPause();
+    expect(!stop.paused() && !stop.resumeWaiting(0.0), "a planner/operator STOP, RESET or resume clears the wait");
+    LinkMonitor off;
+    off.setResumeStableSeconds(0.0); off.onLost();
+    expect(off.paused() && !off.resumeWaiting(0.0), "link_resume_stable_s 0 never waits");
+    // Each loss is an expiry in the 1 s window.
+    LinkMonitor count;
+    count.onControlTick(0.0); count.onLost(); count.onLost(); count.onControlTick(0.02);
+    const auto w = count.roll(1.0);
+    expect(w && w->expiries == 2 && near(w->max_tick_s, 0.02) && count.last(), "losses count as expiries");
+}
+
+static void linkTraceRule() {
+    LinkWindow quiet; quiet.length_s = 1.0; quiet.commands = 20; quiet.max_gap_s = 0.06; quiet.min_age_s = 0.003;
+    quiet.max_age_s = 0.006; quiet.max_tick_s = 0.022;
+    LinkWindow expired = quiet; expired.expiries = 1;
+    LinkWindow late = quiet; late.max_tick_s = 0.041;
+    LinkWindow gap = quiet; gap.max_gap_s = 0.21;
+    LinkWindow outage; outage.length_s = 1.0; outage.max_gap_s = 1.5;  // no command: not news
+    expect(!LinkMonitor::news(quiet) && LinkMonitor::news(expired) && LinkMonitor::news(late) && LinkMonitor::news(gap) &&
+           !LinkMonitor::news(outage), "news = expiry, a tick over 40 ms, or a gap over 0.2 s while commands arrived");
+    LinkMonitor link;
+    expect(link.traceDue(quiet, 0.0), "the first window is printed");
+    expect(!link.traceDue(quiet, 1.0) && !link.traceDue(outage, 9.9) && link.traceDue(quiet, 10.0),
+           "quiet windows: once per 10 s");
+    expect(link.traceDue(expired, 11.0) && link.traceDue(late, 12.0), "news: every window");
+    expect(!link.traceDue(quiet, 21.9) && link.traceDue(quiet, 22.0), "a news line restarts the 10 s quiet timer");
+    expect(LinkMonitor::traceFields(quiet) == "n=20 gap_ms=60 age_min_ms=3 age_max_ms=6 expired=0 tick_max_ms=22",
+           "link_trace fields as before");
+    expect(LinkMonitor::traceFields(outage) == "n=0 gap_ms=1500 age_min_ms=na age_max_ms=na expired=0 tick_max_ms=0",
+           "na without a command");
+}
+
 int main() {
     try {
         wireStamps();
@@ -191,6 +273,8 @@ int main() {
         restartSummary();
         stopRampSummary();
         repeatGate();
+        linkResumeWait();
+        linkTraceRule();
         cout << checks << " field diagnostics checks PASS\n";
         return 0;
     } catch (const exception& e) { cerr << "FAIL: " << e.what() << "\n"; return 1; }

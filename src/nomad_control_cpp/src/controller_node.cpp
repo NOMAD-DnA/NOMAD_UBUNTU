@@ -10,7 +10,7 @@
 #include "nomad_control_cpp/stop_output.hpp"
 #include "nomad_control_cpp/vesc_telemetry.hpp"
 #include "nomad_control_cpp/wire_stamp.hpp"
-#include "nomad_control_cpp/link_stats.hpp"
+#include "nomad_control_cpp/link_monitor.hpp"
 #include "nomad_control_cpp/slip_monitor.hpp"
 #include "nomad_control_cpp/trace_summary.hpp"
 #include "nomad_thermal/thermal_guard.hpp"
@@ -288,9 +288,10 @@ private:
         // 2026-11-13: LPP STOP / lost LPP input ramp the speed down over this many seconds first (0 = stop at once).
         // 2026-11-17: after a stop caused by LPP input loss (Wi-Fi), resume only after this long of continuous fresh
         // commands (0 = at once, as before). On 11-16 the car stopped and restarted 0.1-0.44 s later 6 times.
-        planning_link_resume_s_=parameter<double>("planning.link_resume_stable_s",0.3);
-        if(!isfinite(planning_link_resume_s_)||planning_link_resume_s_<0||planning_link_resume_s_>2.0)
-            throw invalid_argument("planning.link_resume_stable_s="+to_string(planning_link_resume_s_)+" outside 0 <= x <= 2");
+        const double link_resume_s=parameter<double>("planning.link_resume_stable_s",0.3);
+        if(!isfinite(link_resume_s)||link_resume_s<0||link_resume_s>2.0)
+            throw invalid_argument("planning.link_resume_stable_s="+to_string(link_resume_s)+" outside 0 <= x <= 2");
+        link_.setResumeStableSeconds(link_resume_s);
         planning_stop_ramp_s_=parameter<double>("planning.stop_ramp_s",0.0);
         if(!isfinite(planning_stop_ramp_s_)||planning_stop_ramp_s_<0||planning_stop_ramp_s_>RawTrialController::kMaxStopRampS||
            (planning_stop_ramp_s_>0&&(!planning_headless_||!planning_resume_after_stop_||!planning_measured_speed_control_)))
@@ -345,18 +346,18 @@ private:
                 if(msg->header.stamp.nanosec>=1000000000u||msg->valid_for.nanosec>=1000000000u)c.frame="invalid";
                 const auto ros=now().seconds(),steady=steadySeconds();
                 const auto wire_stamp=stampSeconds(msg->header.stamp); // link figures only: malformed adds no age
-                link_stats_.onCommand(steady,wire_stamp?optional<double>{ros-*wire_stamp}:nullopt);
+                link_.onCommand(steady,wire_stamp?optional<double>{ros-*wire_stamp}:nullopt);
                 // STOP도 먼저 guard에 전달해 이전 이동 명령의 stamp 재사용을 막습니다.
                 const bool received=planning_guard_->receive(c,ros,steady);
                 if(planning_headless_&&c.stop){
                     // An out-of-order STOP rejected by the stamp fence cannot erase a newer live command.
                     if(planning_guard_->target(ros,steady))return;
-                    planning_link_pause_=false; // the planner asked to stop: not a link loss
+                    link_.clearPause(); // the planner asked to stop: not a link loss
                     onPlanningLost("LPP pause; waiting for fresh command","LPP STOP; reset required",steady,ros);
                     return;
                 }
                 if(received){
-                    planning_last_accept_=steady; // 2026-11-17: arrivals, for the link-loss resume wait
+                    link_.onAccepted(steady); // 2026-11-17: arrivals, for the link-loss resume wait
                     planning_speed_=c.speed_mps;planning_angle_=c.steering_rad;
                     if(auto target=planning_guard_->target(ros,steady))
                         planning_start_gate_->update(steady,target->erpm,min(limits::kPlanningReceiveLeaseS,c.valid_for-max(0.0,ros-c.stamp)));
@@ -366,7 +367,7 @@ private:
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
                     // The car is already stopping in a stop ramp; an invalid or stale message does not cut it short.
                     if(raw_controller_->stopRampActive())return;
-                    if(supervisor_.active()){link_stats_.onExpiry();planning_link_pause_=true;}
+                    if(supervisor_.active())link_.onLost();
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
@@ -585,13 +586,8 @@ private:
         logPlanningWait(reason,steady,ros);
     }
     void tickPlanning(double steady,double ros) {
-        // 2026-11-17: how long LPP commands have kept arriving (for the link-loss resume wait). Arrivals, not the lease:
-        // one late command with a long valid_for must not pass the wait on its own (review 11-17). A gap over
-        // kLinkGapS (3 periods at 20 Hz) restarts the count.
-        const bool flowing=planning_guard_&&planning_guard_->target(ros,steady)&&planning_last_accept_&&
-                           steady-*planning_last_accept_<=kLinkGapS;
-        if(!flowing)planning_fresh_since_.reset();
-        else if(!planning_fresh_since_)planning_fresh_since_=steady;
+        // 2026-11-17: how long LPP commands have kept arriving, for the link-loss resume wait (link_monitor.hpp).
+        link_.updateFlow(steady,planning_guard_&&planning_guard_->target(ros,steady).has_value());
         // ESC over-temperature: release autonomous output; resume path re-arms below 70 C.
         if(thermal_.stopped()&&supervisor_.active()){
             if(planning_headless_&&planning_resume_after_stop_)pausePlanning("ESC over-temperature (>=80 C); resumes below 70 C",steady,ros);
@@ -622,22 +618,21 @@ private:
             }else if(supervisor_.resumePending()&&!planning_guard_->target(ros,steady)){
                 pausePlanning("planning input expired; waiting for fresh command",steady,ros);
             }else if(supervisor_.resumePending()&&planningReady(steady,ros)&&stabilityReady()&&!thermal_.stopped()){
-                if(planning_link_pause_&&planning_link_resume_s_>0&&
-                   (!planning_fresh_since_||steady-*planning_fresh_since_<planning_link_resume_s_)){
+                if(link_.resumeWaiting(steady)){
                     // A lone late command after a Wi-Fi gap: wait for a steady stream before restarting.
                     char text[96];
                     snprintf(text,sizeof(text),"LPP link recovering: waiting for %.1f s of continuous commands",
-                             planning_link_resume_s_);
+                             link_.resumeStableSeconds());
                     planning_wait_reason_=text;logPlanningWait(planning_wait_reason_,steady,ros);
                 }else if(planning_measured_speed_control_){
                     const auto next=planning_guard_->target(ros,steady);
                     if(next&&raw_controller_->resumePlanning(next->erpm,next->servo,steady,ros,driver_ready)){
-                        supervisor_.activate();commissioning_axis_=4;planning_link_pause_=false;
+                        supervisor_.activate();commissioning_axis_=4;link_.clearPause();
                         resetPlanningSpeedFeedback();logRawTransition();
                     }
                 }else if(planning_start_gate_->ready(steady)&&activeStationary(steady,ros)&&
                          raw_controller_->reset(steady,ros)){
-                    supervisor_.onResetResume();planning_link_pause_=false;logRawTransition();
+                    supervisor_.onResetResume();link_.clearPause();logRawTransition();
                 }
             }
         }
@@ -646,7 +641,7 @@ private:
            (planning_measured_speed_control_||planning_start_gate_->ready(steady))&&stabilityReady()&&!thermal_.stopped()){
             if(raw_controller_->start(RawAxis::Manual,0,raw_controller_->commandedServoPosition(),0,
                                       steady,ros,exclusiveDriverReady())){
-                supervisor_.activate();commissioning_axis_=4;resetPlanningSpeedFeedback();planning_link_pause_=false;
+                supervisor_.activate();commissioning_axis_=4;resetPlanningSpeedFeedback();link_.clearPause();
             }
         }
         if(!supervisor_.active())return;
@@ -661,7 +656,7 @@ private:
             stop_output_.cancelStopRamp();
             stop_ramp_started_.reset();
             stop_ramp_summary_.reset();
-            planning_link_pause_=false; // the drive goes on
+            link_.clearPause(); // the drive goes on
             resetPlanningSpeedFeedback();
         }
         // Legacy mode keeps its original limit. The measured-speed profile reduces
@@ -691,8 +686,7 @@ private:
             if(target->erpm>0&&!planning_start_gate_->ready(steady))execution_erpm=0;
         }
         if(!planningReady(steady,ros)||!target){
-            link_stats_.onExpiry();
-            planning_link_pause_=true;
+            link_.onLost();
             onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
         }
@@ -1029,7 +1023,7 @@ private:
         const bool accepted = raw_controller_->reset(steady, ros);
 #ifdef NOMAD_ENABLE_PLANNING
         if(accepted&&planning_headless_){
-            supervisor_.onReset();planning_guard_->clear();planning_link_pause_=false;
+            supervisor_.onReset();planning_guard_->clear();link_.clearPause();
             planning_start_gate_->reset(steady,true);planning_overspeed_since_.reset();resetPlanningSpeedFeedback();
         }
 #endif
@@ -1039,7 +1033,7 @@ private:
     void activeStop(const string& reason) {
 #ifdef NOMAD_ENABLE_PLANNING
         supervisor_.onStop(planning_headless_);
-        planning_link_pause_=false; // an operator/global STOP is not a link loss (review 11-17)
+        link_.clearPause(); // an operator/global STOP is not a link loss (review 11-17)
         if(planning_start_gate_)planning_start_gate_->reset(steadySeconds(),true);
         resetPlanningSpeedFeedback();
         planning_overspeed_since_.reset();
@@ -1304,7 +1298,7 @@ private:
     void controlTick() {
         const double steady_now = steadySeconds();
         const double ros_now = now().seconds();
-        link_stats_.onTick(steady_now);
+        link_.onControlTick(steady_now);
         bool driver_ready = exclusiveDriverReady(false);
 #ifdef NOMAD_ENABLE_PLANNING
         if(planning_guard_&&last_tick_ros_&&ros_now<*last_tick_ros_-1e-3){
@@ -1378,7 +1372,7 @@ private:
         const bool fresh = activeHealthy(steady_now, ros_now);
         const bool stationary = activeStationary(steady_now, ros_now);
         // 2026-11-17 link/loop window (link_stats.hpp), closed once a second; logged as link_trace below.
-        [[maybe_unused]] const auto link_window = link_stats_.roll(steady_now);
+        [[maybe_unused]] const auto link_window = link_.roll(steady_now);
         const auto speed = commissioning_ ? optional<double>{} : controller_->measuredSpeed();
         optional<ActuatorCommand> preview;
         if (!commissioning_) {
@@ -1526,7 +1520,7 @@ private:
                         holdCopperLossW(hold_a));
         {
             // Last closed link/loop window (null before the first one); see link_stats.hpp.
-            const auto& w=link_stats_.last();
+            const auto& w=link_.last();
             const auto ms=[](optional<double> seconds){
                 return seconds?nlohmann::json(1000.0*(*seconds)):nlohmann::json(nullptr);};
             data["link_window_s"]=w?nlohmann::json(w->length_s):nlohmann::json(nullptr);
@@ -1571,7 +1565,7 @@ private:
         data["estimated_speed_verified"]=planning_calibration_.verified;
         data["planning_feedback_limit_erpm"]=planning_feedback_limit_erpm_;
         data["planning_stop_ramp_s"]=planning_stop_ramp_s_;
-        data["planning_link_resume_stable_s"]=planning_link_resume_s_;
+        data["planning_link_resume_stable_s"]=link_.resumeStableSeconds();
         // 2026-11-17 (4a) slip/stuck display (slip_monitor.hpp): off = no judgement (see slip_off_reason).
         data["slip_enabled"]=slip_enabled_;
         data["slip_state"]=slip_enabled_?slipStateName(slip_monitor_.state()):"off";
@@ -1584,7 +1578,7 @@ private:
         }
         data["slip_events"]=slip_monitor_.events();
         data["slip_last_backslide_m"]=slip_monitor_.lastBackslideM();
-        data["planning_link_pause"]=planning_link_pause_;
+        data["planning_link_pause"]=link_.paused();
         data["stop_ramp_active"]=raw_controller_&&raw_controller_->stopRampActive();
         if(commissioning_){
             const auto requested=planning_guard_->target(ros_now,steady_now);
@@ -1607,27 +1601,11 @@ private:
                 vescFaultName(last_fault_),raw_controller_->commandedServoPosition(),raw_controller_->requestedServoPosition(),
                 holdBasisName(stop_output_.holdBasis()),
                 last_telemetry_rx_?1000.0*max(0.0,steady_now-*last_telemetry_rx_):-1.0,hold_s);
-            // 2026-11-17: the link/loop window (link_stats.hpp) as another separate line.
-            // - The GUI tails only about 1 KiB of this log per second. control_trace, vesc_trace and a repeating
-            //   [PLANNING_WAIT] already use most of that.
-            // - So the line is printed only for a window with something to see (an expiry, a control tick over
-            //   40 ms late, or a gap over 0.2 s while commands were arriving), and otherwise every 10 s.
-            //   status_json carries every window.
-            // - A window with no command at all is not news. Either the planner is off, or an outage is in
-            //   progress: its start shows as expired=1, and its full length shows when the next command arrives.
-            // - na = no command (or no valid stamp) in the window.
-            const bool link_news=link_window&&(link_window->expiries>0||link_window->max_tick_s>0.04||
-                                               (link_window->commands>0&&link_window->max_gap_s>0.2));
-            if(link_window&&(link_news||steady_now-link_trace_at_>=10.0)){
-                link_trace_at_=steady_now;
-                const auto& w=*link_window;
-                const auto ms=[](optional<double> seconds){
-                    if(!seconds)return string("na");
-                    char text[32];snprintf(text,sizeof(text),"%.0f",1000.0*(*seconds));return string(text);};
-                RCLCPP_INFO(get_logger(),"link_trace n=%d gap_ms=%.0f age_min_ms=%s age_max_ms=%s expired=%d tick_max_ms=%.0f",
-                            w.commands,1000.0*w.max_gap_s,ms(w.min_age_s).c_str(),ms(w.max_age_s).c_str(),w.expiries,
-                            1000.0*w.max_tick_s);
-            }
+            // 2026-11-17: the link/loop window as another separate line, only for a window with news and otherwise
+            // every 10 s (link_monitor.hpp traceDue: the GUI reads about 1 KiB of this log per second); status_json
+            // carries every window.
+            if(link_window&&link_.traceDue(*link_window,steady_now))
+                RCLCPP_INFO(get_logger(),"link_trace %s",LinkMonitor::traceFields(*link_window).c_str());
         }
         data["planning_speed_mps"]=isfinite(planning_speed_)?nlohmann::json(planning_speed_):nlohmann::json(nullptr);
         data["planning_steering_rad"]=isfinite(planning_angle_)?nlohmann::json(planning_angle_):nlohmann::json(nullptr);
@@ -1650,11 +1628,6 @@ private:
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
-    double planning_link_resume_s_=0.3;      // planning.link_resume_stable_s (2026-11-17)
-    bool planning_link_pause_=false;         // the current/last LPP pause came from lost or invalid input
-    optional<double> planning_fresh_since_;  // steady time LPP commands started arriving without a gap
-    optional<double> planning_last_accept_;  // steady time of the last accepted LPP command
-    static constexpr double kLinkGapS=0.15;  // longest gap between commands that still counts as arriving
     bool slip_enabled_=false;                // slip.enabled (2026-11-17, 4a)
     SlipMonitor slip_monitor_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr slip_odom_sub_;
@@ -1730,8 +1703,7 @@ private:
     double last_raw_erpm_ = 0.0, last_voltage_ = 0.0, last_current_ = 0.0;
     int last_fault_ = -1;
     VescDisplay vesc_display_;
-    LinkStats link_stats_;              // 2026-11-17 link/loop window (link_trace, link_* status keys)
-    double link_trace_at_ = -1e9;       // steady time of the last link_trace line
+    LinkMonitor link_;                  // 2026-11-19: link/loop window, link-loss resume wait, link_trace rule
     LongHoldWarning long_hold_warning_; // 2026-11-17 [HOLD_LONG] warning lines
 };
 } // namespace
