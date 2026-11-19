@@ -23,5 +23,7 @@
   <depend>vesc_msgs</depend>
   <depend>nomad_interfaces</depend>
   <depend>nav_msgs</depend>
+  <!-- 2026-11-19: the deployed-config ROS test reads config/*.yaml with rcl's parser -->
+  <test_depend>rcl_yaml_param_parser</test_depend>
   <export><build_type>ament_cmake</build_type></export>
 </package>

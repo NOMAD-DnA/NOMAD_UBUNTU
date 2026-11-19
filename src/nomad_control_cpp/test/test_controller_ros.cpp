@@ -10,6 +10,10 @@
 #include <std_msgs/msg/string.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <rcutils/logging.h>
+#include <rcl_yaml_param_parser/parser.h>
+#include <rclcpp/parameter_map.hpp>
+#include <map>
+#include <regex>
 #include <cmath>
 #include <cstdarg>
 #include <cstdlib>
@@ -20,6 +24,8 @@
 #include <thread>
 #include <functional>
 #include <tuple>
+#include <cctype>
+#include <optional>
 #include <limits>
 #define NOMAD_GUI_NO_MAIN
 #include "../src/gui_server.cpp"
@@ -48,8 +54,12 @@ void captureTraceLine(const rcutils_log_location_t* location, int severity, cons
     vsnprintf(text, sizeof(text), format, copy);
     va_end(copy);
     const string line(text);
-    if (line.find("[STOP_RAMP]") != string::npos || line.find("[RESTART_TRACE]") != string::npos ||
-        line.find("[PLANNING_WAIT]") != string::npos) {
+    // 2026-11-19: also the lines the team GUI parses and the [CONFIG] warning.
+    static const char* const kept[] = {"[STOP_RAMP]", "[RESTART_TRACE]", "[PLANNING_WAIT]", "[CONFIG]", "[SLIP]",
+                                       "control_trace ", "vesc_trace ", "link_trace "};
+    bool keep = false;
+    for (const char* tag : kept) keep = keep || line.rfind(tag, 0) == 0;
+    if (keep) {
         lock_guard<mutex> lock(log_mutex);
         trace_lines.emplace_back(timestamp, line);
     }
@@ -74,6 +84,149 @@ vector<string> traceSince(size_t mark, const string& prefix) {
 long traceNumber(const string& line, const string& name) {
     const auto at = line.find(" " + name + "=");
     return at == string::npos ? -1 : strtol(line.c_str() + at + name.size() + 2, nullptr, 10);
+}
+
+// 2026-11-19: what the team GUI reads from this node. The GUI is the team-shared original
+// (NOMAD_실물시험앱_20261106/laptop_monitor); update these lists together with it.
+// - Log lines (autonomy): developer_control.py trace_from_line, vesc_status.py vesc_trace_from_line,
+//   link_trace_from_line and slip_event_from_line. The board tail (board_tools/module_log_tail.cpp) cuts a line at
+//   400 characters, counted with the rclcpp prefix "[INFO] [<sec>.<nsec>] [nomad_vesc_trial]: " (50). The GUI splits
+//   values at " key=", so a value that contains "word=" would break the key before it.
+struct GuiLogLine { string marker; set<string> keys, numeric, na_allowed; };
+const size_t kGuiLinePrefix = 50, kGuiLineCut = 400;
+const vector<GuiLogLine> kGuiLogLines = {
+    {"control_trace ", {"source", "phase", "requested_erpm", "target_erpm", "output_erpm", "measured_erpm", "current_a",
+                        "esc_temp_c", "thermal", "stop", "stop_a", "erpm_valid", "start_gate", "reset_required"},
+     {"requested_erpm", "target_erpm", "output_erpm", "measured_erpm", "current_a", "esc_temp_c", "stop_a"}, {}},
+    {"vesc_trace ", {"voltage_v", "input_current_a", "power_w", "iq_a", "duty", "fault_code", "fault", "servo_cmd",
+                     "servo_target", "hold_basis", "telemetry_age_ms", "hold_s"},
+     {"voltage_v", "input_current_a", "power_w", "iq_a", "duty", "fault_code", "servo_cmd", "servo_target",
+      "telemetry_age_ms", "hold_s"}, {}},
+    {"link_trace ", {"n", "gap_ms", "age_min_ms", "age_max_ms", "expired", "tick_max_ms"},
+     {"n", "gap_ms", "age_min_ms", "age_max_ms", "expired", "tick_max_ms"}, {"age_min_ms", "age_max_ms"}},
+};
+// - HTTP /api/status (키보드 조종): keyboard_drive.py (control_timing, _start, _fresh, _targets, servo_target),
+//   vesc_status.py (status_rows, diagnostic_rows, _slip_status_row), drive_record_dialog.py (refresh_drive: reason)
+//   and scripts/ensure_gui.sh run by remote/pi4_manual_prepare.sh (ground_drive_supported). /api/status is this
+//   node's status_json plus connected (gui_server) and token / server_time_s (gui_http), not listed here.
+const vector<string> kGuiStatusKeys = {
+    "browser_freshness_s", "browser_request_timeout_ms", "command_max_age_s", "commissioning",
+    "commissioning_setup_acknowledged", "continuous_manual_supported", "control_units", "driver_ready",
+    "manual_reverse_max_erpm", "manual_timeout_s", "motor_max_erpm", "servo_center", "servo_max", "servo_min", "state",
+    "stationary", "telemetry_fresh", "wifi_manual_profile",
+    "body_speed_mps", "charge_drawn_ah", "charge_regen_ah", "commanded_motor_erpm", "commanded_servo_position",
+    "control_tick_max_ms", "current_a", "duty", "energy_drawn_wh", "energy_regen_wh", "erpm_valid", "esc_mos_temps_c",
+    "esc_temp_c", "esc_temp_state", "estimated_speed_mps", "estimated_speed_verified", "fault_code", "fault_name", "id_a",
+    "input_current_a", "input_power_w", "iq_a", "link_cmd_age_max_ms", "link_cmd_age_min_ms", "link_cmd_max_gap_ms",
+    "link_commands", "link_expiries", "raw_erpm", "requested_servo_position", "slip_events", "slip_off_reason",
+    "slip_state", "slip_state_s", "stop_hold_basis", "stop_hold_heat_w", "stop_hold_long", "stop_hold_s", "stop_output",
+    "stop_output_a", "target_motor_erpm", "telemetry_age_s", "vd_v", "vesc_fault", "voltage_v", "vq_v",
+    "tacho", "tacho_abs", "vesc_controller_id", "reason", "ground_drive_supported"};
+
+// keyboard_drive.control_timing: the keyboard window drives only when this is "WIFI" or "STRICT".
+string guiControlTiming(const nomad::Json& data) {
+    const auto is_true = [&](const char* key) { return data.contains(key) && data[key].is_boolean() && data[key].get<bool>(); };
+    const auto equals = [&](const char* key, double value) {
+        return data.contains(key) && data[key].is_number() && data[key].get<double>() == value; };
+    if (is_true("wifi_manual_profile")) {
+        const bool ok = data.value("control_units", string()) == "raw" && is_true("commissioning") &&
+            is_true("continuous_manual_supported") && equals("manual_timeout_s", 2) && equals("command_max_age_s", 1.5) &&
+            equals("browser_freshness_s", 1.5) && equals("browser_request_timeout_ms", 1500);
+        return ok ? "WIFI" : "NONE";
+    }
+    if (data.contains("wifi_manual_profile") && !data["wifi_manual_profile"].is_null() &&
+        !(data["wifi_manual_profile"].is_boolean() && !data["wifi_manual_profile"].get<bool>())) return "NONE";
+    for (const auto& [key, limit] : vector<pair<const char*, double>>{{"manual_timeout_s", .35}, {"command_max_age_s", .3},
+                                                                    {"browser_freshness_s", .3}, {"browser_request_timeout_ms", 600}}) {
+        if (!data.contains(key) || data[key].is_null()) continue;
+        if (!data[key].is_number() || data[key].is_boolean()) return "NONE";
+        const double value = data[key].get<double>();
+        if (!(value > 0 && value <= limit)) return "NONE";
+    }
+    return "STRICT";
+}
+
+// The GUI's key=value split (vesc_status._KEY): each value runs up to the next " key=".
+map<string, string> guiFields(const string& payload) {
+    static const regex key(R"((?:^|\s)([A-Za-z_][A-Za-z0-9_]*)=)");
+    vector<tuple<string, size_t, size_t>> marks;  // name, match start, value start
+    for (sregex_iterator it(payload.begin(), payload.end(), key), end; it != end; ++it)
+        marks.emplace_back((*it)[1].str(), static_cast<size_t>(it->position(0)),
+                           static_cast<size_t>(it->position(0) + it->length(0)));
+    map<string, string> out;
+    for (size_t i = 0; i < marks.size(); ++i) {
+        const size_t from = get<2>(marks[i]), to = i + 1 < marks.size() ? get<1>(marks[i + 1]) : payload.size();
+        string value = payload.substr(from, to - from);
+        while (!value.empty() && isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
+        out[get<0>(marks[i])] = value;
+    }
+    return out;
+}
+// Empty when the GUI reads the line as intended; otherwise what is wrong.
+string guiLogProblem(const GuiLogLine& kind, const string& line) {
+    if (line.size() + kGuiLinePrefix > kGuiLineCut) return "longer than the GUI's 400-character cut: " + line;
+    const auto fields = guiFields(line.substr(kind.marker.size()));
+    set<string> found;
+    for (const auto& field : fields) found.insert(field.first);
+    if (found != kind.keys) return "keys differ from what the GUI parses: " + line;
+    for (const auto& name : kind.numeric) {
+        const string& value = fields.at(name);
+        if (value == "na" && kind.na_allowed.count(name)) continue;
+        char* end = nullptr;
+        const double number = strtod(value.c_str(), &end);
+        if (value.empty() || *end != '\0' || !isfinite(number)) return "not a number for " + name + ": " + line;
+    }
+    // developer_control.trace_from_line / vesc_status.trace_rows accept exactly "0" or "1" for these two.
+    if (kind.marker == "control_trace ")
+        for (const char* flag : {"reset_required", "erpm_valid"})
+            if (fields.at(flag) != "0" && fields.at(flag) != "1") return string(flag) + " must be 0 or 1: " + line;
+    return "";
+}
+// vesc_status.py _SLIP_START / _SLIP_END.
+bool guiSlipLine(const string& line) {
+    static const regex start(R"(\[SLIP\]\s+(stuck|backslide)\s+start:\s*(.*)$)");
+    static const regex end(R"(\[SLIP\]\s+(stuck|backslide)\s+end after\s+([0-9.]+)\s*s(?:,\s*([0-9.]+)\s*m backward)?)");
+    return line.size() + kGuiLinePrefix <= kGuiLineCut && (regex_search(line, start) || regex_search(line, end));
+}
+
+// The names in "[CONFIG] set but not used (...): a, b" lines.
+set<string> configUnused(const vector<string>& lines) {
+    set<string> names;
+    for (const auto& line : lines) {
+        const auto colon = line.find("): ");
+        if (colon == string::npos) continue;
+        size_t from = colon + 3;
+        while (from < line.size()) {
+            const auto comma = line.find(", ", from);
+            names.insert(line.substr(from, comma == string::npos ? string::npos : comma - from));
+            if (comma == string::npos) break;
+            from = comma + 2;
+        }
+    }
+    return names;
+}
+
+// The parameters the --params-file arguments would give node_fqn: the files in order (later wins), "/**" entries
+// first. Read with rcl's own parser, so the YAML rules are the ones the node uses.
+vector<rclcpp::Parameter> paramsFromFiles(const vector<string>& files, const string& node_fqn) {
+    rcl_params_t* params = rcl_yaml_node_struct_init(rcutils_get_default_allocator());
+    if (!params) throw runtime_error("rcl_yaml_node_struct_init failed");
+    for (const auto& file : files)
+        if (!rcl_parse_yaml_file(file.c_str(), params)) {
+            rcl_yaml_node_struct_fini(params);
+            throw runtime_error("cannot parse " + file);
+        }
+    const auto map = rclcpp::parameter_map_from(params);
+    rcl_yaml_node_struct_fini(params);
+    std::map<string, rclcpp::Parameter> merged;
+    for (const string& key : vector<string>{"/**", node_fqn}) {
+        const auto found = map.find(key);
+        if (found == map.end()) continue;
+        for (const auto& parameter : found->second) merged.insert_or_assign(parameter.get_name(), parameter);
+    }
+    vector<rclcpp::Parameter> out;
+    for (const auto& entry : merged) out.push_back(entry.second);
+    return out;
 }
 #endif
 
@@ -669,6 +822,33 @@ public:
     // the speed command down to the handbrake entry speed, keeps it there until the reported speed is there (at most
     // 0.6 s more), then the stop output; everything else still stops at once. ramp_s is 1.0 in the scenarios that act
     // during the ramp, so a slow machine still acts while it runs.
+    // 2026-11-19: the node built from the deployed yaml files (topics moved to this rig). What the team GUI reads over
+    // HTTP must be in status_json, with the deployed values.
+    void runDeployedConfiguration(const vector<rclcpp::Parameter>& deployed) {
+        const string label="deployed config: ";
+        const auto check=[&](bool ok,const string& name){expect(ok,(label+name).c_str());};
+        for(const auto& parameter:deployed)
+            check(controller_->has_parameter(parameter.get_name()),"the node reads "+parameter.get_name());
+        const double deadline=steadySeconds()+2.0;
+        while(steadySeconds()<deadline&&!(status_.contains("planning_stop_ramp_s")&&status_.contains("link_commands")))pump(.05);
+        pump(.3);
+        vector<string> missing;
+        for(const auto& key:kGuiStatusKeys)if(!status_.contains(key))missing.push_back(key);
+        string list;for(const auto& key:missing)list+=" "+key;
+        check(missing.empty(),"status_json has every key the team GUI reads over HTTP (missing:"+list+")");
+        const auto number=[&](const char* key){return status_.contains(key)&&status_[key].is_number()?status_[key].get<double>():NAN;};
+        check(status_.value("control_units",string())=="raw"&&status_.value("commissioning",false)&&
+              status_.value("commissioning_setup_acknowledged",false),"commission mode with the setup acknowledged");
+        check(number("motor_max_erpm")==1850.0&&number("manual_reverse_max_erpm")==800.0&&number("servo_center")==0.5,
+              "keyboard limits are the deployed ones (1850, reverse 800, servo center 0.5)");
+        check(abs(number("planning_stop_ramp_s")-0.3)<1e-9&&abs(number("planning_link_resume_stable_s")-0.3)<1e-9&&
+              status_.value("slip_enabled",false),"planning values are the deployed ones (ramp 0.3 s, link wait 0.3 s, slip on)");
+        const string timing=guiControlTiming(status_);
+        check(timing!="NONE","the keyboard window accepts the timing values (keyboard_drive.control_timing: "+timing+")");
+        check(status_.contains("ground_drive_supported")&&status_["ground_drive_supported"].is_boolean()&&
+              !status_["ground_drive_supported"].get<bool>(),"ground_drive_supported is false (scripts/ensure_gui.sh waits on it)");
+    }
+
     void runStopRamp(const string& scenario,double ramp_s) {
         planning_pub_=fake_->create_publisher<nomad_interfaces::msg::DriveCommand>(prefix_+"/planning",rclcpp::QoS(1).reliable());
         odom_pub_=fake_->create_publisher<nav_msgs::msg::Odometry>(prefix_+"/odometry",rclcpp::SensorDataQoS().keep_last(1));
@@ -1573,14 +1753,21 @@ public:
         expect(!call("start_test"),"wrong IMU frame rejected");
         imu_frame_="base_link";pump(.3);
         expect(call("start_test"),"qualified simulated IMU starts bench");
+        // 2026-11-19: status_json comes every 0.10-0.12 s; wait for it instead of reading it once after a fixed time
+        // (this check failed now and then on a busy PC).
+        const auto stopped=[&](double seconds){
+            const double deadline=steadySeconds()+seconds;
+            while(status_.value("state","")!="STOPPED_OUTPUT"&&steadySeconds()<deadline)pump(.02);
+            return status_.value("state","")=="STOPPED_OUTPUT";
+        };
         pump(.2); send_imu_=false; pump(.3);
-        expect(status_.value("state","")=="STOPPED_OUTPUT","stale IMU stops owned bench output");
+        expect(stopped(1.0),"stale IMU stops owned bench output");
         const auto moves=moving_messages_; send_imu_=true; pump(.3);
         expect(moving_messages_==moves,"IMU recovery cannot restart motion");
         expect(call("reset"),"explicit reset with stationary telemetry");
         expect(call("start_test"),"explicit restart after IMU recovery");
         imu_roll_=.35; pump(.15);
-        expect(status_.value("state","")=="STOPPED_OUTPUT","excessive tilt stops bench output");
+        expect(stopped(1.0),"excessive tilt stops bench output");
         expect(status_.value("ground_drive_supported",true)==false,"never claims ground support");
     }
 
@@ -1655,6 +1842,7 @@ void testStopRamp() {
         {"stop_brake_current_a",20.0},{"stop_handbrake_current_a",30.0},{"stop_handbrake_below_erpm",200.0},
         {"stop_handbrake_min_current_a",12.5},{"stop_handbrake_load_gain",1.45},
         {"stop_handbrake_rolling_current_a",6.0},{"stop_handbrake_margin_a",8.0}};
+    const size_t gui_mark=traceMark();
     for(const string scenario:{"LPP STOP","expiry","climb hold","second publisher","blocked",
                                "cancel","cancel then flat","speed 0","operator STOP","VESC fault","invalid message",
                                "noisy end","link resume","shutdown","shutdown while driving","slip display"}){
@@ -1729,6 +1917,20 @@ void testStopRamp() {
                !traceSince(log_mark,"[STOP_RAMP] end").empty(),
                "stop ramp (trace_every_tick): per-tick lines and the end line");
     }
+    // 2026-11-19: every control_trace, vesc_trace, link_trace and [SLIP] line of these scenarios reads in the team GUI.
+    for(const auto& kind:kGuiLogLines){
+        const auto lines=traceSince(gui_mark,kind.marker);
+        string problem;
+        for(const auto& line:lines)if(problem.empty())problem=guiLogProblem(kind,line);
+        expect(!lines.empty()&&problem.empty(),("team GUI log contract: "+kind.marker+"lines parse as the GUI expects").c_str());
+        if(!problem.empty())cerr<<"  "<<problem<<'\n';
+    }
+    {
+        const auto slips=traceSince(gui_mark,"[SLIP]");
+        bool all=!slips.empty();
+        for(const auto& line:slips)if(!guiSlipLine(line)){all=false;cerr<<"  [SLIP] the GUI cannot read: "<<line<<'\n';}
+        expect(all,"team GUI log contract: [SLIP] lines match the GUI's start/end patterns");
+    }
     const vector<rclcpp::Parameter> base={{"mode","commission"},{"planning.headless",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.feedback_limit_erpm",1200.0}};
     const auto refused=[&](const vector<rclcpp::Parameter>& extra){
@@ -1745,6 +1947,79 @@ void testStopRamp() {
     expect(refused({{"planning.stop_ramp_s",.3},{"planning.resume_after_stop",false}})&&
            refused({{"planning.stop_ramp_s",.3},{"planning.measured_speed_control",false},{"planning.minimum_running_erpm",0.0}}),
            "stop ramp: refused without headless measured planning that resumes after a stop");
+}
+
+// 2026-11-19: the node as the Pi4 starts it (pi4_output_only.sh: commissioning, planning, planning_headless,
+// nomad_vehicle_ready, in this order) and the driver steering file it starts the VESC driver with.
+void testDeployedConfiguration() {
+    const string dir=NOMAD_SOURCE_CONFIG_DIR;
+    vector<rclcpp::Parameter> deployed;
+    try{
+        deployed=paramsFromFiles({dir+"/commissioning.yaml",dir+"/planning.yaml",dir+"/planning_headless.yaml",
+                                  dir+"/nomad_vehicle_ready.yaml"},"/nomad_vesc_trial");
+    }catch(const exception& error){cerr<<error.what()<<'\n';}
+    expect(deployed.size()>50,"deployed config: the four yaml files parse for /nomad_vesc_trial");
+    const auto value=[&](const string& name)->optional<rclcpp::ParameterValue>{
+        for(const auto& parameter:deployed)if(parameter.get_name()==name)return parameter.get_parameter_value();
+        return nullopt;};
+    expect(value("mode")&&value("mode")->get<string>()=="commission"&&value("planning.headless")&&
+           value("planning.headless")->get<bool>(),"deployed config: commission mode with the headless planner");
+    // The VESC driver runs in /nomad_bench (pi4_output_only.sh -r __ns:=/nomad_bench) with the f1tenth topic names.
+    // Name and value together: a swapped pair (speed <-> duty) or a misspelt name is a failure (review 11-19).
+    const map<string,string> driver_topics={{"telemetry_topic","/nomad_bench/sensors/core"},
+        {"motor_speed_topic","/nomad_bench/commands/motor/speed"},{"motor_current_topic","/nomad_bench/commands/motor/current"},
+        {"servo_topic","/nomad_bench/commands/servo/position"},{"motor_duty_topic","/nomad_bench/commands/motor/duty_cycle"},
+        {"motor_brake_topic","/nomad_bench/commands/motor/brake"},{"motor_handbrake_topic","/nomad_bench/commands/motor/handbrake"},
+        {"motor_position_topic","/nomad_bench/commands/motor/position"}};
+    vector<rclcpp::Parameter> rig_params;
+    map<string,string> topics;
+    for(const auto& parameter:deployed){
+        const string& name=parameter.get_name();
+        if(name.size()>6&&name.compare(name.size()-6,6,"_topic")==0){
+            topics[name]=parameter.get_type()==rclcpp::ParameterType::PARAMETER_STRING?parameter.as_string():string("?");
+            continue;
+        }
+        rig_params.push_back(parameter);  // topics stay the rig's own: this test never uses the driver's topics
+    }
+    expect(topics==driver_topics,"deployed config: each VESC topic setting names its driver topic under /nomad_bench");
+    if(topics!=driver_topics)for(const auto& [name,topic]:topics)cerr<<"  "<<name<<" = "<<topic<<'\n';
+    // The driver passes servo positions only inside its own servo_min..servo_max.
+    try{
+        const auto driver=paramsFromFiles({dir+"/vesc_steering_test.yaml"},"/nomad_bench/vesc_driver_lpp");
+        double driver_min=NAN,driver_max=NAN;
+        for(const auto& parameter:driver){
+            if(parameter.get_name()=="servo_min")driver_min=parameter.as_double();
+            if(parameter.get_name()=="servo_max")driver_max=parameter.as_double();
+        }
+        expect(value("commissioning.servo_min")&&value("commissioning.servo_max")&&
+               driver_min<=value("commissioning.servo_min")->get<double>()&&
+               driver_max>=value("commissioning.servo_max")->get<double>(),
+               "deployed config: the driver's servo range covers the controller's");
+    }catch(const exception& error){cerr<<error.what()<<'\n';expect(false,"deployed config: the driver steering file parses");}
+    const size_t log_mark=traceMark();
+    try{
+        RosRig rig(true,true,true,true,false,rig_params);
+        rig.runDeployedConfiguration(rig_params);
+    }catch(const exception& error){cerr<<error.what()<<'\n';expect(false,"deployed config: the node starts with the deployed values");}
+    // [CONFIG] lists names the node never read; none of them may come from the deployed files.
+    bool clean=true;
+    for(const auto& name:configUnused(traceSince(log_mark,"[CONFIG]")))
+        for(const auto& parameter:rig_params)
+            if(parameter.get_name()==name){clean=false;cerr<<"  unused deployed setting: "<<name<<'\n';}
+    expect(clean,"deployed config: no deployed setting is reported unused");
+    // A typo is reported (and the node still starts with the default).
+    const size_t typo_mark=traceMark();
+    try{
+        rclcpp::NodeOptions options;
+        options.parameter_overrides({{"mode","commission"},{"planning.headless",true},{"planning.resume_after_stop",true},
+            {"planning.measured_speed_control",true},{"planning.feedback_limit_erpm",1200.0},{"planning.stop_ramp_sec",.5},
+            {"current_limit_a",25.0},{"commissioning.current_limit_a",30.0}});
+        auto node=nomad::ControllerNode::create(options);
+    }catch(const exception& error){cerr<<error.what()<<'\n';}
+    const auto unused=configUnused(traceSince(typo_mark,"[CONFIG]"));
+    expect(unused.count("planning.stop_ramp_sec")==1,"deployed config: a misspelt setting is reported by name");
+    expect(unused.count("current_limit_a")==1&&unused.count("commissioning.current_limit_a")==0,
+           "deployed config: a calibrated-mode setting is reported in commission mode, its commissioning.* twin is not");
 }
 
 void testMinimumRunningFloor() {
@@ -1809,6 +2084,11 @@ int main(int argc, char* argv[]) {
         }
         if(argc>1&&string(argv[1])=="--measured-speed-only"){
             testMeasuredSpeedControl();
+            cout<<checks<<" checks, "<<failures<<" failures\n";
+            rclcpp::shutdown();return failures?1:0;
+        }
+        if(argc>1&&string(argv[1])=="--deployed-config-only"){
+            testDeployedConfiguration();
             cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }

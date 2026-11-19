@@ -159,7 +159,11 @@ if(NOMAD_BUILD_ROS2)
     endif()
     target_include_directories(controller_ros_tests PRIVATE third_party)
     target_link_libraries(controller_ros_tests nomad_controller_core nomad_gui_http)
-    ament_target_dependencies(controller_ros_tests rclcpp rcl_interfaces std_msgs std_srvs vesc_msgs ament_index_cpp sensor_msgs)
+    # 2026-11-19: the deployed-config test reads config/*.yaml like --params-file (rcl's own YAML parser).
+    find_package(rcl_yaml_param_parser REQUIRED)
+    target_compile_definitions(controller_ros_tests PRIVATE NOMAD_SOURCE_CONFIG_DIR="${CMAKE_CURRENT_SOURCE_DIR}/config")
+    ament_target_dependencies(controller_ros_tests rclcpp rcl_interfaces std_msgs std_srvs vesc_msgs ament_index_cpp sensor_msgs
+                              rcl_yaml_param_parser)
     if(NOMAD_ENABLE_PLANNING)
       target_compile_definitions(controller_ros_tests PRIVATE NOMAD_ENABLE_PLANNING)
       ament_target_dependencies(controller_ros_tests nomad_interfaces nav_msgs)
@@ -174,6 +178,10 @@ if(NOMAD_BUILD_ROS2)
       add_test(NAME planning_stop_ramp_ros COMMAND controller_ros_tests --stop-ramp-only)
       set_tests_properties(planning_stop_ramp_ros PROPERTIES TIMEOUT 90
         ENVIRONMENT "ROS_DOMAIN_ID=227;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
+      # 2026-11-19: the node as deployed (the four yaml files in the Pi4 order) and what the team GUI reads from it.
+      add_test(NAME deployed_config_ros COMMAND controller_ros_tests --deployed-config-only)
+      set_tests_properties(deployed_config_ros PROPERTIES TIMEOUT 60
+        ENVIRONMENT "ROS_DOMAIN_ID=230;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     endif()
     if(NOMAD_ENABLE_PLANNING)
       # Device-free contract: launch the already built production node once.

@@ -241,6 +241,7 @@ public:
             RCLCPP_WARN(get_logger(), "stop release = VESC brake current %.1f A (not a parking hold); 0A on a latched VESC fault code. SIGKILL/power loss require verified VESC timeout.", stop_output_.config().brake_current_a);
         else
             RCLCPP_WARN(get_logger(), "0A release is coast, not active braking. SIGKILL/power loss require verified VESC timeout.");
+        warnUnusedParameters();
     }
 
     // 기본 ROS signal shutdown보다 먼저 호출해 정상 Ctrl+C/SIGTERM 시 정지 출력(0A 또는 브레이크/핸드브레이크)
@@ -785,6 +786,27 @@ private:
         if (stability_decision_.allowed)
             controller_->setStabilityLimits(stability_decision_.speed_cap_mps,stability_decision_.accel_cap_mps2);
         return stability_decision_.allowed;
+    }
+
+    // 2026-11-19: a name set in the params files (or overrides) that this node never read: a typo, or a setting
+    // this mode does not use. Nothing changes because of it, so it is a warning only. The Pi4 copies of the yaml
+    // files are edited by hand on the board, where a typo used to leave the default in force without a sign.
+    // In commission mode the raw controller reads commissioning.<name> instead of these calibrated-mode settings,
+    // which are declared in every mode but only the calibrated TrialController uses (review 11-19: e.g.
+    // current_limit_a or manual_timeout_s copied from controller.yaml into commissioning.yaml changed nothing).
+    void warnUnusedParameters() {
+        static const set<string> calibrated_only = {
+            "target_speed_mps", "target_steering_rad", "trial_duration_s", "telemetry_timeout_s", "max_tick_gap_s",
+            "stationary_hold_s", "stationary_erpm", "stationary_speed_mps", "current_limit_a", "acceleration_mps2",
+            "steering_rate_radps", "steering_settle_s", "manual_timeout_s"};
+        string unused;
+        for (const auto& entry : get_node_parameters_interface()->get_parameter_overrides()) {
+            if (has_parameter(entry.first) && !(commissioning_ && calibrated_only.count(entry.first))) continue;
+            unused += (unused.empty() ? "" : ", ") + entry.first;
+        }
+        if (!unused.empty())
+            RCLCPP_WARN(get_logger(), "[CONFIG] set but not used (typo, or not used in this mode; default kept): %s",
+                        unused.c_str());
     }
 
     template <typename T>

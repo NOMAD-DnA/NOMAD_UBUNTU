@@ -265,6 +265,25 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
 - **크기(검토 계산, 실차 미확인):** LPP 주행 중 `control_trace`와 `vesc_trace`가 1초에 약 560바이트입니다. 정지 한 번은 begin 약 200, 유지 약 125, `raw transition` 약 146, end 약 250바이트입니다. 예전에는 end 뒤에 `[PLANNING_WAIT]`까지 약 560바이트가 더 쓰였고, 같은 읽기 안에 1초 줄 두 개가 오면 end가 빠졌습니다(검토 모의 약 50 %). 이제 보통은 end 뒤에 1초 줄 두 개와 `link_trace`(약 127)가 와도 약 930바이트라 1 KiB 안에 남습니다. 다만 0.6초 상한으로 끝나 유지 줄(약 123)이 뒤따르거나, 같은 1초 안에 다시 출발해 `[RESTART_TRACE]` 시작 줄(약 160)까지 겹치면 약 1.1 KiB가 되어 아직 빠질 수 있습니다(검토 계산). 정지가 잦으면(2~3초마다) 평균이 1 KiB/s를 넘어, 그 앞의 begin·유지·재출발 끝 줄도 빠질 수 있습니다. 빠짐 없는 기록은 Pi4의 전체 로그 파일에 있습니다. GUI 쪽 읽기 한도(`module_log_tail.cpp`의 1 KiB)를 늘리는 것이 근본 해결입니다.
 - 시험: 단위 시험 `field_diagnostics`(요약 값, 감속을 끝낸 샘플, 시간 상한 끝, 유지 전류 제외, 반복 규칙), ROS `planning_stop_ramp_ros`(매 주기 줄 없음, 끝 줄의 `erpm_last`에 규칙을 만족한 샘플, 끝 줄 주기에 `[PLANNING_WAIT]` 없음(풀리는 대기), VESC 고장으로 끝난 감속은 대기 줄을 바로 찍음, 재출발이 `reason=stop_ramp`로 끝남, 주행 중 종료에 `reason=shutdown`, `trace_every_tick: true`면 매 주기 줄이 다시 나옴). ROS 시험은 rcutils 로그 출력기를 감싸 줄을 모읍니다(화면 출력은 그대로). 독립 검토(에이전트 19개)에서 확정된 12건을 반영했습니다.
 
+### 배포 설정·팀 GUI 계약 시험과 `[CONFIG]` 경고 (2026-11-19)
+
+차 동작은 바뀌지 않습니다. 시험이 늘었고, 시작할 때 경고 한 줄이 생길 수 있습니다.
+
+- **`[CONFIG]` 경고:** 제어기가 시작할 때, 설정 파일(또는 `-p`)에 있지만 이 노드가 읽지 않은 이름을 한 줄로 알립니다. 예: `[CONFIG] set but not used (typo, or not used in this mode; default kept): planning.stop_ramp_sec`. 오타이거나 이 모드에서 쓰지 않는 설정이고, 그 값은 기본값으로 남습니다. commission 모드에서는 보정 모드 전용 설정 13개(`current_limit_a`, `manual_timeout_s`, `trial_duration_s` 등, 이 모드는 `commissioning.<이름>`을 읽음)도 여기에 나옵니다. Pi4의 설정 파일은 보드에서 손으로 고치는 일이 있어서, 오타가 소리 없이 기본값으로 돌던 것을 보이게 합니다. 지금 배포 설정 4개로는 나오지 않습니다(아래 시험).
+- **배포 설정 시험**(ROS `deployed_config_ros`, `controller_ros_tests --deployed-config-only`):
+  - Pi4 `pi4_output_only.sh`와 같은 순서로 `commissioning.yaml` → `planning.yaml` → `planning_headless.yaml` → `nomad_vehicle_ready.yaml`을 rcl의 YAML 해석기로 읽습니다(뒤 파일이 앞을 덮음). 그 값으로 노드를 띄웁니다. 토픽만 시험용으로 바꾸므로, 시험이 VESC 드라이버 토픽으로 명령을 보내는 일은 없습니다.
+  - 설정 이름마다 노드가 실제로 읽는지 확인합니다. `[CONFIG]`에 배포 설정 이름이 없어야 합니다. 일부러 틀린 이름은 `[CONFIG]`에 그대로 나와야 합니다.
+  - VESC 토픽 설정 8개를 이름과 값의 짝으로 확인합니다. 각각 드라이버 이름공간 `/nomad_bench`(`pi4_output_only.sh`의 `-r __ns:=/nomad_bench`) 아래의 맞는 드라이버 토픽이어야 합니다. 그래서 속도↔듀티처럼 서로 바뀐 짝이나 틀린 설정 이름도 잡습니다.
+  - 드라이버 조향 설정(`vesc_steering_test.yaml`)의 서보 범위가 제어기 서보 범위를 덮는지 확인합니다.
+  - `status_json`에 배포 값이 그대로 나오는지 확인합니다: raw 단위, 설정 확인됨, 최고 1850·후진 800 ERPM, 서보 중앙 0.5, 감속 0.3초, 끊김 뒤 대기 0.3초, 미끄러짐 표시 켬.
+  - Pi4 운영 전용 드라이버 파일 `commission_session/vesc_commission.yaml`은 저장소에 없어서 확인하지 못합니다.
+- **팀 GUI 계약 시험:** 팀 GUI 원본(`NOMAD_실물시험앱_20261106/laptop_monitor`)이 읽는 것을 시험 코드의 목록(`kGuiLogLines`, `kGuiStatusKeys`)으로 고정합니다. GUI를 바꿀 때 이 목록도 같이 고칩니다.
+  - 자율주행 로그 줄(ROS `planning_stop_ramp_ros`의 모든 장면): `control_trace`·`vesc_trace`·`link_trace`의 키가 GUI가 읽는 키와 정확히 같아야 합니다. 값 안에 `단어=`가 섞이면 GUI가 앞 키 값을 잘못 자르므로 이것도 잡습니다. 숫자 값은 숫자여야 하고(`link_trace`의 나이는 `na` 허용), 앞머리 포함 400자 안이어야 합니다(보드 꼬리 읽기가 400자에서 자름). `[SLIP]` 줄은 GUI의 start·end 정규식에 맞아야 합니다.
+  - 키보드 조종 HTTP `/api/status`: `keyboard_drive.py`, `vesc_status.py`, `drive_record_dialog.py`, `scripts/ensure_gui.sh`가 읽는 키 68개가 `status_json`에 모두 있어야 합니다(배포 설정 시험에서 확인). `connected`·`token`·`server_time_s`는 `gui_server`·`gui_http`가 붙이므로 목록에서 뺍니다. 키보드 창이 조종을 허용하는 시간 값 규칙(`keyboard_drive.control_timing`: Wi-Fi 프로필이면 2초·1.5초·1.5초·1500 ms 정확히)도 같은 식으로 확인합니다. `ground_drive_supported`는 false여야 합니다.
+  - `control_trace`의 `erpm_valid`·`reset_required`는 GUI가 `0`/`1`만 받으므로 정확히 그 값인지 봅니다.
+- **가끔 실패하던 시험 고침:** `controller_ros_integration`의 'stale IMU stops owned bench output'과 'excessive tilt stops bench output'은 상태값을 고정 시간 뒤 한 번만 읽어서, PC가 바쁘면 가끔 실패했습니다. 상태값이 올 때까지 최대 1초 기다리도록 바꿨습니다. 확인하는 내용은 같습니다.
+- 독립 검토(에이전트 16개)에서 확정된 7건을 반영했습니다: 토픽을 이름·값 짝으로 확인, HTTP 키 5개 추가, 키보드 시간 값 규칙, `0`/`1` 값, commission 모드의 보정 모드 설정 경고.
+
 ## VESC 설정 (2026-11-12, HFI)
 
 센서리스 VESC가 정지 상태에서 회전자 위치를 못 잡아 책 높이 턱에서 바퀴가 떨기만 했습니다. VESC Tool 단위시험에서 `foc_sensor_mode`를 **HFI**로 바꾸자(Start 8 V, Run 4 V, Max 8 V, Samples 16, Sensorless ERPM HFI 2000) 턱을 넘었습니다. `s_pid_min_erpm`은 900→50으로 바꿨습니다(단독으로는 효과 없음). 전류 한계(±60 A, 배터리 250 A, 회생 −200 A)는 아직 그대로입니다.
@@ -404,7 +423,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 69ab7fd | (11-17) 27890e1 Pi4 배포 기록(`9f5e479e…`) |
 | f5caad8 | (11-19) 감속 정지 끝 판정을 '연속 3개'에서 '최근 3개 중 2개'로(11-18 지하주차장에서 200 근처 오르내림으로 정지가 중앙값 0.63초, 2번은 상한까지). ROS 'link resume' STOP 확인을 상태값 대기로 |
 | 5c0cbf4 | (11-19) f5caad8 Pi4 배포 기록(`c55f03b8…`) |
-| (이 커밋) | (11-19) GUI가 읽는 로그 줄이기: 재출발·감속 정지 매 주기 줄을 끝 요약 줄로(`trace_summary.hpp`, `trace_every_tick` 기본 꺼짐), `[STOP_RAMP] end`를 주기 맨 끝에, 그 주기 `[PLANNING_WAIT]` 생략, 대기 줄은 바뀔 때·10초마다, 종료 때 끝 줄. 로그만 바뀜, 미배포 |
+| b2d006a | (11-19) GUI가 읽는 로그 줄이기: 재출발·감속 정지 매 주기 줄을 끝 요약 줄로(`trace_summary.hpp`, `trace_every_tick` 기본 꺼짐), `[STOP_RAMP] end`를 주기 맨 끝에, 그 주기 `[PLANNING_WAIT]` 생략, 대기 줄은 바뀔 때·10초마다, 종료 때 끝 줄. 로그만 바뀜, 미배포 |
+| (이 커밋) | (11-19) 배포 설정 시험(yaml 4개를 Pi4 순서로, 드라이버 토픽·조향 범위, 상태값의 배포 값), 팀 GUI 계약 시험(로그 줄 4종, HTTP 상태 키 68개, 키보드 시간 값), 시작 때 `[CONFIG]` 쓰이지 않는 설정 이름 경고, 가끔 실패하던 stale IMU·기울기 시험을 상태값 대기로. 차 동작은 같음 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
