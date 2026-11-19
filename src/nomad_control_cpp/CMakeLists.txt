@@ -82,7 +82,7 @@ if(BUILD_TESTING)
   if(NOMAD_NODE_EXECUTABLE)
     add_test(NAME gui_manual_browser_contract
       COMMAND "${NOMAD_NODE_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/gui_manual_browser_test.js")
-    set_tests_properties(gui_manual_browser_contract PROPERTIES TIMEOUT 20)
+    set_tests_properties(gui_manual_browser_contract PROPERTIES TIMEOUT 20 LABELS script)
   endif()
   add_executable(gui_http_tests test/test_gui_http.cpp)
   target_link_libraries(gui_http_tests PRIVATE nomad_gui_http)
@@ -107,6 +107,25 @@ if(BUILD_TESTING)
   add_test(NAME cli_reject_text COMMAND nomad_convert 0.3oops 0.15)
   # 잘못된 입력은 실패 종료해야 시험에 통과합니다.
   set_tests_properties(cli_reject_nonfinite cli_reject_text PROPERTIES WILL_FAIL TRUE)
+  # 2026-11-19: labels. unit = device-free C++ checks without ROS (the Pi4 quick set: ctest -L unit);
+  # ros = node-level ROS tests (PC, about 3 min); script = Python/JS checks of the repo's launch scripts and tools.
+  # The Pi4 keeps its own scripts/ (deploys exclude it), so the script tests run on the PC only.
+  set_tests_properties(planning_measured_speed_feedback esc_thermal_guard stop_output_policy vesc_telemetry_display
+                       field_diagnostics slip_monitor planning_start_stability planning_supervisor_states
+                       planning_command_contract steering_record_storage stability_envelope gui_http_contract
+                       mapping_contract raw_commissioning_contract manual_reverse_contract trial_state_machine
+                       cli_zero cli_reject_nonfinite cli_reject_text PROPERTIES LABELS unit)
+  # 2026-11-19: Python checks that were only run by hand (test/offline_linux.sh, README), now in ctest.
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME linux_launcher_contract COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_linux_launcher.py")
+    add_test(NAME lpp_entry_contract COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_lpp_entry.py")
+    # discover with a path relative to WORKING_DIRECTORY: unittest cannot import an absolute path through a symlink.
+    add_test(NAME control_trial_recorder COMMAND "${Python3_EXECUTABLE}" -m unittest discover -q -s scripts
+             -p test_record_control_trials.py)
+    set_tests_properties(linux_launcher_contract lpp_entry_contract control_trial_recorder PROPERTIES
+                         TIMEOUT 60 LABELS script WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+  endif()
 endif()
 
 if(NOMAD_BUILD_ROS2)
@@ -171,16 +190,16 @@ if(NOMAD_BUILD_ROS2)
     add_test(NAME controller_ros_integration COMMAND controller_ros_tests)
     # The full suite runs about 75-80 s on a desktop PC; leave margin for slower machines.
     # Own DDS domain so a sourced team environment (e.g. domain 42) never sees the test graph.
-    set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150
+    set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150 LABELS ros
       ENVIRONMENT "ROS_DOMAIN_ID=226;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     if(NOMAD_ENABLE_PLANNING)
       # 2026-11-13 stop ramp (LPP STOP / lost input slow down first): its own test so the full suite keeps its margin.
       add_test(NAME planning_stop_ramp_ros COMMAND controller_ros_tests --stop-ramp-only)
-      set_tests_properties(planning_stop_ramp_ros PROPERTIES TIMEOUT 90
+      set_tests_properties(planning_stop_ramp_ros PROPERTIES TIMEOUT 90 LABELS ros
         ENVIRONMENT "ROS_DOMAIN_ID=227;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
       # 2026-11-19: the node as deployed (the four yaml files in the Pi4 order) and what the team GUI reads from it.
       add_test(NAME deployed_config_ros COMMAND controller_ros_tests --deployed-config-only)
-      set_tests_properties(deployed_config_ros PROPERTIES TIMEOUT 60
+      set_tests_properties(deployed_config_ros PROPERTIES TIMEOUT 60 LABELS ros
         ENVIRONMENT "ROS_DOMAIN_ID=230;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     endif()
     if(NOMAD_ENABLE_PLANNING)
@@ -194,7 +213,7 @@ if(NOMAD_BUILD_ROS2)
       add_dependencies(test_module_pause_contract controller_node)
       add_test(NAME module_pause_auto_resume
         COMMAND test_module_pause_contract $<TARGET_FILE:controller_node>)
-      set_tests_properties(module_pause_auto_resume PROPERTIES TIMEOUT 35
+      set_tests_properties(module_pause_auto_resume PROPERTIES TIMEOUT 35 LABELS ros
         ENVIRONMENT "ROS_DOMAIN_ID=229;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
       add_executable(rpm_floor_ros_tests test/test_rpm_floor_ros.cpp)
       if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
@@ -205,7 +224,7 @@ if(NOMAD_BUILD_ROS2)
       target_compile_definitions(rpm_floor_ros_tests PRIVATE NOMAD_ENABLE_PLANNING)
       ament_target_dependencies(rpm_floor_ros_tests rclcpp rcl_interfaces std_msgs std_srvs vesc_msgs sensor_msgs nomad_interfaces)
       add_test(NAME rpm_running_floor_ros COMMAND rpm_floor_ros_tests)
-      set_tests_properties(rpm_running_floor_ros PROPERTIES TIMEOUT 30
+      set_tests_properties(rpm_running_floor_ros PROPERTIES TIMEOUT 30 LABELS ros
         ENVIRONMENT "ROS_DOMAIN_ID=232;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     endif()
   endif()

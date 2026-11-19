@@ -392,12 +392,22 @@ cmake -S src/nomad_control_cpp -B build-control-offline \
   -DNOMAD_BUILD_ROS2=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build build-control-offline -j2
 ctest --test-dir build-control-offline --output-on-failure
-python3 src/nomad_control_cpp/scripts/test_record_control_trials.py
 ```
 
 이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다. 11-16부터 `-Wall -Wextra`가 켜져 있고 경고 0개가 기준입니다(새 경고가 나오면 고치고 커밋).
 
-ROS 환경에서는 `colcon test`로 20개 시험이 돕니다(ROS 통합시험은 약 95초, 제한 150초, 자체 DDS domain 226). `rpm_running_floor_ros`는 11-15에 제어기에 없던 100 ERPM 요청 데드존(`planning.stop_request_erpm`) 검사 2개를 빼서 이제 통과합니다(그 전 기록의 '의도된 실패 2건'이 이것). 알려진 가끔 실패: `controller_ros_integration`의 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패합니다(실차 경로 무관). 'stale telemetry cannot save measurement'도 PC 부하 때 한 번 실패해 11-15에 대기를 0.6초로 늘렸습니다.
+**시험 라벨(2026-11-19):** 모든 시험에 라벨이 있습니다. ROS 빌드 기준 27개입니다.
+- `unit`(19개): ROS 없는 C++ 시험과 명령줄 시험. **Pi4 빠른 시험은 `ctest -L unit`**입니다. 예전의 `ctest -E "_ros$|controller_ros_integration|module_pause_auto_resume"`와 같은 19개입니다.
+- `ros`(5개): 노드 단위 ROS 시험. PC에서 약 3분 걸립니다(`controller_ros_integration`, `planning_stop_ramp_ros`, `deployed_config_ros`, `module_pause_auto_resume`, `rpm_running_floor_ros`). 시험마다 자체 DDS domain(226, 227, 229, 230, 232)과 `ROS_LOCALHOST_ONLY=1`로 팀 그래프와 섞이지 않습니다.
+- `script`(3개, `node`가 있으면 4개): 저장소의 실행 스크립트·도구 시험. `linux_launcher_contract`, `lpp_entry_contract`, `control_trial_recorder`, 그리고 `gui_manual_browser_contract`(Node)입니다. 앞의 셋은 11-19까지 손으로만 돌리던 Python 시험입니다. Pi4는 배포 때 `scripts/`를 Pi4 것 그대로 두므로 PC에서만 돌립니다.
+
+ROS 환경에서는 `colcon test`(또는 빌드 폴더에서 `ctest`)로 27개 시험이 돕니다(ROS 통합시험은 약 100초, 제한 150초).
+
+**Pi4 컴파일러(GCC 11) 경고를 PC에서 미리 보기(2026-11-19):** `bash src/nomad_control_cpp/test/gcc11_check.sh`. PC의 GCC 13은 11-17 Pi4에서만 나온 경고(집합 초기화 목록, f7d4382)를 놓쳤습니다.
+- `g++-11`(우분투 24.04: `sudo apt-get install g++-11`)로 Release 빌드합니다. 오프라인 빌드와 `unit` 시험을 돌리고, ROS와 `vesc_msgs`·`nomad_interfaces`가 든 작업공간을 source해 두었으면 ROS 빌드도 합니다.
+- 경고가 하나라도 있으면 실패합니다. 임시 폴더에서 빌드하므로 다른 것은 바꾸지 않습니다.
+- 11-19 결과: 오프라인·ROS 모두 경고 0, `unit` 19/19 통과.
+- PC의 ROS는 Jazzy라 Humble API 차이까지는 잡지 못합니다. 그것은 Pi4 빌드에서 확인합니다. `rpm_running_floor_ros`는 11-15에 제어기에 없던 100 ERPM 요청 데드존(`planning.stop_request_erpm`) 검사 2개를 빼서 이제 통과합니다(그 전 기록의 '의도된 실패 2건'이 이것). 'stale IMU' 받침대 시험은 타이밍 때문에 가끔 실패했으나 11-19에 상태값 대기로 고쳤습니다. 'stale telemetry cannot save measurement'도 PC 부하 때 한 번 실패해 11-15에 대기를 0.6초로 늘렸습니다.
 
 ## 작업 내역 (2026-11-11 ~ 11-13, BAE)
 
@@ -469,7 +479,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | b2d006a | (11-19) GUI가 읽는 로그 줄이기: 재출발·감속 정지 매 주기 줄을 끝 요약 줄로(`trace_summary.hpp`, `trace_every_tick` 기본 꺼짐), `[STOP_RAMP] end`를 주기 맨 끝에, 그 주기 `[PLANNING_WAIT]` 생략, 대기 줄은 바뀔 때·10초마다, 종료 때 끝 줄. 로그만 바뀜, 미배포 |
 | a3f6daf | (11-19) 배포 설정 시험(yaml 4개를 Pi4 순서로, 드라이버 토픽·조향 범위, 상태값의 배포 값), 팀 GUI 계약 시험(로그 줄 4종, HTTP 상태 키 68개, 키보드 시간 값), 시작 때 `[CONFIG]` 쓰이지 않는 설정 이름 경고, 가끔 실패하던 stale IMU·기울기 시험을 상태값 대기로. 차 동작은 같음 |
 | a9598e1 | (11-19) 리팩토링: LPP 통신 상태(1초 창, 끊김 뒤 재출발 대기, `link_trace` 규칙)를 `link_monitor.hpp` `LinkMonitor` 하나로. 재출발 대기 단위 시험. 동작·로그·상태값 같음 |
-| (이 커밋) | (11-19) 리팩토링: `publishStatus`를 역할별 함수로(실제 노드 비교로 상태값·텍스트 줄 같음 확인). `control_trace`·`vesc_trace` 1초 간격을 단조 시계로(시계를 뒤로 맞추면 두 줄이 멈추던 문제) |
+| 64505f5 | (11-19) 리팩토링: `publishStatus`를 역할별 함수로(실제 노드 비교로 상태값·텍스트 줄 같음 확인). `control_trace`·`vesc_trace` 1초 간격을 단조 시계로(시계를 뒤로 맞추면 두 줄이 멈추던 문제) |
+| (이 커밋) | (11-19) 시험 정리: `unit`·`ros`·`script` 라벨(Pi4 빠른 시험 `ctest -L unit`), 손으로만 돌리던 Python 시험 3개를 ctest에 등록, GCC 11 경고 확인 스크립트(`test/gcc11_check.sh`, 경고 0) |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
