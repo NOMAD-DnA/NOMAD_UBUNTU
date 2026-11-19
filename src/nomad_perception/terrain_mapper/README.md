@@ -38,3 +38,7 @@ Jetson의 ROS 2 Humble 및 Eigen3, C++17과 colcon 환경을 전제로 합니다
 현재 GUI의 `start_jetson.sh`는 저장된 terrain 설정의 gui_overrides를 실행용 semantic/slope 설정에 적용합니다. 따라서 보관한 runtime-config 원문만으로 실행하면 GUI에서 적용하던 경계 여유와 초기 영역 설정까지 동일하다고 보장할 수 없습니다. 실제 통합 실행에는 기존 공유 GUI를 사용하세요.
 
 이번 작업은 코드 공유만 수행했습니다. 새 빌드, 보드 파일 변경, 센서나 지도 시작 및 중단은 하지 않았습니다. 설치 실행 파일과 주행 기록 및 인증 정보는 이 소스 패키지에 넣지 않았습니다.
+
+## 매퍼 내부 VIO 외부파라미터 보정 (2026-11-19)
+
+Pi5 VIO의 카메라 외부파라미터와 일치하도록 매퍼 내부 공통 센서 변환에 2.49도 보정을 추가했습니다. [변환 정의와 검증 범위](docs/vio_extrinsic_correction_20261119.md)를 참고하세요. PC ROS 2 Jazzy Release 빌드와 CTest 3개가 통과했으며 Jetson에는 아직 설치하지 않았습니다. 위의 snapshot_manifest와 active_config는 최초 수집 당시 기록으로 유지합니다.

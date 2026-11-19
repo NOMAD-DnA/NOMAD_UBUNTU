@@ -1,3 +1,4 @@
+#include <nomad_costmap/vio_extrinsic_correction.hpp>
 #include <nomad_costmap/oak_height_override.hpp>
 #include <nomad_costmap/oak_horizontal_crop.hpp>
 // NOMAD legacy terrain mapper in ONE process (2026-11-13).
@@ -471,7 +472,7 @@ class TerrainMapper : public rclcpp::Node {
   void on_factory(const std_msgs::msg::String& m)
   {
     try{
-      auto transforms = factory_mounts(Json::parse(m.data), cfg.semantic);
+      auto transforms = mapper_vio_sensor_mounts(factory_mounts(Json::parse(m.data), cfg.semantic));
       if (factory_valid&&((transforms[0] - imu_b).cwiseAbs().maxCoeff() > 1e-9||(transforms[1] - imu_a).cwiseAbs().maxCoeff() > 1e-9))
       {
         fatal = "Factory calibration changed during mapping";
@@ -1075,8 +1076,9 @@ public:
     if (!std::isfinite(oak_limit_m) || oak_limit_m < 0.1 || oak_limit_m > 30.0)
       throw std::runtime_error("oak_max_horizontal_distance_m must be finite and within 0.1..30m");
     oak_max_horizontal_distance_m = oak_limit_m;
-    RCLCPP_INFO(get_logger(), "OAK horizontal accumulation limit=%.3fm vehicle_origin=capture_time forward=vehicle XY front_half_circle=true lidar_unchanged=true", oak_max_horizontal_distance_m);
+    RCLCPP_INFO(get_logger(), "OAK horizontal accumulation limit=%.3fm vehicle_origin=capture_time forward=vehicle XY front_half_circle=true lidar_crop_unchanged=true", oak_max_horizontal_distance_m);
     RCLCPP_INFO(get_logger(), "OAK/LiDAR height gate enabled=%d xy_radius_m=%.4f reject_abs_z_difference_cm=%.4f", int(cfg.oak_lidar_height_gate), cfg.oak_lidar_xy_radius, cfg.oak_lidar_z_reject*100.);
+    RCLCPP_INFO(get_logger(), "Mapper camera/IMU extrinsics aligned to Pi5 VIO calibration (2026-11-19, rotation delta 2.49deg); raw clouds and public VIO unchanged");
     camera_lidar = calibration_matrix(calibration);
     auto context = get_node_base_interface()->get_context();
     input_event = std::make_shared<ExecutorEvent>(context, [this] { input_tick(); });
