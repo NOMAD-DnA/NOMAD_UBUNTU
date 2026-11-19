@@ -41,6 +41,23 @@ class TerrainSettingsTest(unittest.TestCase):
         self.assertIn('"oak_max_horizontal_distance_m": 2.0',
                       terrain_settings.upload_script({"terrain": {}}))
 
+    def test_oak_height_threshold(self):
+        import json
+        key = "oak_lidar_max_abs_z_difference_cm"
+        self.assertEqual(terrain_settings.defaults()["terrain"][key], 12.0)
+        self.assertEqual(terrain_settings.board_json({"terrain": {}})[key], 12.0)
+        for value in (0.1, 5.0, 12.0, 20.0, 100.0):
+            values = {"terrain": {key: value}}
+            self.assertEqual(terrain_settings.board_json(values)[key], value)
+            module = board_settings.MODULES["terrain"]()
+            self.assertEqual(json.loads(module.current_files(values)[0])[key], value)
+        for value in (0, -1, 100.1, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                terrain_settings.validate({"terrain": {key: value}})
+        doc = terrain_settings.SPEC.docs()["terrain"][key]
+        self.assertEqual(doc["unit"], "cm")
+        self.assertIn("이상", doc["description"])
+
     def test_docs_cover_every_value(self):
         docs = terrain_settings.SPEC.docs()["terrain"]
         from module_settings import leaves

@@ -120,5 +120,13 @@
   "min": 0.1,
   "max": 30.0,
   "default": 2.0
+ },
+ "oak_lidar_max_abs_z_difference_cm": {
+  "title": "OAK/LiDAR 높이 차이 제거 기준",
+  "description": "OAK 점 주변 XY 수평 반경 12cm 안의 최근접 LiDAR 지면점과 odom Z 높이 차이의 절댓값이 이 값 이상이면 OAK 점을 경사 계산에서 제거합니다. 예: 12cm 설정이면 12cm 이상 제거, 12cm 미만은 이 검사를 통과합니다. 비교할 LiDAR 점이 없으면 이 검사로 제거하지 않습니다. 수평 비교 반경과 LiDAR 점은 바꾸지 않습니다. 다음 시험 시작부터 적용합니다.",
+  "unit": "cm",
+  "min": 0.1,
+  "max": 100.0,
+  "default": 12.0
  }
 }
