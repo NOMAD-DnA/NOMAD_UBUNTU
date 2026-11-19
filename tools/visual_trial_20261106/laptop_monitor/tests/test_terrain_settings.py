@@ -58,6 +58,19 @@ class TerrainSettingsTest(unittest.TestCase):
         self.assertEqual(doc["unit"], "cm")
         self.assertIn("이상", doc["description"])
 
+    def test_oak_xy_search_radius(self):
+        import json
+        key = "oak_lidar_xy_radius_cm"
+        self.assertEqual(terrain_settings.defaults()["terrain"][key], 20.0)
+        for cm in (0.1, 12.0, 20.0, 100.0):
+            cfg = {"terrain": {key: cm}}
+            self.assertEqual(terrain_settings.board_json(cfg)[key], cm)
+            self.assertEqual(json.loads(board_settings.MODULES["terrain"]().current_files(cfg)[0])[key], cm)
+        for cm in (0, -1, 100.1, float("nan"), float("inf")):
+            with self.assertRaises(ValueError):
+                terrain_settings.validate({"terrain": {key: cm}})
+        self.assertEqual(terrain_settings.SPEC.docs()["terrain"][key]["unit"], "cm")
+
     def test_docs_cover_every_value(self):
         docs = terrain_settings.SPEC.docs()["terrain"]
         from module_settings import leaves

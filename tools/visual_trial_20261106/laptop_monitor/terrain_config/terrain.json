@@ -19,5 +19,6 @@
     "startup_radius_m": null
   },
   "oak_max_horizontal_distance_m": 2.0,
-  "oak_lidar_max_abs_z_difference_cm": 12.0
+  "oak_lidar_max_abs_z_difference_cm": 12.0,
+  "oak_lidar_xy_radius_cm": 20.0
 }
