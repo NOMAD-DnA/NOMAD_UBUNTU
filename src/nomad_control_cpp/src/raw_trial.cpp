@@ -159,6 +159,7 @@ bool RawTrialController::checkClock(double steady_now, double ros_now) {
         last_steady_now_ = steady_now;
         last_ros_now_ = ros_now;
         sample_.reset();
+        recent_count_ = recent_next_ = 0; // the ring restarts at slot 0 (recentMaxErpm reads slots 0..count-1)
         invalidateTelemetry("raw clock moved backwards; rebased, waiting for fresh telemetry", true);
         return false;
     }
@@ -218,6 +219,9 @@ void RawTrialController::observe(const TelemetrySample& sample, double steady_no
     if (!telemetry_ok_ || steady_now - received_at_ > options_.telemetry_timeout_s)
         stationary_since_.reset();
     sample_ = sample;
+    recent_erpm_[recent_next_] = RecentErpm{sample.stamp_s, sample.raw_erpm};
+    recent_next_ = (recent_next_ + 1) % kStopRampStartWindow;
+    recent_count_ = min(recent_count_ + 1, kStopRampStartWindow);
     received_at_ = steady_now;
     telemetry_ok_ = true;
     telemetry_issue_ = "READY";
@@ -331,13 +335,26 @@ bool RawTrialController::beginStopRamp(const string& reason, double steady_now, 
         !healthy(steady_now, ros_now) || !last_tick_ || timerStalled(steady_now) ||
         !isfinite(ramp_s) || ramp_s <= 0.0 || ramp_s > kMaxStopRampS || !isfinite(end_erpm) || end_erpm < 0.0)
         return false;
-    const double start = min(commanded_erpm_, max(0.0, sample_->raw_erpm));
+    // 2026-11-20: from the recent samples, not the newest alone (kStopRampStartWindow): a lone HFI low no longer
+    // turns a moving car's planning stop into a handbrake at speed.
+    const double start = min(commanded_erpm_, max(0.0, recentMaxErpm()));
     if (!(start > end_erpm)) return false;
     commanded_erpm_ = start;
     stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt, 0u, nullopt};
     stalled_since_.reset();
     reason_ = "speed ramp before planning stop: " + reason;
     return true;
+}
+
+double RawTrialController::recentMaxErpm() const {
+    if (!sample_) return NAN;
+    double highest = sample_->raw_erpm;
+    for (int i = 0; i < recent_count_; ++i) {
+        const auto& r = recent_erpm_[static_cast<size_t>(i)];
+        const double before = sample_->stamp_s - r.stamp_s; // newer than the newest: a slot from before a rebase
+        if (before >= -1e-9 && before <= kStopRampStartSpanS + 1e-9) highest = max(highest, r.erpm);
+    }
+    return highest;
 }
 
 void RawTrialController::cancelStopRamp(double steady_now) {

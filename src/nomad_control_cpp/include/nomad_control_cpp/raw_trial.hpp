@@ -1,6 +1,7 @@
 #pragma once
 
 #include "nomad_control_cpp/trial_controller.hpp"
+#include <array>
 #include <deque>
 #include <optional>
 #include <string>
@@ -72,7 +73,7 @@ public:
     void setPlanningRecovery(bool enabled) { planning_recovery_ = enabled; }
     bool pausePlanning(const std::string& reason, double steady_now, double ros_now);
     // Headless planning only, for an LPP STOP or lost LPP input while driving forward: ramp the speed command
-    // from min(command, measured ERPM) down to end_erpm over ramp_s (no running floor), keep end_erpm until the
+    // from min(command, recentMaxErpm()) down to end_erpm over ramp_s (no running floor), keep end_erpm until the
     // measured ERPM is at or below it in kStopRampEndLow of the last kStopRampEndWindow samples (at most
     // kStopRampSettleS after the command got there), then stop exactly as pausePlanning(reason)
     // does. Faults, timeouts and stop() still end it at once. False when it does not apply (not running a planning
@@ -95,6 +96,15 @@ public:
     // ramps at 200 ERPM for a median 0.63 s, two up to the ~0.9 s cap. 2 of the last 3 still ignores a lone drop.
     static constexpr int kStopRampEndWindow = 3;
     static constexpr int kStopRampEndLow = 2;
+    // 2026-11-20: the ramp starts from the highest of the last kStopRampStartWindow telemetry samples (no older than
+    // kStopRampStartSpanS before the newest), not from the newest alone. On 11-19 a lone HFI low (readings 820/613/-52
+    // while VIO showed ~0.2-0.37 m/s) refused the ramp twice in 88 stops, and the stop output took a 30 A handbrake at
+    // speed: the two hardest stops of the evening. The car only counts as slow when all recent samples are.
+    static constexpr int kStopRampStartWindow = 3;
+    static constexpr double kStopRampStartSpanS = 0.1; // 3 samples at 50 Hz are 40 ms apart; a gap drops older ones
+    // The highest raw ERPM of the last kStopRampStartWindow samples within kStopRampStartSpanS of the newest; NAN
+    // without a sample.
+    double recentMaxErpm() const;
     // 2026-11-15 GUI reverse: an operator reversal (target opposite to the last drive direction) releases to the stop
     // output while the wheel still turns the old way faster than stationary_erpm, at most this long; then the new
     // direction drives from 0 anyway (the speed PID brakes harder than the 20 A stop brake, which cannot hold a steep
@@ -166,6 +176,10 @@ private:
     bool output_owned_ = false;
     bool telemetry_ok_ = false;
     std::optional<TelemetrySample> sample_;
+    // The last accepted samples (stamp, raw ERPM), a ring of kStopRampStartWindow for the ramp start (recentMaxErpm).
+    struct RecentErpm { double stamp_s = 0.0, erpm = 0.0; };
+    std::array<RecentErpm, kStopRampStartWindow> recent_erpm_{};
+    int recent_count_ = 0, recent_next_ = 0;
     std::optional<double> last_steady_now_, last_ros_now_;
     std::optional<double> stationary_since_, last_tick_;
     std::optional<double> stalled_since_;

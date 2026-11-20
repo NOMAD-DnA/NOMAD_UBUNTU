@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <iostream>
 #include <stdexcept>
+#include <utility>
 using namespace std;
 using namespace nomad;
 static int checks = 0;
@@ -242,7 +243,7 @@ static void linkResumeWait() {
     // Not a link loss: no wait. 0 s: no wait even after a loss (before 11-17).
     LinkMonitor stop;
     stop.onLost(); stop.clearPause();
-    expect(!stop.paused() && !stop.resumeWaiting(0.0), "a planner/operator STOP, RESET or resume clears the wait");
+    expect(!stop.paused() && !stop.resumeWaiting(0.0), "an operator/global STOP, RESET, resume, start or cancelled stop ramp clears the wait");
     LinkMonitor off;
     off.setResumeStableSeconds(0.0); off.onLost();
     expect(off.paused() && !off.resumeWaiting(0.0), "link_resume_stable_s 0 never waits");
@@ -251,6 +252,83 @@ static void linkResumeWait() {
     count.onControlTick(0.0); count.onLost(); count.onLost(); count.onControlTick(0.02);
     const auto w = count.roll(1.0);
     expect(w && w->expiries == 2 && near(w->max_tick_s, 0.02) && count.last(), "losses count as expiries");
+}
+
+// 2026-11-20: a planner STOP does not clear the link-loss wait (the newest STOP of an outage burst arrives on time).
+static void linkPlannerStop() {
+    for (const auto& stop : {pair<optional<double>, double>{0.004, 0.15}, {0.5, 0.3}, {nullopt, 0.3}, {0.01, NAN}}) {
+        LinkMonitor link;
+        link.onLost();
+        link.onPlannerStop(stop.first, stop.second);
+        expect(link.paused() && link.resumeWaiting(1.0), "a planner STOP, on time or late, keeps the link-loss wait");
+    }
+    // The wait still ends after 0.3 s of continuous accepted commands, STOPs or not in between.
+    LinkMonitor link;
+    link.onLost();
+    for (double t = 0.0; t < 0.2; t += 0.05) link.onPlannerStop(0.003, 0.15);
+    double first_free = -1.0;
+    for (double t = 0.2; t < 0.8; t += 0.05) {
+        link.onCommand(t, 0.003); link.onAccepted(t, 0.003, 0.15);
+        for (double v = t; v < t + 0.049; v += 0.02) {
+            link.updateFlow(v, true);
+            if (first_free < 0 && !link.resumeWaiting(v)) first_free = v;
+        }
+    }
+    expect(first_free >= 0.5 - 1e-9 && first_free < 0.55, "after STOPs, 0.3 s of continuous commands ends the wait");
+    LinkMonitor idle;
+    idle.onPlannerStop(0.0, 0.3);
+    expect(!idle.paused() && !idle.resumeWaiting(0.0), "without a loss a planner STOP sets no wait");
+}
+
+// 2026-11-20: [LPP_LOST] (when the input is lost) and [LPP_BACK] (first accepted command after it), in the node's
+// order: accepted ... loss ... late commands and STOPs arrive ... accepted.
+static void linkLostAndBack() {
+    LinkMonitor link;
+    expect(link.lostFields(1.0) == "since_ms=na age_ms=na valid_ms=na" && link.acceptedAgeMs() == "na",
+           "nothing accepted yet: na");
+    expect(!link.onAccepted(10.0, 0.004, 0.15), "no loss yet: no [LPP_BACK]");
+    link.onRefused(0.5);  // a refused command before any loss is not part of an outage record
+    expect(link.lostFields(10.15) == "since_ms=150 age_ms=4 valid_ms=150" && link.acceptedAgeMs() == "4",
+           "[LPP_LOST]: 150 ms since a command that was 4 ms old and valid for 150 ms");
+    link.onLost();
+    // Wi-Fi: after 0.55 s the commands sent during the outage arrive late, the planner's STALE STOPs among them.
+    // As in the node, every DriveCommand passes onCommand first.
+    link.onCommand(10.7, 0.62); link.onRefused(0.62);
+    link.onCommand(10.71, 0.42); link.onRefused(0.42);
+    link.onCommand(10.72, nullopt); link.onRefused(nullopt);
+    link.onCommand(10.73, 0.55); link.onPlannerStop(0.55, 0.15);
+    link.onCommand(10.75, 0.03); link.onPlannerStop(0.03, 0.15);
+    link.onLost();  // a second loss before any accepted command keeps the first record
+    link.onCommand(11.2, 0.006);
+    const auto back = link.onAccepted(11.2, 0.006, 0.15);
+    expect(back && *back == "gap_ms=1200 first_ms=700 refused=3 refused_age_max_ms=620 stops=2 stop_age_max_ms=550 "
+                            "stop_valid_ms=150 age_ms=6",
+           "[LPP_BACK] after late delivery: traffic back 0.7 s after the last command, 3 refused (oldest 620 ms), "
+           "2 STOPs, a 6 ms old command after 1.2 s");
+    link.onCommand(11.25, 0.004);
+    expect(!link.onAccepted(11.25, 0.004, 0.15), "one [LPP_BACK] per outage");
+    // Planner skip or a dead link: nothing arrives, then a fresh command (it is also the first message).
+    link.onLost();
+    link.onCommand(11.75, nullopt);
+    const auto skip = link.onAccepted(11.75);
+    expect(skip && *skip == "gap_ms=500 first_ms=500 refused=0 refused_age_max_ms=na stops=0 stop_age_max_ms=na "
+                            "stop_valid_ms=na age_ms=na",
+           "[LPP_BACK] after nothing arrived: first_ms = gap_ms, refused=0 stops=0; unknown age and lease are na");
+    // The link is back quickly but the planner holds STOP for 4 s: first_ms is small, gap_ms long.
+    link.onLost();
+    for (double t = 12.0; t < 16.0; t += 0.05) { link.onCommand(t, 0.004); link.onPlannerStop(0.004, 0.15); }
+    link.onCommand(16.25, 0.004);
+    const auto held = link.onAccepted(16.25, 0.004, 0.15);
+    expect(held && held->rfind("gap_ms=4500 first_ms=250 refused=0 refused_age_max_ms=na stops=80 ", 0) == 0,
+           "[LPP_BACK] when the planner held STOP after the link returned: first_ms 250, gap_ms 4500");
+    // An operator RESET drops the record: no [LPP_BACK] at the next run's first command.
+    link.onLost(); link.onCommand(17.0, 0.004); link.onPlannerStop(0.004, 0.15); link.endOutage();
+    link.onCommand(300.0, 0.004);
+    expect(!link.onAccepted(300.0, 0.004, 0.15), "a RESET ends the outage record");
+    LinkMonitor first;
+    first.onLost();
+    const auto never = first.onAccepted(1.0, 0.01, 0.3);
+    expect(never && never->rfind("gap_ms=na first_ms=na refused=0", 0) == 0, "a loss before any accepted command: na");
 }
 
 static void linkTraceRule() {
@@ -284,6 +362,8 @@ int main() {
         repeatGate();
         periodGate();
         linkResumeWait();
+        linkPlannerStop();
+        linkLostAndBack();
         linkTraceRule();
         cout << checks << " field diagnostics checks PASS\n";
         return 0;

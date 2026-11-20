@@ -346,18 +346,25 @@ private:
                 if(msg->header.stamp.nanosec>=1000000000u||msg->valid_for.nanosec>=1000000000u)c.frame="invalid";
                 const auto ros=now().seconds(),steady=steadySeconds();
                 const auto wire_stamp=stampSeconds(msg->header.stamp); // link figures only: malformed adds no age
-                link_.onCommand(steady,wire_stamp?optional<double>{ros-*wire_stamp}:nullopt);
+                const auto age=wire_stamp?optional<double>{ros-*wire_stamp}:nullopt;
+                link_.onCommand(steady,age);
                 // STOP도 먼저 guard에 전달해 이전 이동 명령의 stamp 재사용을 막습니다.
                 const bool received=planning_guard_->receive(c,ros,steady);
                 if(planning_headless_&&c.stop){
                     // An out-of-order STOP rejected by the stamp fence cannot erase a newer live command.
                     if(planning_guard_->target(ros,steady))return;
-                    link_.clearPause(); // the planner asked to stop: not a link loss
+                    // 2026-11-20: a planner STOP no longer clears the link-loss wait; it is only recorded for
+                    // [LPP_BACK] (link_monitor.hpp onPlannerStop). A malformed valid_for counts as none.
+                    link_.onPlannerStop(age,msg->valid_for.nanosec<1000000000u?c.valid_for:NAN);
                     onPlanningLost("LPP pause; waiting for fresh command","LPP STOP; reset required",steady,ros);
                     return;
                 }
+                if(!received&&!c.stop)link_.onRefused(age); // 2026-11-20: counted for [LPP_BACK] after a loss
                 if(received){
-                    link_.onAccepted(steady); // 2026-11-17: arrivals, for the link-loss resume wait
+                    // 2026-11-17: arrivals, for the link-loss resume wait. 2026-11-20: age and lease for [LPP_LOST];
+                    // the first accepted command after a loss says what arrived meanwhile (late ones, STOPs).
+                    if(const auto back=link_.onAccepted(steady,age,c.valid_for))
+                        RCLCPP_INFO(get_logger(),"[LPP_BACK] %s",back->c_str());
                     planning_speed_=c.speed_mps;planning_angle_=c.steering_rad;
                     if(auto target=planning_guard_->target(ros,steady))
                         planning_start_gate_->update(steady,target->erpm,min(limits::kPlanningReceiveLeaseS,c.valid_for-max(0.0,ros-c.stamp)));
@@ -367,7 +374,11 @@ private:
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
                     // The car is already stopping in a stop ramp; an invalid or stale message does not cut it short.
                     if(raw_controller_->stopRampActive())return;
-                    if(supervisor_.active())link_.onLost();
+                    if(supervisor_.active()){
+                        RCLCPP_INFO(get_logger(),"[LPP_LOST] %s why=%s",link_.lostFields(steady).c_str(),
+                                    planning_guard_->targetReason(ros,steady).c_str());
+                        link_.onLost();
+                    }
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
@@ -649,9 +660,11 @@ private:
         if(raw_controller_->stopRampActive()){
             // A fresh moving LPP command cancels the ramp and the drive goes on; otherwise the raw tick ramps on.
             if(!target||target->erpm<=0||!planningReady(steady,ros))return;
-            RCLCPP_INFO(get_logger(),"[STOP_RAMP] cancelled t=%.3f: fresh LPP command %.0f ERPM at cmd_erpm=%.0f measured_erpm=%.0f %s",
+            // 2026-11-20: cmd_age_ms = the fresh command's receipt age (a late one after an outage, or on time).
+            RCLCPP_INFO(get_logger(),"[STOP_RAMP] cancelled t=%.3f: fresh LPP command %.0f ERPM at cmd_erpm=%.0f measured_erpm=%.0f cmd_age_ms=%s %s",
                         stop_ramp_started_?steady-*stop_ramp_started_:0.0,target->erpm,
-                        raw_controller_->commandedMotorErpm(),last_raw_erpm_,stopRampFields().c_str());
+                        raw_controller_->commandedMotorErpm(),last_raw_erpm_,link_.acceptedAgeMs().c_str(),
+                        stopRampFields().c_str());
             raw_controller_->cancelStopRamp(steady);
             stop_output_.cancelStopRamp();
             stop_ramp_started_.reset();
@@ -686,6 +699,10 @@ private:
             if(target->erpm>0&&!planning_start_gate_->ready(steady))execution_erpm=0;
         }
         if(!planningReady(steady,ros)||!target){
+            // 2026-11-20: one line per loss on why, and how old the last accepted command is (link_monitor.hpp
+            // lostFields); [LPP_BACK] follows when commands are accepted again. why= is last because it contains spaces.
+            const string why=target?string("planning publisher missing or competing"):planning_guard_->targetReason(ros,steady);
+            RCLCPP_INFO(get_logger(),"[LPP_LOST] %s why=%s",link_.lostFields(steady).c_str(),why.c_str());
             link_.onLost();
             onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
@@ -1023,7 +1040,7 @@ private:
         const bool accepted = raw_controller_->reset(steady, ros);
 #ifdef NOMAD_ENABLE_PLANNING
         if(accepted&&planning_headless_){
-            supervisor_.onReset();planning_guard_->clear();link_.clearPause();
+            supervisor_.onReset();planning_guard_->clear();link_.clearPause();link_.endOutage();
             planning_start_gate_->reset(steady,true);planning_overspeed_since_.reset();resetPlanningSpeedFeedback();
         }
 #endif

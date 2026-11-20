@@ -42,7 +42,7 @@ void expect(bool ok, const char* name) {
 }
 
 // 2026-11-19: the controller's trace lines, captured from the ROS log (still printed as before), to check which
-// lines the team GUI would see. Only the [STOP_RAMP], [RESTART_TRACE] and [PLANNING_WAIT] lines are kept.
+// lines the team GUI would see. Only the lines starting with a tag in kept[] below are kept.
 mutex log_mutex;
 vector<pair<rcutils_time_point_value_t, string>> trace_lines;  // log time (ns), text
 rcutils_logging_output_handler_t previous_log_handler = nullptr;
@@ -55,8 +55,9 @@ void captureTraceLine(const rcutils_log_location_t* location, int severity, cons
     va_end(copy);
     const string line(text);
     // 2026-11-19: also the lines the team GUI parses and the [CONFIG] warning.
+    // 2026-11-20: and [LPP_LOST] / [LPP_BACK] (lost LPP input, and the first accepted command after it).
     static const char* const kept[] = {"[STOP_RAMP]", "[RESTART_TRACE]", "[PLANNING_WAIT]", "[CONFIG]", "[SLIP]",
-                                       "control_trace ", "vesc_trace ", "link_trace "};
+                                       "[LPP_LOST]", "[LPP_BACK]", "control_trace ", "vesc_trace ", "link_trace "};
     bool keep = false;
     for (const char* tag : kept) keep = keep || line.rfind(tag, 0) == 0;
     if (keep) {
@@ -80,10 +81,14 @@ vector<string> traceSince(size_t mark, const string& prefix) {
     for (const auto& line : traceLinesSince(mark, prefix)) out.push_back(line.second);
     return out;
 }
-// The integer after "name=" in a log line, or -1.
+// The integer after "name=" in a log line, or -1 (also for a value that is not a number, e.g. "na").
 long traceNumber(const string& line, const string& name) {
     const auto at = line.find(" " + name + "=");
-    return at == string::npos ? -1 : strtol(line.c_str() + at + name.size() + 2, nullptr, 10);
+    if (at == string::npos) return -1;
+    const char* start = line.c_str() + at + name.size() + 2;
+    char* end = nullptr;
+    const long value = strtol(start, &end, 10);
+    return end == start ? -1 : value;
 }
 
 // 2026-11-19: what the team GUI reads from this node. The GUI is the team-shared original
@@ -563,9 +568,18 @@ public:
         }
         else if(failure=="invalid command") {
             send_planning_=false;
+            const size_t lost_mark=traceMark();
             nomad_interfaces::msg::DriveCommand cmd;cmd.header.stamp=fake_->now();cmd.header.frame_id="base_link";
             cmd.valid_for.nanosec=300000000;cmd.target_speed=numeric_limits<double>::quiet_NaN();
             planning_pub_->publish(cmd);pump(.13);
+            // 2026-11-20: the subscription path's [LPP_LOST] line (an invalid move while driving).
+            const auto lost=traceSince(lost_mark,"[LPP_LOST]");
+            const string line=lost.empty()?string():lost.front();
+            const auto why=line.find(" why=");
+            expect(lost.size()==1&&line.find(" valid_ms=300 ")!=string::npos&&traceNumber(line,"age_ms")>=0&&
+                   why!=string::npos&&line.substr(why)==" why=invalid/stale planning command",
+                   "measured-speed safety: an invalid move logs one [LPP_LOST] line with why=invalid/stale planning command");
+            if(lost.size()!=1)for(const auto& l:lost)cerr<<"  "<<l<<'\n';
         } else if(failure=="command expiry") {send_planning_=false;pump(.45);}
         else if(failure=="telemetry timeout") {send_telemetry_=false;pump(.45);}
         else if(failure=="VESC fault") {
@@ -882,8 +896,10 @@ public:
         follow_=true;telemetry_iq_=climb?16.0:6.0;planner_speed_=.25;send_planning_=true;pump(1.6);
         check(!observed_motor_erpm_.empty()&&observed_motor_erpm_.back()==1000.0&&telemetry_erpm_==1000.0,
               "the LPP drive runs at 1000 ERPM");
-        if(scenario=="blocked"){follow_=false;telemetry_erpm_=0.0;pump(.1);}
-        const size_t mark=speed_log_.size(),outputs=stop_output_times_.size();
+        // 2026-11-20: the ramp start uses the highest of the last 3 readings within 0.1 s (kStopRampStartWindow), so
+        // all of them must be 0 here: 0.15 s of 0 ERPM telemetry (about 5 samples) pushes the 1000s out.
+        if(scenario=="blocked"){follow_=false;telemetry_erpm_=0.0;pump(.15);}
+        const size_t mark=speed_log_.size(),outputs=stop_output_times_.size(),ramp_log=traceMark();
         const int brakes=brake_messages_,handbrakes=handbrake_messages_,releases=release_messages_;
         const double t0=steadySeconds();
         const auto speeds_after=[&](size_t from){vector<double> v;for(size_t i=from;i<speed_log_.size();++i)v.push_back(speed_log_[i].second);return v;};
@@ -977,8 +993,9 @@ public:
                   "a VESC fault during the ramp releases with 0 A at once and latches");
         }else if(scenario=="blocked"){
             pump(.3);
-            check(speeds_after(mark).size()<=1&&first_output_after()>=0.0&&first_output_after()<.15,
-                  "a car already at 0 ERPM is not ramped: the stop output comes at once");
+            check(traceSince(ramp_log,"[STOP_RAMP] begin").empty()&&speeds_after(mark).size()<=1&&
+                  first_output_after()>=0.0&&first_output_after()<.15,
+                  "a car already at 0 ERPM is not ramped: no [STOP_RAMP] begin, the stop output comes at once");
         }else if(scenario=="invalid message"){
             check(wait_status(ramp_running,.3),"the ramp runs before the invalid message");
             const size_t before=speed_log_.size();
@@ -1020,16 +1037,36 @@ public:
             const double from=steadySeconds();send_planning_=true;
             check(wait_status(active,1.0),"continuous commands restart the car");
             check(steadySeconds()-from>=.28,"the restart waits for about 0.3 s of continuous commands");
-            // Link loss again, then a planner STOP during the wait: the STOP clears the link check.
+            // Link loss again, then planner STOPs during the wait (late and on time): neither clears the link check.
             send_planning_=false;
             check(wait_status(held,2.0)&&wait_status([&]{return status_.value("planning_link_pause",false);},.5),
                   "a second expiry sets the link check");
-            lpp(true,0.0);
-            // status_json comes every 0.10-0.12 s: wait for it instead of reading it once after a fixed time.
-            check(wait_status([&]{return !status_.value("planning_link_pause",true);},.4),"a planner STOP clears the link check");
+            // 2026-11-20: a planner STOP no longer clears the link check. A late one (stamped 0.5 s ago, sent during
+            // the outage and delivered in the burst after it) and an on-time one (the newest of such a burst, or a
+            // VEHICLE_STATE_STALE STOP sent just after the link returns) both keep it.
+            const size_t back_mark=traceMark();
+            nomad_interfaces::msg::DriveCommand late;late.header.frame_id="base_link";
+            late.header.stamp=fake_->now()-rclcpp::Duration::from_seconds(.5);
+            late.valid_for.nanosec=300000000;late.stop_requested=true;planning_pub_->publish(late);
+            pump(.25);
+            check(status_.value("planning_link_pause",false),"a late planner STOP keeps the link check");
+            lpp(true,0.0);pump(.3);
+            check(status_.value("planning_link_pause",false),"an on-time planner STOP after a link loss keeps it too");
+            // A move that arrives late (0.45 s old, valid for 0.3 s) is refused and counted for [LPP_BACK].
+            nomad_interfaces::msg::DriveCommand old_move;old_move.header.frame_id="base_link";
+            old_move.header.stamp=fake_->now()-rclcpp::Duration::from_seconds(.45);old_move.valid_for.nanosec=300000000;
+            old_move.target_speed=.25;old_move.target_steering_angle=.01;planning_pub_->publish(old_move);pump(.05);
             const double t1=steadySeconds();send_planning_=true;
-            check(wait_status(active,1.0)&&steadySeconds()-t1<.25,
-                  "after a planner STOP, fresh commands resume without the link wait");
+            check(wait_status(active,1.0)&&steadySeconds()-t1>=.28,
+                  "after a link loss and planner STOPs, fresh commands still wait about 0.3 s");
+            const auto backs=traceSince(back_mark,"[LPP_BACK]");
+            const string back=backs.empty()?string():backs.front();
+            const bool back_ok=backs.size()==1&&traceNumber(back,"refused")==1&&traceNumber(back,"refused_age_max_ms")>=400&&
+                traceNumber(back,"stops")==2&&traceNumber(back,"stop_age_max_ms")>=450&&
+                traceNumber(back,"stop_valid_ms")==300&&traceNumber(back,"gap_ms")>=900&&traceNumber(back,"age_ms")>=0&&
+                traceNumber(back,"first_ms")>=0&&traceNumber(back,"first_ms")<traceNumber(back,"gap_ms");
+            check(back_ok,"one [LPP_BACK] line when commands are accepted again: the late move, the two STOPs, the gap");
+            if(!back_ok)for(const auto& b:backs)cerr<<"  "<<b<<'\n';
         }else if(scenario=="slip display"){
             // Reached with the drive stopped by expiry (send_planning_ false above): restart and drive on.
             send_planning_=true;
@@ -1901,6 +1938,23 @@ void testStopRamp() {
                 ends.back().find("iq_peak_a=na")==string::npos;
             expect(summary,(label+"the restart trace ends at the ramp with one summary line (reached, iq peak)").c_str());
             if(!summary&&!ends.empty())cerr<<"  "<<ends.back()<<'\n';
+        }
+        if(scenario=="expiry"){
+            // 2026-11-20: an [LPP_LOST] line on why and how old the last accepted command is (valid_for 0.3 s).
+            const auto lost=traceSince(log_mark,"[LPP_LOST]");
+            const string line=lost.empty()?string():lost.back();
+            const long since=traceNumber(line,"since_ms");
+            const auto why=line.find(" why=");
+            const bool ok=!lost.empty()&&line.find(" valid_ms=300 ")!=string::npos&&since>=250&&since<=450&&
+                traceNumber(line,"age_ms")>=0&&why!=string::npos&&line.substr(why)==" why=planning command expired";
+            expect(ok,(label+"an [LPP_LOST] line: since/age/valid fields, why=planning command expired").c_str());
+            if(!ok)for(const auto& l:lost)cerr<<"  "<<l<<'\n';
+        }
+        if(scenario=="cancel"){
+            const auto cancels=traceSince(log_mark,"[STOP_RAMP] cancelled");
+            const bool ok=!cancels.empty()&&traceNumber(cancels.front(),"cmd_age_ms")>=0;
+            expect(ok,(label+"the cancel line carries the fresh command's receipt age (cmd_age_ms)").c_str());
+            if(!ok&&!cancels.empty())cerr<<"  "<<cancels.front()<<'\n';
         }
         if(scenario=="VESC fault"){
             // A latched stop during the ramp keeps its wait line (endpoint counts, fault fields): nothing repeats it.

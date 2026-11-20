@@ -1003,17 +1003,72 @@ void testPlanningStopRamp() {
     r.feed(.02, 150);
     expect(r.controller.resumePlanning(1000, .5, r.steady, r.ros, true), "a fresh command resumes after the ramp stop");
 
-    Rig slow; slow.prime(); cruise(slow); slow.feed(.02, 600);
+    // 2026-11-20: the start uses the highest of the last 3 readings (kStopRampStartWindow), so all three are slow here.
+    Rig slow; slow.prime(); cruise(slow); for (int i = 0; i < 3; ++i) slow.feed(.02, 600);
     expect(begin(slow) && slow.controller.commandedMotorErpm() == 600,
            "the ramp starts from the measured speed when the car is slower than the command");
-    slow.feed(.02, 600); slow.controller.tick(slow.steady, slow.ros, true, 1000); // 0.04 s since the last tick
-    expect(abs(slow.controller.commandedMotorErpm() - (600 - 400 / .3 * .04)) < 1e-6,
+    slow.feed(.02, 600); slow.controller.tick(slow.steady, slow.ros, true, 1000); // 0.08 s since the last tick
+    expect(abs(slow.controller.commandedMotorErpm() - (600 - 400 / .3 * .08)) < 1e-6,
            "the ramp rate brings the measured start to 200 ERPM in ramp_s");
     for (double measured : {200.0, 40.0, -300.0}) {
-        Rig blocked; blocked.prime(); cruise(blocked); blocked.feed(.02, measured);
+        Rig blocked; blocked.prime(); cruise(blocked); for (int i = 0; i < 3; ++i) blocked.feed(.02, measured);
         expect(!begin(blocked) && !blocked.controller.stopRampActive() &&
                blocked.controller.state() == TrialState::Running && blocked.controller.commandedMotorErpm() == 1000,
-               "already at or below 200 ERPM (blocked, rolling back): no ramp, the caller stops at once");
+               "already at or below 200 ERPM in the last 3 readings (blocked, rolling back): no ramp, the caller stops at once");
+    }
+    {
+        // 11-19 21:34:29 (r8): readings 820/613/-52 while VIO still showed ~0.2-0.37 m/s. Before 11-20 the newest -52
+        // refused the ramp and the stop output took a 30 A handbrake at speed.
+        Rig lone; lone.prime(); cruise(lone);
+        for (double erpm : {820.0, 613.0, -52.0}) lone.feed(.02, erpm);
+        expect(nomad::RawTrialController::kStopRampStartWindow == 3 && lone.controller.recentMaxErpm() == 820 &&
+               begin(lone) && lone.controller.stopRampActive() && lone.controller.commandedMotorErpm() == 820,
+               "a lone low reading (820/613/-52) still starts the ramp, from the highest of the last 3");
+        // The node's order on an expiry: begin, then the raw tick in the same control tick, before new telemetry. That
+        // tick counts the -52 for the end rule (the first ramp tick counts the sample it sees), so one more low reading
+        // ends the ramp (2 of the last 3), while higher ones keep it going (review 11-20).
+        const auto same_tick = lone.controller.tick(lone.steady, lone.ros, true, 1000);  // no new sample before it
+        lone.feed(.02, 150);
+        const auto next_low = lone.controller.tick(lone.steady, lone.ros, true, 1000);
+        expect(same_tick.kind == OutputKind::Drive && next_low.kind == OutputKind::Release &&
+               lone.controller.state() == TrialState::Stopped,
+               "node order: the -52 counts at the first ramp tick, so the next low reading (150) ends the ramp");
+        Rig going; going.prime(); cruise(going);
+        for (double erpm : {820.0, 613.0, -52.0}) going.feed(.02, erpm);
+        begin(going);
+        bool still_ramping = going.controller.tick(going.steady, going.ros, true, 1000).kind == OutputKind::Drive;
+        for (double erpm : {640.0, 700.0, 650.0}) {
+            going.feed(.02, erpm);
+            still_ramping = still_ramping && going.controller.tick(going.steady, going.ros, true, 1000).kind == OutputKind::Drive;
+        }
+        expect(still_ramping && going.controller.stopRampActive(), "node order: 640/700/650 after the -52 keep it ramping");
+        // One high reading among two low ones also counts as moving; the 2-of-3 end rule then ends it quickly.
+        Rig mixed; mixed.prime(); cruise(mixed);
+        for (double erpm : {150.0, 640.0, 90.0}) mixed.feed(.02, erpm);
+        expect(begin(mixed) && mixed.controller.commandedMotorErpm() == 640, "150/640/90 starts from 640");
+        mixed.feed(.02, 120);
+        const auto first = mixed.controller.tick(mixed.steady, mixed.ros, true, 1000);
+        mixed.feed(.02, 110);
+        const auto second = mixed.controller.tick(mixed.steady, mixed.ros, true, 1000);
+        expect(first.kind == OutputKind::Drive && second.kind == OutputKind::Release &&
+               mixed.controller.state() == TrialState::Stopped,
+               "then two readings at or below 200, each fed before its tick (the 90 is not seen by a tick), end it");
+        // Readings older than kStopRampStartSpanS (0.1 s) before the newest do not count: a telemetry gap.
+        Rig gap; gap.prime(); cruise(gap);
+        gap.feed(.13, 150); gap.feed(.02, 120);
+        expect(gap.controller.recentMaxErpm() == 150 && !begin(gap) && !gap.controller.stopRampActive(),
+               "a 1000 ERPM reading 0.15 s before the newest is too old: 150/120 is slow, no ramp");
+        nomad::RawTrialController none(enabled());
+        expect(isnan(none.recentMaxErpm()), "no sample: NAN");
+        // After a backwards ROS clock step (rebase) only samples received after it count. prime + cruise leave the
+        // ring's next slot at 2 (23 samples), where the 11-20 first version read a slot from before the rebase.
+        Rig back; back.prime(); cruise(back, 900);
+        back.steady += .02; back.ros -= 5.0;
+        back.controller.tick(back.steady, back.ros, true, 1000);  // rebase: sample dropped, planning wait
+        back.feed(.02, 50);
+        expect(back.controller.recentMaxErpm() == 50, "after a clock rebase only new samples count (50, not 900)");
+        back.feed(.02, 40);
+        expect(back.controller.recentMaxErpm() == 50, "the second new sample: still only new ones (50/40)");
     }
     Rig early; early.prime(); cruise(early); begin(early);
     early.feed(.02, 900);

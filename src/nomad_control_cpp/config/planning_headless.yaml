@@ -17,10 +17,15 @@ nomad_vesc_trial:
     # 2026-11-18: the ramp ends when 2 of the last 3 measured readings are at or below 200 (a lone HFI drop no longer
     # ends it: 57 of 95 field ramps on 11-16 did, with the car still moving). 11-17 used 3 in a row, which kept
     # 11-18 parking-garage ramps at 200 ERPM for a median 0.63 s when readings straddled 200.
+    # 2026-11-20: "measured" is the highest of the last 3 readings within 0.1 s, and a car stops at once only when all
+    # of them are at or below 200 (on 11-19 a lone HFI low, 820/613/-52 at ~0.2-0.37 m/s, took a 30 A handbrake at
+    # speed in 2 of 88 stops).
     planning.stop_ramp_s: 0.3
     # 2026-11-17: after a stop caused by lost/invalid LPP input (Wi-Fi), resume only after this long of continuous
-    # fresh commands; a planner STOP still resumes on the next fresh command. On 11-16 the car stopped and restarted
-    # 0.1-0.44 s later 6 times (20-36 A starts, 30 A holds). 0 = resume at once (before 11-17). Range 0..2 s.
+    # fresh commands; a stop by a planner STOP alone still resumes on the next fresh command. On 11-16 the car stopped
+    # and restarted 0.1-0.44 s later 6 times (20-36 A starts, 30 A holds). 0 = resume at once (before 11-17). Range
+    # 0..2 s. 2026-11-20: a planner STOP after a link loss no longer clears this wait (the planner's own STOPs from the
+    # outage arrive when the link returns; on 11-19, 6 of 8 such stops restarted within 0.1 s).
     planning.link_resume_stable_s: 0.3
     # 2026-11-17 (4a): slip/stuck display from /nomad/localization/odometry + /nomad/localization/status
     # (slip_monitor.hpp). Display and [SLIP] log lines only: the output is never changed by it. Off while the pose or
