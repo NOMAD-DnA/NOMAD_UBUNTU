@@ -387,11 +387,7 @@ private:
                 if(planning_headless_&&planning_resume_after_stop_&&!planning_guard_->target(ros,steady)){
                     // The car is already stopping in a stop ramp; an invalid or stale message does not cut it short.
                     if(raw_controller_->stopRampActive())return;
-                    if(supervisor_.active()){
-                        RCLCPP_INFO(get_logger(),"[LPP_LOST] %s why=%s",link_.lostFields(steady).c_str(),
-                                    planning_guard_->targetReason(ros,steady).c_str());
-                        link_.onLost();
-                    }
+                    if(supervisor_.active())linkLost(steady,planning_guard_->targetReason(ros,steady));
                     pausePlanning("planning input unavailable; waiting for fresh command",steady,ros);return;
                 }
                 // 수동 제어 중 LPP STOP은 수동 세션을 빼앗지 않습니다. 전역 STOP은 모든 모드를 해제합니다.
@@ -625,6 +621,14 @@ private:
         closeManualSession();releaseMotor();
         logPlanningWait(reason,steady,ros);
     }
+    // 2026-11-20: the input was lost while driving autonomously: one [LPP_LOST] line on why, and how old the last
+    // accepted command is (link_monitor.hpp lostFields), then the link monitor opens the outage; [LPP_BACK] follows
+    // when commands are accepted again. why= is last because it contains spaces. The only [LPP_LOST] writer: called
+    // from the DriveCommand callback (an invalid or stale message) and from tickPlanning (expiry, publisher missing).
+    void linkLost(double steady,const string& why) {
+        RCLCPP_INFO(get_logger(),"[LPP_LOST] %s why=%s",link_.lostFields(steady).c_str(),why.c_str());
+        link_.onLost();
+    }
     void tickPlanning(double steady,double ros) {
         // 2026-11-17: how long LPP commands have kept arriving, for the link-loss resume wait (link_monitor.hpp).
         link_.updateFlow(steady,planning_guard_&&planning_guard_->target(ros,steady).has_value());
@@ -728,11 +732,7 @@ private:
             if(target->erpm>0&&!planning_start_gate_->ready(steady))execution_erpm=0;
         }
         if(!planningReady(steady,ros)||!target){
-            // 2026-11-20: one line per loss on why, and how old the last accepted command is (link_monitor.hpp
-            // lostFields); [LPP_BACK] follows when commands are accepted again. why= is last because it contains spaces.
-            const string why=target?string("planning publisher missing or competing"):planning_guard_->targetReason(ros,steady);
-            RCLCPP_INFO(get_logger(),"[LPP_LOST] %s why=%s",link_.lostFields(steady).c_str(),why.c_str());
-            link_.onLost();
+            linkLost(steady,target?string("planning publisher missing or competing"):planning_guard_->targetReason(ros,steady));
             onPlanningLost("planning input expired/unavailable; waiting for fresh command","autonomy expired or invalid",steady,ros);
             return;
         }

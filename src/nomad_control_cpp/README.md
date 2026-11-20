@@ -349,7 +349,7 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - 대가: '끊김 → 플래너 STOP → 출발'이 이어지면 출발이 0.3초 연속 명령을 더 기다립니다. 끊김이 없었던 플래너 STOP 정지는 예전처럼 다음 명령에 바로 출발합니다.
   - 운영자 STOP·RESET, 재출발, 새 시작, 감속 취소는 예전처럼 대기를 지웁니다.
 - **③ 끊김마다 두 줄: 끊길 때 `[LPP_LOST]`, 다시 받을 때 `[LPP_BACK]`:**
-  - `[LPP_LOST] since_ms= age_ms= valid_ms= why=`: 입력을 잃은 순간입니다.
+  - `[LPP_LOST] since_ms= age_ms= valid_ms= why=`: 입력을 잃은 순간입니다. 명령 받기(자동 재출발 프로필에서 잘못되거나 늦은 명령)와 20 ms 처리(만료, 발행자 없음·경쟁) 두 곳에서 나오지만, 11-20 저녁부터 `controller_node.cpp`의 `linkLost()` 하나로만 씁니다(줄 형식과 `link_.onLost()` 순서가 한곳에 있음, 줄 내용은 같음).
     - `since_ms`: 마지막으로 받아들인 명령 뒤 지난 시간
     - `age_ms`, `valid_ms`: 그 명령이 도착했을 때의 나이와 유효기간
     - `why`: 플래닝 guard의 사유(`planning command expired`, `invalid/stale planning command`, `planning speed outside configured range` 등). 띄어쓰기가 있어 줄 끝에 둡니다.
@@ -602,7 +602,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 17fd01f | (11-20) 리팩토링 2순위: 감속 명령 바닥(`planning.stop_ramp_command_erpm`, 기본 −1 = 진입값)을 감속 끝·핸드브레이크 진입(200 ERPM)과 분리. 기본값에서 차 동작 같음(무작위 비교 차이 0)(11-20 20:18 Pi4 배포) |
 | 535eb2e | (11-20) 17fd01f Pi4 배포 기록(`7ea89004…`) |
 | d1bc2aa | (11-20) 1·2순위 뒤 정리: 감속 명령 바닥 설정의 '설정 안 함'을 0으로(−1 거부), 감속 ROS 시험을 `planning_stop_ramp_ros_1`·`_2`로 나눔(각 약 32·35초), 출력 흐름 설명 주석. 차 동작 같음(11-20 21:16 Pi4 배포) |
-| (이 커밋) | (11-20) d1bc2aa Pi4 배포 기록(`4e09619b…`) |
+| 2a6e027 | (11-20) d1bc2aa Pi4 배포 기록(`4e09619b…`) |
+| (이 커밋) | (11-20) 리팩토링 3순위 일부: `[LPP_LOST]`를 쓰는 두 곳(명령 받기, 20 ms 처리)을 `linkLost()` 하나로. 줄 내용과 차 동작 같음. 3순위의 나머지(`setupPlanning`·`tickPlanning` 나누기)는 11-27 시연 뒤로 미룸. Pi4 미배포 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
