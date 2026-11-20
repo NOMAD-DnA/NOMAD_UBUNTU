@@ -62,7 +62,8 @@
 // lower current is not less load. Ramp samples from kRampIgnoreS on can only raise L (Load: max with the usable ramp
 // samples; SamePlace: the drive's largest usable L); movement during the ramp still counts (conservative for the
 // same-place and tiny-creep distances). When the ramp command reaches its end (beginStopRamp end_erpm; the node passes
-// hold_below_erpm), the controller waits there for the reported speed while the speed PID brakes hard, and the ramp
+// the ramp's command end, planning.stop_ramp_command_erpm, which is hold_below_erpm unless set, 2026-11-20), the
+// controller waits there for the reported speed while the speed PID brakes hard, and the ramp
 // samples not yet judged are also tried with trailing windows; usable results are kept when at least kRampEndMinUsable agree (evaluateRampEnd). A slope edge
 // crossed just before the stop can still show nothing yet: in the 11-14 review model (real code, 0.3 s ramp) the
 // downhill-edge band where the hold slips is 2.3-3.8 cm at 12-20 deg against 4.9-5.5 cm for an immediate stop (and no
@@ -174,7 +175,8 @@ public:
     // kMedianSamples median (~40-60 ms) still show the cruise current while the speed already drops, which reads
     // like meeting a slope.
     static constexpr double kRampIgnoreS = 0.15;
-    // Usable trailing-window ramp samples needed at the start of the 200 ERPM phase (evaluateRampEnd).
+    // Usable trailing-window ramp samples needed when the ramp command reaches its end (ramp_end_erpm_; the 200 ERPM
+    // handbrake entry unless planning.stop_ramp_command_erpm is set; evaluateRampEnd).
     static constexpr std::size_t kRampEndMinUsable = 2;
 
     explicit StopOutput(StopOutputConfig config = {}) : config_(config) {
@@ -228,8 +230,10 @@ public:
             command_erpm_ = std::isfinite(commanded_erpm) ? std::abs(commanded_erpm) : 0.0;
         } else if (!ramp_end_judged_ && config_.hold_below_erpm > 0.0 && std::isfinite(commanded_erpm) &&
                    std::abs(commanded_erpm) <= ramp_end_erpm_ + 1e-9) {
-            // The ramp command reached the handbrake entry speed: the controller now keeps it there until the
-            // reported speed follows (raw_trial kStopRampSettleS) while the speed PID brakes hard, so a window centred
+            // The ramp command reached its end (ramp_end_erpm_: the handbrake entry unless
+            // planning.stop_ramp_command_erpm is set): the controller now keeps it there until the reported speed is
+            // at or below the handover (raw_trial end_erpm, at most kStopRampSettleS) while the speed PID brakes hard,
+            // so a window centred
             // on the last ramp samples would mostly see that braking and call them unsteady (2026-11-13 review: a
             // downhill edge crossed late in the ramp was missed). See evaluateRampEnd.
             evaluateRampEnd();
@@ -243,8 +247,9 @@ public:
     // happened now. Later samples (ramp samples) are never settled and do not count as launch current; from
     // kRampIgnoreS on, a usable one can only raise the load (a slope or obstacle met during the ramp, or a downhill
     // the speed PID cannot slow). Movement still counts. No effect outside a drive or when already ramping.
-    // end_erpm: where the controller's ramp command stops falling (the node passes the same value to raw_trial);
-    // it defaults to hold_below_erpm, which is what the node uses whenever the handbrake is on.
+    // end_erpm: where the controller's ramp command stops falling (the node passes the same value to raw_trial as
+    // its command end); it defaults to hold_below_erpm, which is what the node uses unless
+    // planning.stop_ramp_command_erpm is set (2026-11-20).
     void beginStopRamp(double steady_now, std::optional<double> end_erpm = std::nullopt) {
         if (!in_drive_ || ramp_start_s_ || !std::isfinite(steady_now)) return;
         evaluateTail();
@@ -392,8 +397,8 @@ private:
             drive_peak_load_a_ = drive_peak_load_a_ ? std::max(*drive_peak_load_a_, sample.evidence) : sample.evidence;
     }
 
-    // At the start of the 200 ERPM phase: judge the ramp samples not yet judged with trailing windows, but keep only
-    // results that make a sample usable, and only when at least kRampEndMinUsable of them do; the rest are left to
+    // When the ramp command reaches its end (ramp_end_erpm_): judge the ramp samples not yet judged with trailing
+    // windows, but keep only results that make a sample usable, and only when at least kRampEndMinUsable of them do; the rest are left to
     // their centred windows as before. (11-14 check of the plain trailing judgement: it dropped a downhill plateau
     // the centred windows had caught, and with the reported-speed lag plus HFI noise one sample could read as
     // steady braking on flat ground, ~6% of flat stops at 20-25 A in the review model; this rule: 0 new downhill

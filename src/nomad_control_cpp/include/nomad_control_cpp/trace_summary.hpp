@@ -88,21 +88,27 @@ private:
 // the tick on which it ended (the raw controller ends it on that tick's sample, before the trace sees it).
 // The ramp ends on telemetry samples (raw_trial: 2 of the last 3 at or below end_erpm), so the figures count
 // samples, not ticks:
-// - wait_s: from the tick the speed command reached end_erpm to the last tick seen; na if it never did.
-// - end_samples / end_above: telemetry samples after the command reached end_erpm, and how many of them were
+// - wait_s: from the tick the speed command reached its end (command_end_erpm; end_erpm unless
+//   planning.stop_ramp_command_erpm is set) to the last tick seen; na if it never did. With a command end below
+//   end_erpm the ramp often ends on the measured rule first, so wait_s=na and end_samples=0 are normal then.
+// - end_samples / end_above: telemetry samples after the command reached its end, and how many of them were
 //   still above end_erpm. Many samples above = the wheel was slow to reach the handbrake speed (or HFI noise).
 // - erpm_last: the measured ERPM of the last 5 samples since the ramp began, oldest first, the end tick's included.
 //   Two of the last three at or below end_erpm = the ramp ended by the rule (also before the command reached
-//   end_erpm, as raw_trial counts from the ramp start); otherwise wait_s 0.60 = the settle timeout, or a stop.
+//   its end, as raw_trial counts from the ramp start); otherwise wait_s 0.60 = the settle timeout, or a stop.
 // - iq_peak_a: the |avg_iq| peak with its sign (negative = braking torque).
 class StopRampSummary {
 public:
     static constexpr std::size_t kLastSamples = 5;
 
-    explicit StopRampSummary(double end_erpm) : end_erpm_(end_erpm) {}
+    explicit StopRampSummary(double end_erpm) : StopRampSummary(end_erpm, end_erpm) {}
+    // 2026-11-20: command_end_erpm = where the ramp command stops falling (wait_s counts from there); end_erpm = the
+    // measured speed that hands over (end_above counts samples above it). The same value unless
+    // planning.stop_ramp_command_erpm is set.
+    StopRampSummary(double command_end_erpm, double end_erpm) : command_end_erpm_(command_end_erpm), end_erpm_(end_erpm) {}
     // new_sample: a telemetry sample arrived since the previous tick.
     void onTick(double t, double cmd_erpm, double measured_erpm, double iq_a, bool new_sample) {
-        if (!at_end_t_ && cmd_erpm <= end_erpm_ + 0.5) at_end_t_ = t;
+        if (!at_end_t_ && cmd_erpm <= command_end_erpm_ + 0.5) at_end_t_ = t;
         record(t, measured_erpm, iq_a, new_sample);
     }
     // The tick on which the ramp ended. Its sample is the one that decided a "2 of the last 3" end, and its t is the
@@ -141,7 +147,7 @@ private:
         while (last_.size() > kLastSamples) last_.pop_front();
     }
 
-    double end_erpm_, last_t_ = 0.0, iq_peak_a_ = 0.0;
+    double command_end_erpm_, end_erpm_, last_t_ = 0.0, iq_peak_a_ = 0.0;
     bool seen_iq_ = false;
     std::optional<double> at_end_t_;
     int end_samples_ = 0, end_above_ = 0;

@@ -326,7 +326,7 @@ bool RawTrialController::pausePlanning(const string& reason, double steady_now, 
 // 2026-11-13: LPP pauses stopped the car from ~1000 ERPM within ~50 ms (brake, then handbrake) and it lurched.
 // The ramp starts from the measured speed when that is lower (a blocked or slowed car is not pushed on).
 bool RawTrialController::beginStopRamp(const string& reason, double steady_now, double ros_now, double ramp_s,
-                                       double end_erpm) {
+                                       double end_erpm, optional<double> command_end_erpm) {
     if (stop_ramp_) return state_ == TrialState::Running;
     // No side effects when refused: the caller's pausePlanning() then reports any clock, timer or telemetry issue.
     const bool clock_ok = isfinite(steady_now) && isfinite(ros_now) &&
@@ -335,12 +335,14 @@ bool RawTrialController::beginStopRamp(const string& reason, double steady_now, 
         !healthy(steady_now, ros_now) || !last_tick_ || timerStalled(steady_now) ||
         !isfinite(ramp_s) || ramp_s <= 0.0 || ramp_s > kMaxStopRampS || !isfinite(end_erpm) || end_erpm < 0.0)
         return false;
+    const double command_end = command_end_erpm.value_or(end_erpm);
+    if (command_end_erpm && (!isfinite(command_end) || command_end <= 0.0 || command_end > end_erpm)) return false;
     // 2026-11-20: from the recent samples, not the newest alone (kStopRampStartWindow): a lone HFI low no longer
     // turns a moving car's planning stop into a handbrake at speed.
     const double start = min(commanded_erpm_, max(0.0, recentMaxErpm()));
     if (!(start > end_erpm)) return false;
     commanded_erpm_ = start;
-    stop_ramp_ = StopRamp{reason, (start - end_erpm) / ramp_s, end_erpm, nullopt, 0u, nullopt};
+    stop_ramp_ = StopRamp{reason, (start - command_end) / ramp_s, end_erpm, command_end, nullopt, 0u, nullopt};
     stalled_since_.reset();
     reason_ = "speed ramp before planning stop: " + reason;
     return true;
@@ -538,15 +540,16 @@ RawOutput RawTrialController::tick(double steady_now, double ros_now, bool exclu
     return {OutputKind::Drive, axis_ == RawAxis::Manual ? commanded_erpm_ : 0.0, commanded_servo_};
 }
 
-// Planning stop ramp: the running floor and the stall check do not apply. The command stays at end_erpm until the
-// measured speed is there (then the stop output starts with the handbrake, not a brake pulse), at most
+// Planning stop ramp: the running floor and the stall check do not apply. The command stays at command_end_erpm
+// (end_erpm unless set) until the measured speed is at or below end_erpm (then the stop output starts with the
+// handbrake, not a brake pulse), at most
 // kStopRampSettleS; the measured speed may also get there earlier (a slope or an obstacle). "There" means
 // kStopRampEndLow of the last kStopRampEndWindow telemetry samples (2026-11-18; 3 in a row on 11-17), so a lone HFI
 // ERPM drop does not end the ramp.
 // True when it handed over to the planning wait.
 bool RawTrialController::tickStopRamp(double steady_now, double dt) {
-    commanded_erpm_ = max(stop_ramp_->end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
-    if (commanded_erpm_ <= stop_ramp_->end_erpm + 1e-9 && !stop_ramp_->at_end_since)
+    commanded_erpm_ = max(stop_ramp_->command_end_erpm, commanded_erpm_ - stop_ramp_->rate_erpm_s * dt);
+    if (commanded_erpm_ <= stop_ramp_->command_end_erpm + 1e-9 && !stop_ramp_->at_end_since)
         stop_ramp_->at_end_since = steady_now;
     const bool settled_too_long = stop_ramp_->at_end_since &&
         steady_now - *stop_ramp_->at_end_since >= kStopRampSettleS - 1e-9;

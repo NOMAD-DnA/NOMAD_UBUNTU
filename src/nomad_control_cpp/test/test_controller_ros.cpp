@@ -926,6 +926,9 @@ public:
         }
         if(scenario!="expiry"&&scenario!="link resume"&&scenario!="shutdown while driving"&&scenario!="slip display")lpp(true,0.0);
         if(scenario=="climb hold"){telemetry_iq_=8.0;follow_lag_=150.0;}
+        // 2026-11-20: the reported speed 95 ERPM above the command: at or below the 200 handover only once the command
+        // is near its end of 100, so wait_s/end_above show which value each part of the ramp used.
+        if(scenario=="command end")follow_lag_=95.0;
         if(scenario=="LPP STOP"||scenario=="expiry"||scenario=="climb hold"){
             check(wait_status(ramp_running,scenario=="expiry"?.6:.25)&&status_.value("planning_stop_ramp_s",0.0)==ramp_s,
                   "status reports the running ramp");
@@ -953,6 +956,15 @@ public:
             follow_lag_=0.0;telemetry_iq_=6.0;send_planning_=true;pump(scenario=="expiry"?.8:.5); // expiry: + 0.3 s link wait
             check(observed_motor_erpm_.back()==1000.0&&status_.value("planning_supervisor_state",string())=="ACTIVE",
                   "a fresh command resumes after the ramp stop");
+        }else if(scenario=="command end"){
+            // 2026-11-20: planning.stop_ramp_command_erpm 100 (1 s ramp): the command falls below the 200 handover (to
+            // 100 at most) while the measured speed still hands over at 200, straight to the handbrake.
+            check(wait_status(held,2.5),"a command end of 100: the ramp ends in a hold");
+            pump(.15);
+            double lowest=1e9;
+            for(double erpm:speeds_after(mark))lowest=min(lowest,erpm);
+            check(lowest<200.0-1e-9&&lowest>=100.0-1e-9&&brake_messages_==brakes&&handbrake_messages_>handbrakes,
+                  "a command end of 100: the speed command goes below 200 (not below 100), then the handbrake, no brake pulse");
         }else if(scenario=="cancel"||scenario=="cancel then flat"){
             pump(.1);
             // The drive after the cancel is flat; the cancelled ramp's record (climb, 10 A load) must not size its stop.
@@ -1889,14 +1901,15 @@ void testStopRamp() {
     const size_t gui_mark=traceMark();
     for(const string scenario:{"LPP STOP","expiry","climb hold","second publisher","blocked",
                                "cancel","cancel then flat","speed 0","operator STOP","VESC fault","invalid message",
-                               "noisy end","link resume","shutdown","shutdown while driving","slip display"}){
+                               "noisy end","link resume","shutdown","shutdown while driving","slip display","command end"}){
         // Scenarios that act during the ramp use a 1 s ramp so they still act while it runs on a slow machine.
         const bool acts_during=scenario=="cancel"||scenario=="cancel then flat"||scenario=="speed 0"||
                                scenario=="operator STOP"||scenario=="VESC fault"||scenario=="invalid message"||
-                               scenario=="noisy end";
+                               scenario=="noisy end"||scenario=="command end";
         auto with_ramp=parameters;
         for(auto& parameter:with_ramp)
             if(parameter.get_name()=="planning.stop_ramp_s")parameter=rclcpp::Parameter("planning.stop_ramp_s",acts_during?1.0:.3);
+        if(scenario=="command end")with_ramp.emplace_back("planning.stop_ramp_command_erpm",100.0);
         const size_t log_mark=traceMark();
         RosRig rig(true,true,true,true,false,with_ramp);rig.runStopRamp(scenario,acts_during?1.0:.3);
         // 2026-11-17 (5a): the commission output rules hold in every scenario.
@@ -1956,6 +1969,37 @@ void testStopRamp() {
             expect(ok,(label+"the cancel line carries the fresh command's receipt age (cmd_age_ms)").c_str());
             if(!ok&&!cancels.empty())cerr<<"  "<<cancels.front()<<'\n';
         }
+        if(scenario=="command end"||scenario=="LPP STOP"){
+            // 2026-11-20: the begin line names the handover only when the command end differs from it.
+            const auto begins=traceSince(log_mark,"[STOP_RAMP] begin");
+            const bool ok=!begins.empty()&&(scenario=="command end"?
+                begins.back().find(" end_erpm=100 handover_erpm=200 ")!=string::npos:
+                begins.back().find(" end_erpm=200 ramp_s=")!=string::npos);
+            expect(ok,(label+(scenario=="command end"?"the begin line shows end_erpm=100 handover_erpm=200":
+                                                       "the begin line has no handover_erpm by default")).c_str());
+            if(!ok&&!begins.empty())cerr<<"  "<<begins.back()<<'\n';
+            // The startup line: unchanged by default; with a command end it names the handover separately.
+            const auto starts=traceSince(log_mark,"[STOP_RAMP] LPP STOP / lost LPP input");
+            const bool start_ok=starts.size()==1&&(scenario=="command end"?
+                starts[0].find("ramps to 100 ERPM ")!=string::npos&&starts[0].find("measured ERPM is at or below 200 ERPM (")!=string::npos:
+                starts[0].find("ramps to 200 ERPM ")!=string::npos&&starts[0].find("measured ERPM is too (")!=string::npos);
+            expect(start_ok,(label+(scenario=="command end"?"the startup line: command 100, handover at or below 200":
+                                                            "the startup line is unchanged by default (ramps to 200 ... is too)")).c_str());
+            if(!start_ok)for(const auto& line:starts)cerr<<"  "<<line<<'\n';
+            if(scenario=="command end"){
+                // wait_s counts from the command end (100) and end_above against the handover (200): with the speed 95
+                // above the command, wait_s is short and few samples stay above 200. Counted from 200 instead, wait_s
+                // would be ~0.16 s and end_above ~5 (review 11-20).
+                const auto ends=traceSince(log_mark,"[STOP_RAMP] end");
+                const string end=ends.empty()?string():ends.back();
+                const auto at=end.find(" wait_s=");
+                const double wait=at==string::npos?-1.0:strtod(end.c_str()+at+8,nullptr);
+                const bool end_ok=!ends.empty()&&at!=string::npos&&end.find(" wait_s=na")==string::npos&&
+                    wait>=0.0&&wait<0.10&&traceNumber(end,"end_above")>=0&&traceNumber(end,"end_above")<=1;
+                expect(end_ok,(label+"the end line: wait_s from the command end (< 0.10 s), end_above against 200 (<= 1)").c_str());
+                if(!end_ok&&!ends.empty())cerr<<"  "<<end<<'\n';
+            }
+        }
         if(scenario=="VESC fault"){
             // A latched stop during the ramp keeps its wait line (endpoint counts, fault fields): nothing repeats it.
             bool fault_wait=false;
@@ -2005,6 +2049,19 @@ void testStopRamp() {
            "stop ramp: 0..1 s accepted with headless measured planning");
     expect(refused({{"planning.stop_ramp_s",-.1}})&&refused({{"planning.stop_ramp_s",1.01}})&&
            refused({{"planning.stop_ramp_s",numeric_limits<double>::quiet_NaN()}}),"stop ramp: out-of-range time refused");
+    // 2026-11-20: planning.stop_ramp_command_erpm: -1 (the handbrake entry, 200) or within [50, 200].
+    const auto refused_end=[&](double value){
+        auto all=base;all.emplace_back("planning.stop_ramp_s",.3);all.emplace_back("planning.stop_ramp_command_erpm",value);
+        rclcpp::NodeOptions options;options.parameter_overrides(all);
+        try{auto node=nomad::ControllerNode::create(options);}
+        catch(const invalid_argument& error){return string(error.what()).find("stop_ramp_command_erpm")!=string::npos;}
+        return false;
+    };
+    expect(!refused_end(-1.0)&&!refused_end(50.0)&&!refused_end(150.0)&&!refused_end(200.0),
+           "stop ramp command end: -1, 50 (the VESC speed PID minimum), 150 and 200 accepted");
+    expect(refused_end(0.0)&&refused_end(-2.0)&&refused_end(49.0)&&refused_end(200.5)&&
+           refused_end(numeric_limits<double>::quiet_NaN()),
+           "stop ramp command end: 0, other negatives, below 50 (a VESC duty-0 brake), above the handover and NaN refused");
     expect(refused({{"planning.stop_ramp_s",.3},{"planning.resume_after_stop",false}})&&
            refused({{"planning.stop_ramp_s",.3},{"planning.measured_speed_control",false},{"planning.minimum_running_erpm",0.0}}),
            "stop ramp: refused without headless measured planning that resumes after a stop");

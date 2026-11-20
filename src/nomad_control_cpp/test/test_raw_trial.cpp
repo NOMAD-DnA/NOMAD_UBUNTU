@@ -1070,6 +1070,50 @@ void testPlanningStopRamp() {
         back.feed(.02, 40);
         expect(back.controller.recentMaxErpm() == 50, "the second new sample: still only new ones (50/40)");
     }
+    {
+        // 2026-11-20: a command end below the handover (planning.stop_ramp_command_erpm): the command falls to 100 at
+        // (1000 - 100) / 0.3 ERPM/s and waits there; the measured speed still hands over at 200 (2 of the last 3).
+        Rig low; low.prime(); cruise(low);
+        expect(low.controller.beginStopRamp("LPP pause", low.steady, low.ros, .3, 200, 100.0) &&
+               low.controller.commandedMotorErpm() == 1000, "a command end of 100 below the 200 handover is accepted");
+        low.feed(.02, 1000); low.controller.tick(low.steady, low.ros, true, 1000);
+        expect(abs(low.controller.commandedMotorErpm() - (1000 - 900 / .3 * .02)) < 1e-6,
+               "the rate brings the command to the command end (100) in ramp_s");
+        double lowest = 1000; int ticks = 0; nomad::RawOutput o;
+        for (; ticks < 40; ++ticks) {
+            low.feed(.02, 450);  // the speed PID trails: still above the handover
+            o = low.controller.tick(low.steady, low.ros, true, 1000);
+            if (o.kind != OutputKind::Drive) break;
+            lowest = min(lowest, o.motor_erpm);
+        }
+        expect(o.kind == OutputKind::Drive && abs(lowest - 100) < 1e-6 && low.controller.stopRampActive(),
+               "the command waits at 100 (not 200) while the measured speed is above 200");
+        low.feed(.02, 190); low.controller.tick(low.steady, low.ros, true, 1000);
+        low.feed(.02, 180);
+        expect(low.controller.tick(low.steady, low.ros, true, 1000).kind == OutputKind::Release &&
+               low.controller.state() == TrialState::Stopped, "two readings at or below 200 still hand over");
+        for (double bad : {0.0, -1.0, 200.5, numeric_limits<double>::quiet_NaN()}) {
+            Rig f; f.prime(); cruise(f);
+            expect(!f.controller.beginStopRamp("LPP pause", f.steady, f.ros, .3, 200, bad) && !f.controller.stopRampActive() &&
+                   f.controller.state() == TrialState::Running,
+                   "a command end of 0, negative, above the handover or NaN is refused without side effects");
+        }
+        Rig same; same.prime(); cruise(same);
+        expect(same.controller.beginStopRamp("LPP pause", same.steady, same.ros, .3, 200, 200.0),
+               "a command end equal to the handover is the default behaviour");
+        // The 0.6 s limit counts from the first tick at the command end (100), not from the first at the handover (200).
+        Rig wait; wait.prime(); cruise(wait);
+        expect(wait.controller.beginStopRamp("LPP pause", wait.steady, wait.ros, .3, 200, 100.0), "the wait rig begins");
+        double first_at_100 = -1, released = -1;
+        for (int i = 0; i < 80; ++i) {
+            wait.feed(.02, 450);
+            const auto w = wait.controller.tick(wait.steady, wait.ros, true, 1000);
+            if (w.kind != OutputKind::Drive) { released = wait.steady; break; }
+            if (w.motor_erpm <= 100 + 1e-6 && first_at_100 < 0) first_at_100 = wait.steady;
+        }
+        expect(first_at_100 > 0 && abs(released - first_at_100 - nomad::RawTrialController::kStopRampSettleS) < 1e-6,
+               "a speed above the handover gets the command end (100) for exactly 0.6 s from the first 100");
+    }
     Rig early; early.prime(); cruise(early); begin(early);
     early.feed(.02, 900);
     expect(early.controller.tick(early.steady, early.ros, true, 1000).kind == OutputKind::Drive, "ramp drives on above 200");

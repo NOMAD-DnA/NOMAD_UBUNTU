@@ -295,12 +295,23 @@ private:
             throw invalid_argument("planning.link_resume_stable_s="+to_string(link_resume_s)+" outside 0 <= x <= 2");
         link_.setResumeStableSeconds(link_resume_s);
         planning_stop_ramp_s_=parameter<double>("planning.stop_ramp_s",0.0);
+        // 2026-11-20: where the ramp command stops falling, separate from the measured handover speed (the handbrake
+        // entry, stop_handbrake_below_erpm, 200 if that is 0). -1 = the same as the handover (before 11-20); else
+        // speed_pid_min_erpm <= x <= the handover. Below the VESC s_pid_min_erpm (speed_pid_min_erpm, 50) the VESC drops
+        // the speed PID for a duty-0 brake of a few amps (bemf/R), so the PID's 30-50 A braking on a steep downhill
+        // during the 0.6 s wait would be lost (review 11-20); 0 would be a release. Above the handover the measured
+        // speed could not get there on flat ground.
+        planning_stop_ramp_command_erpm_=parameter<double>("planning.stop_ramp_command_erpm",-1.0);
+        if(planning_stop_ramp_command_erpm_!=-1.0&&(!isfinite(planning_stop_ramp_command_erpm_)||
+           planning_stop_ramp_command_erpm_<=0.0||planning_stop_ramp_command_erpm_<speed_pid_min_erpm_||
+           planning_stop_ramp_command_erpm_>stopRampEndErpm()))
+            throw invalid_argument("planning.stop_ramp_command_erpm must be -1 (the handover) or within [speed_pid_min_erpm, the handover: stop_handbrake_below_erpm, 200 if 0]");
         if(!isfinite(planning_stop_ramp_s_)||planning_stop_ramp_s_<0||planning_stop_ramp_s_>RawTrialController::kMaxStopRampS||
            (planning_stop_ramp_s_>0&&(!planning_headless_||!planning_resume_after_stop_||!planning_measured_speed_control_)))
             throw invalid_argument("planning.stop_ramp_s must be within 0..1 s and needs headless measured planning that resumes after a stop");
         if(planning_stop_ramp_s_>0)
-            RCLCPP_INFO(get_logger(),"[STOP_RAMP] LPP STOP / lost LPP input: speed command ramps to %.0f ERPM over %.2f s and stays there until the measured ERPM is too (at most %.2f s), then the stop output; faults, operator STOP, overspeed and telemetry/driver loss stop at once",
-                        stopRampEndErpm(),planning_stop_ramp_s_,RawTrialController::kStopRampSettleS);
+            RCLCPP_INFO(get_logger(),"[STOP_RAMP] LPP STOP / lost LPP input: speed command ramps to %.0f ERPM over %.2f s and stays there until the measured ERPM is %s (at most %.2f s), then the stop output; faults, operator STOP, overspeed and telemetry/driver loss stop at once",
+                        stopRampCommandErpm(),planning_stop_ramp_s_,stopRampHandoverText().c_str(),RawTrialController::kStopRampSettleS);
         if(!isfinite(planning_feedback_limit_erpm_)||planning_feedback_limit_erpm_<0||planning_feedback_limit_erpm_>2500)
             throw invalid_argument("invalid autonomous feedback ERPM limit");
         planning_start_gate_=std::make_unique<PlanningStartGate>(planning_start_hold_s_,planning_restart_cooldown_s_,planning_min_start_erpm_);
@@ -439,26 +450,42 @@ private:
     bool beginStopRamp(const string& reason,double steady,double ros) {
         if(raw_controller_->stopRampActive())return true;
         if(planning_stop_ramp_s_<=0||!supervisor_.active()||thermal_.stopped())return false;
-        const double end=stopRampEndErpm(),from=raw_controller_->commandedMotorErpm();
-        if(!raw_controller_->beginStopRamp(reason,steady,ros,planning_stop_ramp_s_,end))return false;
-        // The same end value for both: StopOutput judges the ramp samples when the command reaches it.
-        stop_output_.beginStopRamp(steady,end);
+        const double end=stopRampEndErpm(),command_end=stopRampCommandErpm(),from=raw_controller_->commandedMotorErpm();
+        if(!raw_controller_->beginStopRamp(reason,steady,ros,planning_stop_ramp_s_,end,command_end))return false;
+        // The command end for both: StopOutput judges the ramp samples when the command reaches it.
+        stop_output_.beginStopRamp(steady,command_end);
         planning_guard_->clear();
         // 2026-11-19: the restart summary covers the drive only. Ramp ticks would count the falling command as reached
         // and their braking iq as the peak.
         endRestartTrace(steadySeconds(),"stop_ramp");
         stop_ramp_started_=steady;
-        stop_ramp_summary_.emplace(end);
+        stop_ramp_summary_.emplace(command_end,end);
         // Like raw_trial's end rule, the first ramp tick counts the sample it sees, even one received before the ramp.
         stop_ramp_seen_rx_.reset();
-        RCLCPP_INFO(get_logger(),"[STOP_RAMP] begin reason=%s cmd_erpm=%.0f measured_erpm=%.0f ramp_from_erpm=%.0f end_erpm=%.0f ramp_s=%.2f iq_a=%.2f",
-                    reason.c_str(),from,last_raw_erpm_,raw_controller_->commandedMotorErpm(),end,planning_stop_ramp_s_,last_iq_);
+        // end_erpm = the command end; handover_erpm only when it differs (2026-11-20, planning.stop_ramp_command_erpm).
+        char handover[40]="";
+        if(command_end!=end)snprintf(handover,sizeof(handover)," handover_erpm=%.0f",end);
+        RCLCPP_INFO(get_logger(),"[STOP_RAMP] begin reason=%s cmd_erpm=%.0f measured_erpm=%.0f ramp_from_erpm=%.0f end_erpm=%.0f%s ramp_s=%.2f iq_a=%.2f",
+                    reason.c_str(),from,last_raw_erpm_,raw_controller_->commandedMotorErpm(),command_end,handover,
+                    planning_stop_ramp_s_,last_iq_);
         return true;
     }
-    // The ramp hands over at the handbrake entry speed (200 ERPM if the handbrake is off).
+    // The ramp hands over at the handbrake entry speed (200 ERPM if the handbrake is off): the measured speed that
+    // ends it (raw_trial end_erpm).
     double stopRampEndErpm() const {
         const double hold_below=stop_output_.config().hold_below_erpm;
         return hold_below>0?hold_below:200.0;
+    }
+    // 2026-11-20: where the ramp command stops falling: planning.stop_ramp_command_erpm, else the handover speed.
+    double stopRampCommandErpm() const {
+        return planning_stop_ramp_command_erpm_>0?planning_stop_ramp_command_erpm_:stopRampEndErpm();
+    }
+    // The startup line's handover text: "too" when the command end is the handover speed (as before 11-20).
+    string stopRampHandoverText() const {
+        if(stopRampCommandErpm()==stopRampEndErpm())return "too";
+        char text[48];
+        snprintf(text,sizeof(text),"at or below %.0f ERPM",stopRampEndErpm());
+        return text;
     }
     // While a stop ramp runs: the summary figures each control tick (and with trace_every_tick one line per
     // tick), then one line on how it ended with the summary (trace_summary.hpp StopRampSummary).
@@ -1695,6 +1722,7 @@ private:
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
+    double planning_stop_ramp_command_erpm_=-1.0; // planning.stop_ramp_command_erpm; -1 = the handover speed
     bool slip_enabled_=false;                // slip.enabled (2026-11-17, 4a)
     SlipMonitor slip_monitor_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr slip_odom_sub_;

@@ -73,12 +73,16 @@ public:
     void setPlanningRecovery(bool enabled) { planning_recovery_ = enabled; }
     bool pausePlanning(const std::string& reason, double steady_now, double ros_now);
     // Headless planning only, for an LPP STOP or lost LPP input while driving forward: ramp the speed command
-    // from min(command, recentMaxErpm()) down to end_erpm over ramp_s (no running floor), keep end_erpm until the
-    // measured ERPM is at or below it in kStopRampEndLow of the last kStopRampEndWindow samples (at most
+    // from min(command, recentMaxErpm()) down to command_end_erpm over ramp_s (no running floor), keep it there until
+    // the measured ERPM is at or below end_erpm in kStopRampEndLow of the last kStopRampEndWindow samples (at most
     // kStopRampSettleS after the command got there), then stop exactly as pausePlanning(reason)
     // does. Faults, timeouts and stop() still end it at once. False when it does not apply (not running a planning
     // drive faster than end_erpm, invalid values): the caller then stops at once.
-    bool beginStopRamp(const std::string& reason, double steady_now, double ros_now, double ramp_s, double end_erpm);
+    // 2026-11-20: command_end_erpm (where the command stops falling) is separate from end_erpm (the measured speed
+    // that hands over, the handbrake entry). nullopt = end_erpm, as before; otherwise 0 < command_end_erpm <= end_erpm
+    // (0 would be a release, above end_erpm the measured speed could not get there on flat ground).
+    bool beginStopRamp(const std::string& reason, double steady_now, double ros_now, double ramp_s, double end_erpm,
+                       std::optional<double> command_end_erpm = std::nullopt);
     // A fresh LPP command arrived during the ramp: keep driving; the next update() sets the target.
     void cancelStopRamp(double steady_now);
     bool stopRampActive() const { return stop_ramp_.has_value(); }
@@ -210,7 +214,8 @@ private:
         std::string reason;       // the planning pause reason, kept for the stop at the end
         double rate_erpm_s = 0.0; // command decrease per second
         double end_erpm = 0.0;    // hand over to the stop output once the measured ERPM is at or below this
-        std::optional<double> at_end_since; // the command reached end_erpm (waiting for the measured speed)
+        double command_end_erpm = 0.0; // the command stops falling here (2026-11-20; end_erpm unless set)
+        std::optional<double> at_end_since; // the command reached command_end_erpm (waiting for the measured speed)
         unsigned recent_low = 0;                // bit i: the i-th newest counted sample was at or below end_erpm
         std::optional<double> counted_stamp;    // stamp of the last sample counted (each sample counts once)
     };

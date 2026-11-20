@@ -154,6 +154,23 @@ static void stopRampSummary() {
     expect(has(low_start.fields(), "wait_s=0.10 end_samples=2 end_above=0"), "started below the end speed");
 }
 
+// 2026-11-20: a command end (where wait_s starts) separate from the handover speed (what end_above counts).
+static void stopRampSummarySplit() {
+    StopRampSummary split(100.0, 200.0);
+    split.onTick(0.00, 900.0, 950.0, 6.0, true);
+    split.onTick(0.20, 200.0, 450.0, 5.0, true);   // at the handover speed, not yet at the command end
+    split.onTick(0.30, 100.0, 300.0, 4.0, true);   // the command end: wait_s starts, 300 is above 200
+    split.onTick(0.32, 100.0, 180.0, 4.0, true);
+    split.onEndTick(0.34, 150.0, 3.0, true);
+    expect(split.fields().rfind("wait_s=0.04 end_samples=3 end_above=1 ", 0) == 0,
+           "wait_s from the command end (100), end_above counts samples above the handover (200)");
+    StopRampSummary one(200.0);
+    one.onTick(0.0, 900.0, 950.0, 6.0, true);
+    one.onTick(0.3, 200.0, 300.0, 4.0, true);
+    one.onEndTick(0.34, 150.0, 3.0, true);
+    expect(one.fields().rfind("wait_s=0.04 end_samples=2 end_above=1 ", 0) == 0, "one value: as before 11-20");
+}
+
 static void repeatGate() {
     RepeatGate gate;  // 1 s min, 10 s repeat, 2 s episode gap
     int lines = 0;
@@ -359,6 +376,7 @@ int main() {
         longHoldWarning();
         restartSummary();
         stopRampSummary();
+        stopRampSummarySplit();
         repeatGate();
         periodGate();
         linkResumeWait();
