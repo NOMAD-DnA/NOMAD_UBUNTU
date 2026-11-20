@@ -296,16 +296,16 @@ private:
         link_.setResumeStableSeconds(link_resume_s);
         planning_stop_ramp_s_=parameter<double>("planning.stop_ramp_s",0.0);
         // 2026-11-20: where the ramp command stops falling, separate from the measured handover speed (the handbrake
-        // entry, stop_handbrake_below_erpm, 200 if that is 0). -1 = the same as the handover (before 11-20); else
-        // speed_pid_min_erpm <= x <= the handover. Below the VESC s_pid_min_erpm (speed_pid_min_erpm, 50) the VESC drops
-        // the speed PID for a duty-0 brake of a few amps (bemf/R), so the PID's 30-50 A braking on a steep downhill
-        // during the 0.6 s wait would be lost (review 11-20); 0 would be a release. Above the handover the measured
-        // speed could not get there on flat ground.
-        planning_stop_ramp_command_erpm_=parameter<double>("planning.stop_ramp_command_erpm",-1.0);
-        if(planning_stop_ramp_command_erpm_!=-1.0&&(!isfinite(planning_stop_ramp_command_erpm_)||
-           planning_stop_ramp_command_erpm_<=0.0||planning_stop_ramp_command_erpm_<speed_pid_min_erpm_||
-           planning_stop_ramp_command_erpm_>stopRampEndErpm()))
-            throw invalid_argument("planning.stop_ramp_command_erpm must be -1 (the handover) or within [speed_pid_min_erpm, the handover: stop_handbrake_below_erpm, 200 if 0]");
+        // entry, stop_handbrake_below_erpm, 200 if that is 0). 0 = not set: the same as the handover (as before 11-20;
+        // the same 0 rule the ramp uses for stop_handbrake_below_erpm); else speed_pid_min_erpm <= x <= the handover.
+        // Below the VESC s_pid_min_erpm (speed_pid_min_erpm, 50) the VESC drops the speed PID for a duty-0 brake of a
+        // few amps (bemf/R), so the PID's 30-50 A braking on a steep downhill during the 0.6 s wait would be lost
+        // (review 11-20); a 0 ERPM command end would be a release. Above the handover the measured speed could not get
+        // there on flat ground.
+        planning_stop_ramp_command_erpm_=parameter<double>("planning.stop_ramp_command_erpm",0.0);
+        if(planning_stop_ramp_command_erpm_!=0.0&&(!isfinite(planning_stop_ramp_command_erpm_)||
+           planning_stop_ramp_command_erpm_<speed_pid_min_erpm_||planning_stop_ramp_command_erpm_>stopRampEndErpm()))
+            throw invalid_argument("planning.stop_ramp_command_erpm must be 0 (not set: the handover) or within [speed_pid_min_erpm, the handover: stop_handbrake_below_erpm, 200 if 0]");
         if(!isfinite(planning_stop_ramp_s_)||planning_stop_ramp_s_<0||planning_stop_ramp_s_>RawTrialController::kMaxStopRampS||
            (planning_stop_ramp_s_>0&&(!planning_headless_||!planning_resume_after_stop_||!planning_measured_speed_control_)))
             throw invalid_argument("planning.stop_ramp_s must be within 0..1 s and needs headless measured planning that resumes after a stop");
@@ -1230,7 +1230,20 @@ private:
     // subscriber disappears), else the brake current, else 0A. Repeated every tick while stopped and owned.
     // The hold current is fixed or load-sized (stop_output.hpp); each new hold logs [STOP_OUTPUT] once.
     // 2026-11-20 (refactor 5b): which topic and value is MotorOutputStage's (motor_output.hpp); here only the inputs,
-    // the publishing and the log lines.
+    // the publishing and the log lines. The motor output path (each control tick calls publishOutput once; stops,
+    // faults (also on every telemetry sample), pauses/waits and shutdown call releaseMotor in addition, so one tick can
+    // release more than once: StopOutput::decide is safe to repeat, and a per-call counter added there would not be):
+    //   1. controlTick: the active controller (raw_trial / trial_controller) gives an OutputKind, ERPM and servo
+    //      -> publishOutput; stops, faults, pauses and shutdown call releaseMotor directly.
+    //   2. publishOutput / releaseMotor (here): pass the owner check (can_release) and stopOutputInput (telemetry,
+    //      fault, handbrake subscriber) to MotorOutputStage.
+    //   3. MotorOutputStage::output / release (motor_output.hpp, ROS-free): decides the topic and value, for a stop
+    //      with StopOutput::decide (stop_output.hpp), and returns one MotorCommand.
+    //   4. publishMotorCommand (here): the servo, the [RESTART_TRACE] start, the [STOP_OUTPUT] lines, then the motor
+    //      topic, exactly as the command says.
+    //   The telemetry callback feeds MotorOutputStage::observeTelemetry (drive current for the load-sized hold).
+    // To change what is sent: motor_output.hpp / stop_output.hpp (unit tests: test_motor_output.cpp,
+    // test_stop_output.cpp). To change what is published or logged: steps 2 and 4 here (ROS tests).
     void releaseMotor() {
         publishMotorCommand(motor_output_.release(current_pub_ && activeOwnsOutput(), [this] { return stopOutputInput(); }));
     }
@@ -1722,7 +1735,7 @@ private:
     double planning_running_target_=0;
     double planning_min_running_erpm_=0;
     double planning_stop_ramp_s_=0;          // planning.stop_ramp_s; 0 = LPP stops stop at once
-    double planning_stop_ramp_command_erpm_=-1.0; // planning.stop_ramp_command_erpm; -1 = the handover speed
+    double planning_stop_ramp_command_erpm_=0.0; // planning.stop_ramp_command_erpm; 0 = the handover speed
     bool slip_enabled_=false;                // slip.enabled (2026-11-17, 4a)
     SlipMonitor slip_monitor_;
     rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr slip_odom_sub_;

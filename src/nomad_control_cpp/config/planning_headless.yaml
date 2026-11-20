@@ -20,9 +20,10 @@ nomad_vesc_trial:
     # 2026-11-20: "measured" is the highest of the last 3 readings within 0.1 s, and a car stops at once only when all
     # of them are at or below 200 (on 11-19 a lone HFI low, 820/613/-52 at ~0.2-0.37 m/s, took a 30 A handbrake at
     # speed in 2 of 88 stops).
-    # 2026-11-20: planning.stop_ramp_command_erpm (not set here, default -1) can put the ramp command's end below the
-    # 200 ERPM handover/handbrake entry (50 <= x <= 200: below the VESC speed PID minimum of 50 the VESC brakes at
-    # duty 0 with a few amps instead); -1 keeps both at stop_handbrake_below_erpm, as before.
+    # 2026-11-20: planning.stop_ramp_command_erpm (not set here, default 0.0) can put the ramp command's end below the
+    # 200 ERPM handover/handbrake entry (50.0 <= x <= 200.0: below the VESC speed PID minimum of 50 the VESC brakes at
+    # duty 0 with a few amps instead); 0.0 keeps it at the handover, as before. Write decimals (0.0, 100.0): a plain 0
+    # is an integer and ROS refuses it for this double parameter (as for every double parameter here).
     planning.stop_ramp_s: 0.3
     # 2026-11-17: after a stop caused by lost/invalid LPP input (Wi-Fi), resume only after this long of continuous
     # fresh commands; a stop by a planner STOP alone still resumes on the next fresh command. On 11-16 the car stopped

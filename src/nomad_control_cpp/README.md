@@ -98,7 +98,7 @@ LPP가 자주 멈췄다 가는데, 멈출 때마다 약 1000 ERPM에서 브레�
 | 파라미터(`planning_headless.yaml`) | 값 | 의미 |
 |---|---|---|
 | `planning.stop_ramp_s` | 0.3 | 감속 시간(0~1초, 0이면 예전처럼 즉시 정지). headless·실측 속도 제어·자동 재출발 프로필에서만 허용 |
-| `planning.stop_ramp_command_erpm` | −1(설정 안 함) | 감속 명령 바닥(11-20). −1이면 핸드브레이크 진입값(200)과 같음. `speed_pid_min_erpm`(50) 이상 진입값 이하만 허용, 아래 '감속 명령 바닥과 200 ERPM 나누기' |
+| `planning.stop_ramp_command_erpm` | 0(설정 안 함) | 감속 명령 바닥(11-20). 0이면 감속이 넘기는 속도(`stop_handbrake_below_erpm`, 감속에서는 0이면 200)와 같음(감속이 그 설정의 0을 200으로 읽는 것과 같은 0 규칙). yaml에는 `0.0`처럼 소수점을 붙여 적음(다른 실수 설정과 같이, `0`은 ROS가 정수로 읽어 거부). `speed_pid_min_erpm`(50) 이상 진입값 이하만 허용, 아래 '감속 명령 바닥과 200 ERPM 나누기' |
 
 - **적용:** LPP `stop_requested`, LPP 명령 만료(유효시간 0.3초 또는 수신 0.35초 초과), 플래너 발행자가 1개가 아님(사라지거나 2개 이상. 2개면 감속 뒤 RESUME_PENDING으로 기다림).
 - **동작:** 속도 명령을 `min(지금 명령, 측정 ERPM)`(11-20부터 '측정 ERPM'은 0.1초 안의 최근 3개 중 가장 큰 값, 아래 '감속 시작 판단')에서 `stop_handbrake_below_erpm`(200 ERPM)까지 0.3초 동안 일정하게 줄입니다(1000 ERPM이면 20 ms마다 약 53 ERPM, 1000 ERPM 하한은 적용 안 함). VESC 속도 PID가 명령보다 늦게 따라와 명령이 200에 닿을 때 차는 아직 약 300~500 ERPM이므로(리뷰 모델), 측정 속도가 200 이하가 될 때까지 명령 200을 유지합니다(평지·오르막은 보통 0.1~0.16초, 최대 0.6초 더). 측정 속도가 200 이하가 되는 순간(경사·장애물로 더 빨리 느려지면 그보다 일찍) 핸드브레이크로 바로 넘기고 예전과 같은 대기(SOFT_STOPPED)로 갑니다. 0.6초를 더 기다려도 200 아래로 안 내려오면 평소처럼 브레이크 20 A 뒤 200 이하에서 핸드브레이크입니다. 0.6초인 이유: 가파른 내리막(짐을 실으면 14°, 그 밖에는 17~20°)에서는 속도 PID가 30~50 A로 제동하는데 브레이크 20 A로는 못 버팁니다(운영자 STOP·고장 같은 즉시 정지와 0.3초인 1afcbb1은 이런 경사에서 여전히 브레이크 20 A로 멈춥니다). 리뷰 모의(내리막 180가지)에서 0.3초는 브레이크로 넘긴 경우 141가지·폭주 78가지였고, 0.6초는 둘 다 0이었습니다. 조향은 마지막 LPP 값을 유지합니다.
@@ -279,7 +279,7 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - `status_json`에 배포 값이 그대로 나오는지 확인합니다: raw 단위, 설정 확인됨, 최고 1850·후진 800 ERPM, 서보 중앙 0.5, 감속 0.3초, 끊김 뒤 대기 0.3초, 미끄러짐 표시 켬.
   - Pi4 운영 전용 드라이버 파일 `commission_session/vesc_commission.yaml`은 저장소에 없어서 확인하지 못합니다.
 - **팀 GUI 계약 시험:** 팀 GUI 원본(`NOMAD_실물시험앱_20261106/laptop_monitor`)이 읽는 것을 시험 코드의 목록(`kGuiLogLines`, `kGuiStatusKeys`)으로 고정합니다. GUI를 바꿀 때 이 목록도 같이 고칩니다.
-  - 자율주행 로그 줄(ROS `planning_stop_ramp_ros`의 모든 장면): `control_trace`·`vesc_trace`·`link_trace`의 키가 GUI가 읽는 키와 정확히 같아야 합니다. 값 안에 `단어=`가 섞이면 GUI가 앞 키 값을 잘못 자르므로 이것도 잡습니다. 숫자 값은 숫자여야 하고(`link_trace`의 나이는 `na` 허용), 앞머리 포함 400자 안이어야 합니다(보드 꼬리 읽기가 400자에서 자름). `[SLIP]` 줄은 GUI의 start·end 정규식에 맞아야 합니다.
+  - 자율주행 로그 줄(ROS `planning_stop_ramp_ros_1`·`_2`의 모든 장면): `control_trace`·`vesc_trace`·`link_trace`의 키가 GUI가 읽는 키와 정확히 같아야 합니다. 값 안에 `단어=`가 섞이면 GUI가 앞 키 값을 잘못 자르므로 이것도 잡습니다. 숫자 값은 숫자여야 하고(`link_trace`의 나이는 `na` 허용), 앞머리 포함 400자 안이어야 합니다(보드 꼬리 읽기가 400자에서 자름). `[SLIP]` 줄은 GUI의 start·end 정규식에 맞아야 합니다.
   - 키보드 조종 HTTP `/api/status`: `keyboard_drive.py`, `vesc_status.py`, `drive_record_dialog.py`, `scripts/ensure_gui.sh`가 읽는 키 68개가 `status_json`에 모두 있어야 합니다(배포 설정 시험에서 확인). `connected`·`token`·`server_time_s`는 `gui_server`·`gui_http`가 붙이므로 목록에서 뺍니다. 키보드 창이 조종을 허용하는 시간 값 규칙(`keyboard_drive.control_timing`: Wi-Fi 프로필이면 2초·1.5초·1.5초·1500 ms 정확히)도 같은 식으로 확인합니다. `ground_drive_supported`는 false여야 합니다.
   - `control_trace`의 `erpm_valid`·`reset_required`는 GUI가 `0`/`1`만 받으므로 정확히 그 값인지 봅니다.
 - **가끔 실패하던 시험 고침:** `controller_ros_integration`의 'stale IMU stops owned bench output'과 'excessive tilt stops bench output'은 상태값을 고정 시간 뒤 한 번만 읽어서, PC가 바쁘면 가끔 실패했습니다. 상태값이 올 때까지 최대 1초 기다리도록 바꿨습니다. 확인하는 내용은 같습니다.
@@ -406,9 +406,10 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
 2와 3은 같아야 합니다. 2가 3보다 크면 넘기는 순간 브레이크 20 A가 한 번 튑니다. 그래서 **1만 따로** 떼어 냈습니다. 다음 동작 수정('감속 중 실제 제동')에서 명령 바닥만 낮춰 볼 수 있게 하려는 것입니다.
 
 - **새 설정 `planning.stop_ramp_command_erpm`:**
-  - 기본값 −1은 '핸드브레이크 진입값과 같게'입니다. 지금 배포 설정에는 넣지 않았으므로 **차 동작은 그대로**입니다.
+  - 기본값 0은 '설정 안 함 = 핸드브레이크 진입값과 같게'입니다. 지금 배포 설정에는 넣지 않았으므로 **차 동작은 그대로**입니다.
+  - 처음(17fd01f)에는 기본값이 −1이고 0은 거부했습니다. 감속은 `stop_handbrake_below_erpm`이 0이면 넘기는 속도를 200으로 읽는데(핸드브레이크 진입은 0 그대로), 새 설정만 0을 거부해 0을 적으면 제어기가 켜지지 않는 함정이 되어, 11-20 저녁에 0으로 맞췄습니다. 이제 −1 등 음수는 거부합니다. 지금 Pi4 설치본(17fd01f)은 아직 예전 규칙이니, 다음 배포 전에는 이 설정을 넣지 마세요.
   - `speed_pid_min_erpm`(VESC `s_pid_min_erpm`, 50) 이상, 진입값 이하만 받습니다.
-    - 50보다 낮으면 VESC가 속도 제어를 멈추고 duty 0 제동(몇 A 수준)으로 바뀝니다. 그러면 가파른 내리막에서 0.6초 대기 동안 속도 제어가 하던 30~50 A 제동이 사라집니다(검토 11-20). 0은 구동 명령 0이 곧 정지 출력입니다.
+    - 50보다 낮으면 VESC가 속도 제어를 멈추고 duty 0 제동(몇 A 수준)으로 바뀝니다. 그러면 가파른 내리막에서 0.6초 대기 동안 속도 제어가 하던 30~50 A 제동이 사라집니다(검토 11-20). 명령 바닥 0 ERPM은 구동 명령 0, 곧 정지 출력이 되므로 0은 '설정 안 함'으로 씁니다.
     - 진입값보다 크면 평지에서 측정 속도가 진입값까지 내려오지 못합니다.
   - **바닥을 낮춰 실차에 쓰기 전에:** 바닥이 낮으면 대기 중 속도 제어가 더 세게 제동하고, 그 샘플이 유지 전류 계산에 들어갑니다. 11-14 검토 모델은 '바닥 = 진입값'으로만 확인했으므로, 실차 전에 그 모델을 다시 돌려야 합니다.
 - **코드:**
@@ -427,8 +428,17 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - ROS `planning_stop_ramp_ros`:
     - 'command end' 장면(바닥 100, 진입 200, 1초 감속): 명령이 100~200 사이로 내려감, 브레이크 튐 없음, 감속 시작 줄·시작 줄, 끝 줄의 `wait_s`(바닥부터)와 `end_above`(200 기준)
     - 기본값의 감속 시작 줄과 시작 줄이 예전과 같음
-    - 설정 거부(0, 음수, 49, 200 초과, NaN)
+    - 설정 거부(음수, 49, 200 초과, NaN; 처음에는 0도 거부했으나 11-20 저녁부터 0 = 설정 안 함)
 - **독립 검토(11-20):** 동작 차이는 없었습니다. 하한을 50으로 올렸고, 바꾼 연결(StopOutput·요약)과 0.6초 상한을 잡는 시험, 시작 줄 시험을 더했고, 주석을 고쳤습니다.
+
+### 1·2순위 뒤 정리 세 가지 (2026-11-20 저녁)
+
+1·2순위를 되짚어 보며 찾은 부담 세 가지를 고쳤습니다. 차 동작은 바뀌지 않습니다.
+
+- **설정 0 규칙:** `planning.stop_ramp_command_erpm`의 '설정 안 함'을 −1에서 **0**으로 바꿨습니다. 감속은 `stop_handbrake_below_erpm`도 0이면 200으로 읽습니다(감속에서만, 핸드브레이크 진입은 0 그대로). 그런데 새 설정만 0을 거부해서, 0을 적으면 제어기가 켜지지 않았습니다. 이제 0은 기본값(넘기는 속도와 같게)이고, 음수, 0보다 크고 `speed_pid_min_erpm`(50)보다 작은 값, 넘기는 속도 초과, NaN, 무한대는 거부합니다. yaml에는 다른 실수 설정처럼 `0.0`으로 적어야 합니다(`0`은 ROS가 정수로 읽어 어느 실수 설정이든 시작을 거부함).
+- **감속 ROS 시험 나누기:** 장면 17개를 시험 하나로 돌리니 90초 제한에 약 65초가 걸렸습니다. 이제 `planning_stop_ramp_ros_1`(앞 9장면과 설정 거부 검사)과 `planning_stop_ramp_ros_2`(뒤 8장면, `trace_every_tick`)로 나눴습니다. 각각 약 32초와 35초 걸리고, DDS domain이 달라(227, 228) 동시에 돌 수 있습니다. 팀 GUI 로그 계약 검사(`control_trace`·`vesc_trace`·`link_trace`·`[SLIP]`)는 두 시험이 각자 자기 장면의 줄로 합니다(`[SLIP]` 줄이 반드시 있어야 하는 것은 미끄러짐 표시 장면이 있는 `_2`뿐, `_1`의 언덕 유지·취소 후 평지가 찍는 막힘 줄도 형식 검사). 손으로 돌릴 때는 `controller_ros_tests --stop-ramp-only`(전부), `--stop-ramp-only 1`, `--stop-ramp-only 2`를 씁니다.
+- **출력 흐름 설명:** 1순위로 출력 결정이 `motor_output.hpp`와 노드 두 곳에 나뉘었습니다. 그래서 노드의 `releaseMotor` 위와 `motor_output.hpp` 맨 위에 '누가 정하고, 누가 입력을 모으고, 누가 보내고 로그를 찍는지'를 단계별로 적었습니다. 코드는 그대로입니다. 한 tick에 정지 출력이 두 번 이상 불릴 수 있다는 점(멈춤·고장·대기 경로가 따로 부름)도 적었습니다. 감속 중 제동을 넣을 때 호출마다 세는 값을 두면 안 됩니다.
+- **확인:** 나누기 전 전체 실행과 두 시험의 검사 이름을 모두 찍어 비교했습니다. 빠진 검사는 없었습니다(양쪽에서 하는 GUI 계약 검사와, 타이밍에 따라 생겼다 없어지는 검사 1개만 다름). 독립 검토에서 `_1`의 `[SLIP]` 줄 형식 검사가 빠진 것과 0 규칙 설명(감속에서만 0 = 200)을 바로잡았습니다. PC 시험 29/29, GCC 11 확인 통과.
 
 ## VESC 설정 (2026-11-12, HFI)
 
@@ -500,12 +510,12 @@ ctest --test-dir build-control-offline --output-on-failure
 
 이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다. 11-16부터 `-Wall -Wextra`가 켜져 있고 경고 0개가 기준입니다(새 경고가 나오면 고치고 커밋).
 
-**시험 라벨(2026-11-19):** 모든 시험에 라벨이 있습니다. ROS 빌드 기준 27개입니다.
+**시험 라벨(2026-11-19):** 모든 시험에 라벨이 있습니다. ROS 빌드 기준 29개입니다(`node`가 있으면 30개).
 - `unit`(20개, 11-20 `motor_output_stage` 추가): ROS 없는 C++ 시험과 명령줄 시험. **Pi4 빠른 시험은 `ctest -L unit`**입니다. 11-19까지는 예전의 `ctest -E "_ros$|controller_ros_integration|module_pause_auto_resume"`와 같은 19개였습니다.
-- `ros`(5개): 노드 단위 ROS 시험. PC에서 약 3분 걸립니다(`controller_ros_integration`, `planning_stop_ramp_ros`, `deployed_config_ros`, `module_pause_auto_resume`, `rpm_running_floor_ros`). 시험마다 자체 DDS domain(226, 227, 229, 230, 232)과 `ROS_LOCALHOST_ONLY=1`로 팀 그래프와 섞이지 않습니다.
+- `ros`(6개): 노드 단위 ROS 시험. PC에서 약 3분 걸립니다(`controller_ros_integration`, `planning_stop_ramp_ros_1`, `planning_stop_ramp_ros_2`, `deployed_config_ros`, `module_pause_auto_resume`, `rpm_running_floor_ros`). 11-20 저녁에 `planning_stop_ramp_ros`를 장면 절반씩 `_1`·`_2`로 나눴습니다. 이 README의 앞 기록에 나오는 `planning_stop_ramp_ros`는 이제 이 둘입니다. 시험마다 자체 DDS domain(226, 227, 228, 229, 230, 232)과 `ROS_LOCALHOST_ONLY=1`로 팀 그래프와 섞이지 않습니다.
 - `script`(3개, `node`가 있으면 4개): 저장소의 실행 스크립트·도구 시험. `linux_launcher_contract`, `lpp_entry_contract`, `control_trial_recorder`, 그리고 `gui_manual_browser_contract`(Node)입니다. 앞의 셋은 11-19까지 손으로만 돌리던 Python 시험입니다. Pi4는 배포 때 `scripts/`를 Pi4 것 그대로 두므로 PC에서만 돌립니다.
 
-ROS 환경에서는 `colcon test`(또는 빌드 폴더에서 `ctest`)로 27개 시험이 돕니다(ROS 통합시험은 약 100초, 제한 150초).
+ROS 환경에서는 `colcon test`(또는 빌드 폴더에서 `ctest`)로 29개 시험(`node`가 있으면 30개)이 돕니다(ROS 통합시험은 약 100초, 제한 150초).
 
 **Pi4 컴파일러(GCC 11) 경고를 PC에서 미리 보기(2026-11-19):** `bash src/nomad_control_cpp/test/gcc11_check.sh`. PC의 GCC 13은 11-17 Pi4에서만 나온 경고(집합 초기화 목록, f7d4382)를 놓쳤습니다.
 - `g++-11`(우분투 24.04: `sudo apt-get install g++-11`)로 Release 빌드합니다. 오프라인 빌드와 `unit` 시험을 돌리고, ROS와 `vesc_msgs`·`nomad_interfaces`가 든 작업공간을 source해 두었으면 ROS 빌드도 합니다.
@@ -590,7 +600,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 04031bb | (11-20) 6ab4442 Pi4 배포 기록(`dab56b51…`) |
 | a6572d1 | (11-20) 리팩토링 5b: 출력 단계를 `motor_output.hpp` `MotorOutputStage`로(무작위 211만 건 비교에서 차이 0, 단위 시험 `motor_output_stage`). 차 동작 같음(11-20 20:18 Pi4 배포) |
 | 17fd01f | (11-20) 리팩토링 2순위: 감속 명령 바닥(`planning.stop_ramp_command_erpm`, 기본 −1 = 진입값)을 감속 끝·핸드브레이크 진입(200 ERPM)과 분리. 기본값에서 차 동작 같음(무작위 비교 차이 0)(11-20 20:18 Pi4 배포) |
-| (이 커밋) | (11-20) 17fd01f Pi4 배포 기록(`7ea89004…`) |
+| 535eb2e | (11-20) 17fd01f Pi4 배포 기록(`7ea89004…`) |
+| (이 커밋) | (11-20) 1·2순위 뒤 정리: 감속 명령 바닥 설정의 '설정 안 함'을 0으로(−1 거부), 감속 ROS 시험을 `planning_stop_ramp_ros_1`·`_2`로 나눔(각 약 32·35초), 출력 흐름 설명 주석. 차 동작 같음. Pi4 미배포 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 

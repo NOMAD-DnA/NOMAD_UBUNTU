@@ -3,7 +3,10 @@
 // publishOutput() up to 6ab4442): what one output call sends to the VESC driver topics. ROS-free, so the topic and
 // value of every output can be unit tested (test/test_motor_output.cpp); before, only the ROS tests covered it.
 // The node builds the inputs, publishes the returned command (servo first, then the motor topic) and writes the log
-// lines the command asks for.
+// lines the command asks for. Who does what (the whole path, step by step: controller_node.cpp above releaseMotor):
+//   decides what is sent       -> here (MotorOutputStage) and stop_output.hpp (StopOutput::decide for stops)
+//   builds the inputs          -> controller_node.cpp publishOutput / releaseMotor / stopOutputInput
+//   publishes and writes logs  -> controller_node.cpp publishMotorCommand
 // - Drive with a nonzero ERPM: the speed topic. The first one after not driving starts a drive: the command carries
 //   the stop output state just before it (the node's [RESTART_TRACE] start line), then StopOutput::onDrive.
 // - Drive with 0 ERPM, or Release: the stop output (stop_output.hpp StopOutput::decide), only when the node owns the

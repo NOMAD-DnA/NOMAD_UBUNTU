@@ -1889,7 +1889,14 @@ void testPlanningStopOutput() {
     {RosRig load_hold(true,true,true,true,false,load);load_hold.runPlanningLoadHold();}
 }
 
-void testStopRamp() {
+// 2026-11-20: part 1 and part 2 are two ctests (planning_stop_ramp_ros_1/_2), each about half the scenarios, so each
+// keeps a margin under its timeout (all of them in one test took ~65 s of 90 s). Part 0 runs everything (by hand).
+const vector<string> kStopRampPart1={"LPP STOP","expiry","climb hold","second publisher","blocked",
+                                     "cancel","cancel then flat","speed 0","operator STOP"};
+const vector<string> kStopRampPart2={"VESC fault","invalid message","noisy end","link resume","shutdown",
+                                     "shutdown while driving","slip display","command end"};
+
+void testStopRamp(int part) {
     const vector<rclcpp::Parameter> parameters={
         {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.minimum_running_erpm",1000.0},{"planning.feedback_limit_erpm",1200.0},
@@ -1899,9 +1906,10 @@ void testStopRamp() {
         {"stop_handbrake_min_current_a",12.5},{"stop_handbrake_load_gain",1.45},
         {"stop_handbrake_rolling_current_a",6.0},{"stop_handbrake_margin_a",8.0}};
     const size_t gui_mark=traceMark();
-    for(const string scenario:{"LPP STOP","expiry","climb hold","second publisher","blocked",
-                               "cancel","cancel then flat","speed 0","operator STOP","VESC fault","invalid message",
-                               "noisy end","link resume","shutdown","shutdown while driving","slip display","command end"}){
+    vector<string> scenarios;
+    if(part!=2)scenarios.insert(scenarios.end(),kStopRampPart1.begin(),kStopRampPart1.end());
+    if(part!=1)scenarios.insert(scenarios.end(),kStopRampPart2.begin(),kStopRampPart2.end());
+    for(const string& scenario:scenarios){
         // Scenarios that act during the ramp use a 1 s ramp so they still act while it runs on a slow machine.
         const bool acts_during=scenario=="cancel"||scenario=="cancel then flat"||scenario=="speed 0"||
                                scenario=="operator STOP"||scenario=="VESC fault"||scenario=="invalid message"||
@@ -2012,7 +2020,7 @@ void testStopRamp() {
                    (label+"a shutdown still prints the restart summary").c_str());
         }
     }
-    {
+    if(part!=1){
         // trace_every_tick true: the per-tick lines come back (bench analysis), the summaries stay.
         auto every=parameters;
         every.emplace_back("trace_every_tick",true);
@@ -2022,7 +2030,8 @@ void testStopRamp() {
                !traceSince(log_mark,"[STOP_RAMP] end").empty(),
                "stop ramp (trace_every_tick): per-tick lines and the end line");
     }
-    // 2026-11-19: every control_trace, vesc_trace, link_trace and [SLIP] line of these scenarios reads in the team GUI.
+    // 2026-11-19: every control_trace, vesc_trace, link_trace and [SLIP] line of these scenarios reads in the team GUI
+    // (each part checks the lines of its own scenarios).
     for(const auto& kind:kGuiLogLines){
         const auto lines=traceSince(gui_mark,kind.marker);
         string problem;
@@ -2031,11 +2040,14 @@ void testStopRamp() {
         if(!problem.empty())cerr<<"  "<<problem<<'\n';
     }
     {
+        // slip display (parts 0 and 2) must log [SLIP] lines; part 1's climb hold and cancel then flat may also log a
+        // stuck start/end (timing dependent: a 1.0 s hold in a 1.6 s drive), checked when they do.
         const auto slips=traceSince(gui_mark,"[SLIP]");
-        bool all=!slips.empty();
+        bool all=part==1||!slips.empty();
         for(const auto& line:slips)if(!guiSlipLine(line)){all=false;cerr<<"  [SLIP] the GUI cannot read: "<<line<<'\n';}
         expect(all,"team GUI log contract: [SLIP] lines match the GUI's start/end patterns");
     }
+    if(part==2)return; // the parameter checks below are quick: part 1 only
     const vector<rclcpp::Parameter> base={{"mode","commission"},{"planning.headless",true},{"planning.resume_after_stop",true},
         {"planning.measured_speed_control",true},{"planning.feedback_limit_erpm",1200.0}};
     const auto refused=[&](const vector<rclcpp::Parameter>& extra){
@@ -2049,7 +2061,8 @@ void testStopRamp() {
            "stop ramp: 0..1 s accepted with headless measured planning");
     expect(refused({{"planning.stop_ramp_s",-.1}})&&refused({{"planning.stop_ramp_s",1.01}})&&
            refused({{"planning.stop_ramp_s",numeric_limits<double>::quiet_NaN()}}),"stop ramp: out-of-range time refused");
-    // 2026-11-20: planning.stop_ramp_command_erpm: -1 (the handbrake entry, 200) or within [50, 200].
+    // 2026-11-20: planning.stop_ramp_command_erpm: 0 (not set: the ramp handover, 200 here; the same 0 rule the ramp
+    // uses for stop_handbrake_below_erpm) or within [50, 200].
     const auto refused_end=[&](double value){
         auto all=base;all.emplace_back("planning.stop_ramp_s",.3);all.emplace_back("planning.stop_ramp_command_erpm",value);
         rclcpp::NodeOptions options;options.parameter_overrides(all);
@@ -2057,11 +2070,11 @@ void testStopRamp() {
         catch(const invalid_argument& error){return string(error.what()).find("stop_ramp_command_erpm")!=string::npos;}
         return false;
     };
-    expect(!refused_end(-1.0)&&!refused_end(50.0)&&!refused_end(150.0)&&!refused_end(200.0),
-           "stop ramp command end: -1, 50 (the VESC speed PID minimum), 150 and 200 accepted");
-    expect(refused_end(0.0)&&refused_end(-2.0)&&refused_end(49.0)&&refused_end(200.5)&&
-           refused_end(numeric_limits<double>::quiet_NaN()),
-           "stop ramp command end: 0, other negatives, below 50 (a VESC duty-0 brake), above the handover and NaN refused");
+    expect(!refused_end(0.0)&&!refused_end(50.0)&&!refused_end(150.0)&&!refused_end(200.0),
+           "stop ramp command end: 0 (not set), 50 (the VESC speed PID minimum), 150 and 200 accepted");
+    expect(refused_end(-1.0)&&refused_end(-2.0)&&refused_end(1.0)&&refused_end(49.0)&&refused_end(200.5)&&
+           refused_end(numeric_limits<double>::quiet_NaN())&&refused_end(numeric_limits<double>::infinity()),
+           "stop ramp command end: negatives, 1..49 (a VESC duty-0 brake), above the handover, NaN and inf refused");
     expect(refused({{"planning.stop_ramp_s",.3},{"planning.resume_after_stop",false}})&&
            refused({{"planning.stop_ramp_s",.3},{"planning.measured_speed_control",false},{"planning.minimum_running_erpm",0.0}}),
            "stop ramp: refused without headless measured planning that resumes after a stop");
@@ -2211,7 +2224,10 @@ int main(int argc, char* argv[]) {
             rclcpp::shutdown();return failures?1:0;
         }
         if(argc>1&&string(argv[1])=="--stop-ramp-only"){
-            testStopRamp();
+            // 2026-11-20: optional part 1 or 2 (the two ctests); none = every scenario.
+            const string part=argc>2?string(argv[2]):string("0");
+            if(part!="0"&&part!="1"&&part!="2"){cerr<<"--stop-ramp-only takes 1, 2 or nothing\n";rclcpp::shutdown();return 2;}
+            testStopRamp(stoi(part));
             cout<<checks<<" checks, "<<failures<<" failures\n";
             rclcpp::shutdown();return failures?1:0;
         }
@@ -2262,7 +2278,7 @@ int main(int argc, char* argv[]) {
 #ifdef NOMAD_ENABLE_PLANNING
         testMeasuredSpeedControl();
         testPlanningStopOutput();
-        // testStopRamp() runs as its own ctest (planning_stop_ramp_ros, --stop-ramp-only).
+        // testStopRamp() runs as its own two ctests (planning_stop_ramp_ros_1/_2, --stop-ramp-only 1/2).
         { RosRig stable(true,true,true,true,false,{
             {"planning.headless",true},{"planning.allow_estimated_calibration",true},{"planning.resume_after_stop",true},
             {"planning.start_hold_s",.2},{"planning.restart_cooldown_s",.3},{"planning.minimum_start_erpm",550.0},

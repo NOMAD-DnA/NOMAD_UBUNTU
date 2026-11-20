@@ -198,10 +198,15 @@ if(NOMAD_BUILD_ROS2)
     set_tests_properties(controller_ros_integration PROPERTIES TIMEOUT 150 LABELS ros
       ENVIRONMENT "ROS_DOMAIN_ID=226;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
     if(NOMAD_ENABLE_PLANNING)
-      # 2026-11-13 stop ramp (LPP STOP / lost input slow down first): its own test so the full suite keeps its margin.
-      add_test(NAME planning_stop_ramp_ros COMMAND controller_ros_tests --stop-ramp-only)
-      set_tests_properties(planning_stop_ramp_ros PROPERTIES TIMEOUT 90 LABELS ros
+      # 2026-11-13 stop ramp (LPP STOP / lost input slow down first): its own tests so the full suite keeps its margin.
+      # 2026-11-20: two tests, about half the scenarios each (one test took ~65 s of its 90 s); own domains so they
+      # can run in parallel (ctest -j).
+      add_test(NAME planning_stop_ramp_ros_1 COMMAND controller_ros_tests --stop-ramp-only 1)
+      set_tests_properties(planning_stop_ramp_ros_1 PROPERTIES TIMEOUT 90 LABELS ros
         ENVIRONMENT "ROS_DOMAIN_ID=227;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
+      add_test(NAME planning_stop_ramp_ros_2 COMMAND controller_ros_tests --stop-ramp-only 2)
+      set_tests_properties(planning_stop_ramp_ros_2 PROPERTIES TIMEOUT 90 LABELS ros
+        ENVIRONMENT "ROS_DOMAIN_ID=228;ROS_LOCALHOST_ONLY=1;RMW_IMPLEMENTATION=rmw_fastrtps_cpp")
       # 2026-11-19: the node as deployed (the four yaml files in the Pi4 order) and what the team GUI reads from it.
       add_test(NAME deployed_config_ros COMMAND controller_ros_tests --deployed-config-only)
       set_tests_properties(deployed_config_ros PROPERTIES TIMEOUT 60 LABELS ros
