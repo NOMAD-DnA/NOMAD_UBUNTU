@@ -375,6 +375,26 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - ROS `controller_ros_integration`: 잘못된 이동 명령의 `[LPP_LOST]`
 - **끊김 자체:** 11-19 밤에는 감속 84번 중 44번이 명령 만료였습니다. 원인은 Jetson→Pi4 Wi-Fi 전달입니다(플래너는 제때 보냈고 Pi4 주기도 정상). 근본 해결은 유선 연결입니다. 데이터로 본 플래너 명령 유효시간은 아직 약 0.15초였습니다(11-16에 0.3초로 합의, 남은 일 4).
 
+### 출력 단계 떼어 내기 (2026-11-20, 리팩토링 5b)
+
+11-17에 보류했던 5b입니다. 차 동작은 그대로입니다. 다음 동작 수정('감속 중 실제 제동', 평지 유지 전류)이 정확히 이 부분을 고치므로, 그 전에 ROS 없이 시험할 수 있게 떼어 냈습니다.
+
+- **옮긴 것:** `controller_node.cpp`의 `releaseMotor`·`publishOutput`가 하던 결정을 `motor_output.hpp` `MotorOutputStage`로 옮겼습니다.
+  - 구동 중인지 여부(`driving_`), 구동할 때만 부하 샘플을 받는 것(`observeTelemetry`)
+  - 정지 출력(핸드브레이크·브레이크·0 A)과 퍼블리셔가 없을 때 0 A로 대신하는 규칙
+  - 재출발 기록(`[RESTART_TRACE] start from= hold_s= stop_a=`)에 쓸 직전 정지 상태. `StopOutput::onDrive` 전에 잡습니다.
+  - VESC 고장 경고와 `[STOP_OUTPUT] handbrake hold` 줄을 한 번만 찍게 하는 표시
+- **노드에 남은 것:** 입력 만들기(`stopOutputInput`), 토픽 보내기와 로그 찍기(`publishMotorCommand`). 순서는 예전과 같습니다(서보 → 재출발 기록 → 정지 출력 로그 → 모터 토픽).
+- **같은지 확인:**
+  - 6ab4442의 옛 논리를 그대로 옮긴 비교용 코드와 새 클래스에 같은 무작위 입력을 넣었습니다.
+  - 3,000번 실행, 211만 건(핸드브레이크 시작 약 9만, 브레이크 약 21만, 0 A 약 9만, 재출발 약 28만, 고장 경고 약 1만 2천)을 비교했고, 보내는 토픽·값·로그가 하나도 다르지 않았습니다.
+  - ROS 시험 전체와 GCC 11 확인도 통과했습니다.
+- **다른 작은 변경:**
+  - `output()`이 출력 종류를 `switch`로 모두 다룹니다. 출력 종류가 새로 생기면(예: 감속 중 제동) 컴파일러가 경고합니다.
+  - `stop_output.hpp`의 중앙값 계산에서 `std::sort`를 5개 이하용 삽입 정렬로 바꿨습니다. 결과는 같습니다(값이 모두 유한). PC의 GCC 13이 새 시험에서 잘못된 배열 경계 경고를 내서 바꿨습니다.
+- **독립 검토:** 검토자가 원래 코드 원문을 그대로 넣은 별도 비교(4,000번, 294만 건)에서도 차이가 없었습니다. 시험이 놓치던 세 가지(직전이 브레이크일 때의 재출발 기록, `moved_erev`, 같은 정지 안에서 핸드브레이크를 다시 거는 경우)를 단위 시험에 더했습니다.
+- **시험:** 단위 시험 `motor_output_stage`(새로 추가, 24건, `unit` 라벨. Pi4 빠른 시험 `ctest -L unit`이 19개에서 20개로 늘어남)
+
 ## VESC 설정 (2026-11-12, HFI)
 
 센서리스 VESC가 정지 상태에서 회전자 위치를 못 잡아 책 높이 턱에서 바퀴가 떨기만 했습니다. VESC Tool 단위시험에서 `foc_sensor_mode`를 **HFI**로 바꾸자(Start 8 V, Run 4 V, Max 8 V, Samples 16, Sensorless ERPM HFI 2000) 턱을 넘었습니다. `s_pid_min_erpm`은 900→50으로 바꿨습니다(단독으로는 효과 없음). 전류 한계(±60 A, 배터리 250 A, 회생 −200 A)는 아직 그대로입니다.
@@ -392,6 +412,7 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
 - `include/nomad_control_cpp/planning_command.hpp`: LPP 명령 검사. ERPM 상한은 `commissioning.motor_max_erpm`을 따릅니다.
 - `include/nomad_thermal/thermal_guard.hpp`: ESC 온도 보호(헤더만, 단위시험 `test/thermal_guard_test.cpp`).
 - `include/nomad_control_cpp/stop_output.hpp`: 정지 출력 정책(0 A·브레이크·핸드브레이크 선택, 유지 고정·포기, VESC 고장 0 A; 단위시험 `test/test_stop_output.cpp`).
+- `include/nomad_control_cpp/motor_output.hpp`: 출력 단계(2026-11-20). 출력 한 번마다 어느 VESC 토픽에 무슨 값을 보낼지 정합니다(구동 속도, 정지 출력과 그 대체 규칙, 재출발 기록에 쓸 직전 정지 상태, 한 번만 찍는 로그). 노드는 입력을 만들고, 결과를 보내고, 로그를 찍기만 합니다(단위시험 `test/test_motor_output.cpp`).
 - `planning.headless=true`는 `mode=commission`에서만 허용합니다(다른 모드는 시작 거부).
 
 ## ROS 빌드와 자율주행 실행
@@ -445,7 +466,7 @@ ctest --test-dir build-control-offline --output-on-failure
 이 검사는 실제 VESC·Pi 연동 시험을 대신하지 않습니다. 11-16부터 `-Wall -Wextra`가 켜져 있고 경고 0개가 기준입니다(새 경고가 나오면 고치고 커밋).
 
 **시험 라벨(2026-11-19):** 모든 시험에 라벨이 있습니다. ROS 빌드 기준 27개입니다.
-- `unit`(19개): ROS 없는 C++ 시험과 명령줄 시험. **Pi4 빠른 시험은 `ctest -L unit`**입니다. 예전의 `ctest -E "_ros$|controller_ros_integration|module_pause_auto_resume"`와 같은 19개입니다.
+- `unit`(20개, 11-20 `motor_output_stage` 추가): ROS 없는 C++ 시험과 명령줄 시험. **Pi4 빠른 시험은 `ctest -L unit`**입니다. 11-19까지는 예전의 `ctest -E "_ros$|controller_ros_integration|module_pause_auto_resume"`와 같은 19개였습니다.
 - `ros`(5개): 노드 단위 ROS 시험. PC에서 약 3분 걸립니다(`controller_ros_integration`, `planning_stop_ramp_ros`, `deployed_config_ros`, `module_pause_auto_resume`, `rpm_running_floor_ros`). 시험마다 자체 DDS domain(226, 227, 229, 230, 232)과 `ROS_LOCALHOST_ONLY=1`로 팀 그래프와 섞이지 않습니다.
 - `script`(3개, `node`가 있으면 4개): 저장소의 실행 스크립트·도구 시험. `linux_launcher_contract`, `lpp_entry_contract`, `control_trial_recorder`, 그리고 `gui_manual_browser_contract`(Node)입니다. 앞의 셋은 11-19까지 손으로만 돌리던 Python 시험입니다. Pi4는 배포 때 `scripts/`를 Pi4 것 그대로 두므로 PC에서만 돌립니다.
 
@@ -531,7 +552,8 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | 4b8af61 | (11-19) 시험 정리: `unit`·`ros`·`script` 라벨(Pi4 빠른 시험 `ctest -L unit`), 손으로만 돌리던 Python 시험 3개를 ctest에 등록, GCC 11 경고 확인 스크립트(`test/gcc11_check.sh`, 경고 0) |
 | 635c31d | (11-19) 4b8af61 Pi4 배포 기록(`11519bd9…`) |
 | 6ab4442 | (11-20) 11-19 저녁 주행 분석 반영: 감속 시작을 최근 측정값 3개로(HFI 한 번 낮은 값에 30 A 바로 정지 2/88), 끊김 뒤에는 플래너 STOP이 재출발 대기를 지우지 않음, 끊김마다 `[LPP_LOST]`·`[LPP_BACK]` 줄과 감속 취소 줄 `cmd_age_ms`. 독립 검토 반영(11-20 16:17 Pi4 배포) |
-| (이 커밋) | (11-20) 6ab4442 Pi4 배포 기록(`dab56b51…`) |
+| 04031bb | (11-20) 6ab4442 Pi4 배포 기록(`dab56b51…`) |
+| (이 커밋) | (11-20) 리팩토링 5b: 출력 단계를 `motor_output.hpp` `MotorOutputStage`로(무작위 211만 건 비교에서 차이 0, 단위 시험 `motor_output_stage`). 차 동작 같음. Pi4 미배포 |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 

@@ -50,6 +50,11 @@ if(BUILD_TESTING)
   target_include_directories(stop_output_tests PRIVATE include)
   target_compile_features(stop_output_tests PRIVATE cxx_std_17)
   add_test(NAME stop_output_policy COMMAND stop_output_tests)
+  # 2026-11-20 (refactor 5b): the motor output stage (motor_output.hpp), what each output call sends.
+  add_executable(motor_output_tests test/test_motor_output.cpp)
+  target_include_directories(motor_output_tests PRIVATE include)
+  target_compile_features(motor_output_tests PRIVATE cxx_std_17)
+  add_test(NAME motor_output_stage COMMAND motor_output_tests)
   add_executable(vesc_telemetry_tests test/test_vesc_telemetry.cpp)
   target_include_directories(vesc_telemetry_tests PRIVATE include)
   target_compile_features(vesc_telemetry_tests PRIVATE cxx_std_17)
@@ -110,7 +115,7 @@ if(BUILD_TESTING)
   # 2026-11-19: labels. unit = device-free C++ checks without ROS (the Pi4 quick set: ctest -L unit);
   # ros = node-level ROS tests (PC, about 3 min); script = Python/JS checks of the repo's launch scripts and tools.
   # The Pi4 keeps its own scripts/ (deploys exclude it), so the script tests run on the PC only.
-  set_tests_properties(planning_measured_speed_feedback esc_thermal_guard stop_output_policy vesc_telemetry_display
+  set_tests_properties(planning_measured_speed_feedback esc_thermal_guard stop_output_policy motor_output_stage vesc_telemetry_display
                        field_diagnostics slip_monitor planning_start_stability planning_supervisor_states
                        planning_command_contract steering_record_storage stability_envelope gui_http_contract
                        mapping_contract raw_commissioning_contract manual_reverse_contract trial_state_machine
@@ -239,7 +244,7 @@ if(NOMAD_BUILD_ROS2)
   install(FILES AUTONOMY_GUIDE.ko.txt DESTINATION share/${PROJECT_NAME})
 endif()
 
-foreach(target nomad_raw_trial raw_trial_tests nomad_mapping nomad_trial nomad_convert mapping_tests trial_tests nomad_controller_core controller_node controller_ros_tests gui_server nomad_gui_preview gui_http_tests thermal_guard_tests stop_output_tests)
+foreach(target nomad_raw_trial raw_trial_tests nomad_mapping nomad_trial nomad_convert mapping_tests trial_tests nomad_controller_core controller_node controller_ros_tests gui_server nomad_gui_preview gui_http_tests thermal_guard_tests stop_output_tests motor_output_tests)
   if(TARGET ${target})
     if(MSVC)
       target_compile_options(${target} PRIVATE /W4 /utf-8)

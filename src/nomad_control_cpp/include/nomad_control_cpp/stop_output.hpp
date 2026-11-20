@@ -435,7 +435,10 @@ private:
         std::array<double, kMedianSamples> values{};
         std::size_t n = 0;
         for (std::size_t j = index + 1; j-- > 0 && n < kMedianSamples;) values[n++] = samples_[j].along_iq;
-        std::sort(values.begin(), values.begin() + n);
+        // Insertion sort of at most kMedianSamples finite values: the same order as std::sort. 2026-11-20: GCC 13 -O2
+        // reported a false -Warray-bounds on std::sort over this array when inlined into a new test.
+        for (std::size_t i = 1; i < n; ++i)
+            for (std::size_t k = i; k > 0 && values[k] < values[k - 1]; --k) std::swap(values[k], values[k - 1]);
         const double median = n % 2 ? values[n / 2] : 0.5 * (values[n / 2 - 1] + values[n / 2]);
         return median - config_.hold_rolling_current_a;
     }
