@@ -84,7 +84,8 @@ class TerrainSettingsTest(unittest.TestCase):
     def test_board_module_paths(self):
         module = board_settings.MODULES["terrain"]()
         self.assertEqual(module.current_paths, ["nomad_terrain_ws/active_config/terrain.json"])
-        self.assertEqual(module.default_paths, ["nomad_terrain_ws/src/nomad_terrain_mapper/config/terrain.json"])
+        self.assertEqual(module.default_paths, ["nomad_terrain_ws/src/nomad_terrain_mapper/config/terrain.json",
+                         "nomad_ws/tools/visual_trial_20261106/runtime-map-preview/share/nomad_costmap_cpp/config/semantic.real.json"])
 
     def test_trial_choice_and_scripts(self):
         values = dict(trial_settings.defaults(), mapper="terrain")

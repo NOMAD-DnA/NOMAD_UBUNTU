@@ -99,19 +99,17 @@ class SpecTests(unittest.TestCase):
         self.assertEqual(note, "매퍼 설정: 클래스 경계 파일 기본 · 초기 안전영역 1.0 m (보드 파일 값)")
         self.assertEqual(ms.start_note("RUN=/r\nMAPPER=legacy"), "")
 
-    def test_terrain_default_upload_unchanged(self):
-        # defaults write exactly the terrain.json keys of before (no gui_overrides object)
+    def test_terrain_default_upload_has_explicit_moving_values(self):
         cfg = ts.board_json(ts.defaults())
-        self.assertNotIn("gui_overrides", cfg)
-        self.assertNotIn("gui_overrides", ts.upload_script(ts.defaults(), if_missing=True))
+        self.assertEqual({k: cfg["gui_overrides"][k] for k in ts.MOVING_DEFAULTS}, ts.MOVING_DEFAULTS)
         files = bs.MODULES["terrain"]().current_files(ts.defaults())
-        self.assertNotIn("gui_overrides", files[0])
+        self.assertEqual(json.loads(files[0]), cfg)
         board_pkg = json.loads((ROOT / "terrain_config/terrain.json").read_text())
-        for key in ts.SLOPE_KEYS + (ts.GUI_KEY,):
+        for key in ts.SLOPE_KEYS:
             board_pkg.pop(key)
         self.assertEqual(cfg, board_pkg)
         one = ts.board_json({"terrain": {"gui_overrides": {"startup_radius_m": 1.5}}})
-        self.assertEqual(one["gui_overrides"], {"boundary_margin_px": None, "startup_radius_m": 1.5})
+        self.assertEqual(one["gui_overrides"], dict(ts.MOVING_DEFAULTS, boundary_margin_px=None, startup_radius_m=1.5))
 
     def test_mapper_choice_unchanged(self):
         self.assertEqual(trial_settings.defaults()["mapper"], "legacy")
@@ -162,12 +160,12 @@ class BoardStoreTests(unittest.TestCase):
             self.assertEqual(data["values"]["terrain"]["gui_overrides"], dict(ts.MOVING_DEFAULTS, **{"boundary_margin_px": None, "startup_radius_m": None}))
             store.save(data["values"])
             saved = json.loads((home / ts.REMOTE_DIR / "terrain.json").read_text())
-            self.assertNotIn("gui_overrides", saved)
+            self.assertEqual(saved["gui_overrides"], data["values"]["terrain"]["gui_overrides"])
             values = data["values"]
             values["terrain"]["gui_overrides"]["boundary_margin_px"] = 9.0
             store.save(values)
             saved = json.loads((home / ts.REMOTE_DIR / "terrain.json").read_text())
-            self.assertEqual(saved["gui_overrides"], {"boundary_margin_px": 9, "startup_radius_m": None})
+            self.assertEqual(saved["gui_overrides"], dict(ts.MOVING_DEFAULTS, boundary_margin_px=9, startup_radius_m=None))
             again = bs.BoardStore("terrain", "nvidia@x", None, Path(temp) / "state", runner=FakeJetson(home)).read()
             self.assertEqual(again["values"]["terrain"]["gui_overrides"]["boundary_margin_px"], 9)
             self.assertEqual(again["problems"], [])
@@ -226,7 +224,7 @@ class PatchProgramTests(unittest.TestCase):
             sem = self.write(temp, "semantic.real.json", SEMANTIC_SAMPLE)
             raw_m3, raw_sem = m3.read_bytes(), sem.read_bytes()
             missing = Path(temp) / "none.json"
-            nulls = self.write(temp, "nulls.json", dict(ms.defaults(), **ts.defaults()["terrain"]))
+            nulls = self.write(temp, "nulls.json", dict(ms.defaults(), gui_overrides={"boundary_margin_px": None, "startup_radius_m": None, "moving_front_enabled": "보드값", "moving_front_radius_m": None}))
             old_terrain = self.write(temp, "old.json", {"terrain": {"boundary_margin_px": 6}})   # earlier window: ignored
             for overrides in (missing, nulls, old_terrain):
                 self.assertEqual(run("check", "terrain", overrides).returncode, 1)
@@ -387,20 +385,23 @@ class StartScriptTests(unittest.TestCase):
         self.assertEqual(json.loads((shared / "semantic.real.json").read_text()), SEMANTIC_SAMPLE)   # shared untouched
         self.assertEqual(ms.start_note(done.stdout), "매퍼 설정: 클래스 경계 9px · 초기 안전영역 1.5 m (GUI 값 적용)")
 
-    def test_terrain_block_defaults_identical_to_before(self):
+    def test_terrain_block_concrete_defaults_and_old_inherited_values(self):
         cfg = ts.board_json(ts.defaults())
         done, run_dir, shared = self.run_terrain_block(cfg)
         self.assertIn("BLOCK_OK", done.stdout, done.stdout + done.stderr)
-        self.assertIn(f"T_LEGACY={shared}", done.stdout)
-        self.assertFalse((run_dir / "terrain_legacy_cfg").exists())
-        self.assertEqual(json.loads((run_dir / "terrain_cfg/terrain.json").read_text()), cfg)
-        self.assertNotIn("NOTE:", done.stdout)
-        # all-null object written by hand: still removed, nothing copied
+        self.assertIn(f"T_LEGACY={run_dir}/terrain_legacy_cfg", done.stdout)
+        actual = json.loads((run_dir/"terrain_legacy_cfg/semantic.real.json").read_text())
+        expected = json.loads(json.dumps(SEMANTIC_SAMPLE))
+        expected["moving_front_free_region"].update(enabled=True, radius_m=0.5, rear_length_m=0.35, rear_half_width_m=0.2)
+        self.assertEqual(actual, expected)
+        self.assertEqual(json.loads((shared/"semantic.real.json").read_text()), SEMANTIC_SAMPLE)
+        run_cfg = dict(cfg)
+        run_cfg.pop("gui_overrides")
+        self.assertEqual(json.loads((run_dir/"terrain_cfg/terrain.json").read_text()), run_cfg)
         nulls = dict(cfg, gui_overrides={"boundary_margin_px": None, "startup_radius_m": None})
         done, run_dir, shared = self.run_terrain_block(nulls)
         self.assertIn(f"T_LEGACY={shared}", done.stdout)
-        self.assertEqual(json.loads((run_dir / "terrain_cfg/terrain.json").read_text()), cfg)
-        # no terrain.json at all (board file missing): shared folder, no error
+        self.assertEqual(json.loads((run_dir/"terrain_cfg/terrain.json").read_text()), run_cfg)
         done, run_dir, shared = self.run_terrain_block(None)
         self.assertIn("BLOCK_OK", done.stdout, done.stdout + done.stderr)
         self.assertIn(f"T_LEGACY={shared}", done.stdout)
@@ -410,7 +411,7 @@ class StartScriptTests(unittest.TestCase):
         done, run_dir, shared = self.run_terrain_block(cfg, {"terrain": {"boundary_margin_px": 6, "startup_radius_m": None},
                                                              "mapper3": {"erode_px": None}})
         self.assertIn("BLOCK_OK", done.stdout, done.stdout + done.stderr)
-        self.assertIn(f"T_LEGACY={shared}", done.stdout)
+        self.assertIn(f"T_LEGACY={run_dir}/terrain_legacy_cfg", done.stdout)
         self.assertIn("NOTE: old terrain values", done.stdout)
         done, _, _ = self.run_terrain_block(cfg, {"terrain": {"boundary_margin_px": None}})
         self.assertNotIn("NOTE:", done.stdout)
@@ -483,7 +484,7 @@ class DialogTests(unittest.TestCase):
             px.setValue(7)
             radius.setValue(1.5)
             out = ts.board_json(dialog.values())
-            self.assertEqual(out["gui_overrides"], {"boundary_margin_px": 7, "startup_radius_m": 1.5})
+            self.assertEqual(out["gui_overrides"], dict(ts.MOVING_DEFAULTS, boundary_margin_px=7, startup_radius_m=1.5))
             dialog.dialog.deleteLater()
 
 

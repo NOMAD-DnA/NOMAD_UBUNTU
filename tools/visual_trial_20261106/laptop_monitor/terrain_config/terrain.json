@@ -17,10 +17,10 @@
   "gui_overrides": {
     "boundary_margin_px": null,
     "startup_radius_m": null,
-    "moving_front_enabled": "보드값",
-    "moving_front_radius_m": null,
-    "moving_rear_length_m": null,
-    "moving_rear_half_width_m": null
+    "moving_front_enabled": "켬",
+    "moving_front_radius_m": 0.5,
+    "moving_rear_length_m": 0.35,
+    "moving_rear_half_width_m": 0.2
   },
   "oak_max_horizontal_distance_m": 2.0,
   "oak_lidar_max_abs_z_difference_cm": 12.0,

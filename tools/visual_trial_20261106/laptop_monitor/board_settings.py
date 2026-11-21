@@ -206,10 +206,44 @@ class TerrainModule(Mapper2Module):
         Module.__init__(
             self, "terrain", "기존 매퍼 개선", t.SPEC,
             [f"{t.REMOTE_DIR}/{p}.json" for p in parts],
-            [f"nomad_terrain_ws/src/{self.PACKAGES[p]}/config/{p}.json" for p in parts],
+            [f"nomad_terrain_ws/src/{self.PACKAGES[p]}/config/{p}.json" for p in parts] +
+            ["nomad_ws/tools/visual_trial_20261106/runtime-map-preview/share/nomad_costmap_cpp/config/semantic.real.json"],
             t.save)
         self.parts = parts
         self.board_json = t.board_json
+
+    def configs_from_default(self, files):
+        import terrain_settings as t
+        base = t.defaults()
+        if len(files) > 1 and files[1] is not None:
+            runtime = json.loads(files[1].decode("utf-8"))
+            moving = runtime.get("moving_front_free_region", {})
+            for key, field in (("moving_front_enabled", "enabled"),
+                               ("moving_front_radius_m", "radius_m"),
+                               ("moving_rear_length_m", "rear_length_m"),
+                               ("moving_rear_half_width_m", "rear_half_width_m")):
+                if field in moving:
+                    value = moving[field]
+                    if field == "enabled":
+                        if not isinstance(value, bool):
+                            raise ValueError("moving_front_free_region.enabled must be boolean")
+                        value = "켬" if value else "끔"
+                    base["terrain"][t.GUI_KEY][key] = value
+        given = self._parts(files[:1])
+        if given is not None:
+            given = t.without_inherited_moving(given)
+        if files[0] is None and (len(files) < 2 or files[1] is None):
+            return None, []
+        base, problems = merge_values(self.spec, t.defaults(), base)
+        if given is not None:
+            base, more = merge_values(self.spec, base, given)
+            problems += more
+        return base, problems
+
+    def configs_from_current(self, files):
+        import terrain_settings as t
+        given = self._parts(files)
+        return (None, []) if given is None else (t.without_inherited_moving(given), [])
 
     def current_files(self, configs):
         # 2026-11-16: slope k keys only when k != 4 (older terrain binaries reject unknown keys).

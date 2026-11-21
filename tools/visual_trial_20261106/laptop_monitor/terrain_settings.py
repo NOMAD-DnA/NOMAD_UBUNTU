@@ -29,20 +29,32 @@ SLOPE_KEYS = ("slope_score_per_deg", "slope_block_deg")
 GUI_KEY = "gui_overrides"
 GUI_PX = "boundary_margin_px"
 GUI_RADIUS = "startup_radius_m"
-# Inherit the runtime configuration until the operator explicitly overrides a field.
+# Concrete defaults from the installed moving-region configuration.
+# BoardStore resolves old inherited values from the runtime file before showing the table.
 MOVING_DEFAULTS = {
-    "moving_front_enabled": "보드값",
-    "moving_front_radius_m": None,
-    "moving_rear_length_m": None,
-    "moving_rear_half_width_m": None,
+    "moving_front_enabled": "켬",
+    "moving_front_radius_m": 0.5,
+    "moving_rear_length_m": 0.35,
+    "moving_rear_half_width_m": 0.2,
 }
+
+
+def without_inherited_moving(configs: dict) -> dict:
+    """Migrate the previous null / 보드값 controls to numeric board or GUI defaults."""
+    import copy
+    out = copy.deepcopy(configs)
+    gui = out.get("terrain", {}).get(GUI_KEY, {})
+    for key in MOVING_DEFAULTS:
+        if gui.get(key) is None or gui.get(key) == "보드값":
+            gui.pop(key, None)
+    return out
 
 
 class _Spec(SettingsSpec):
     def validate(self, configs: dict) -> dict:
         import slope_k
         import math
-        out = super().validate(configs)
+        out = super().validate(without_inherited_moving(configs))
         cfg = out["terrain"]
         distance = cfg["oak_max_horizontal_distance_m"]
         if not math.isfinite(distance) or not 0.1 <= distance <= 30.0:
@@ -98,17 +110,12 @@ def summary(configs: dict) -> str:
 
 def board_json(configs: dict) -> dict:
     """terrain.json content for the Jetson: the slope k keys only when k != 4, gui_overrides only
-    when a value is set (2026-11-16). Defaults therefore write the same file as before."""
+    with explicit moving-region values. Other GUI-only values remain optional."""
     import slope_k
     cfg = validate(configs)["terrain"]
     if slope_k.is_default(cfg["slope_score_per_deg"]):
         for key in SLOPE_KEYS:
             cfg.pop(key, None)
-    for key, default in MOVING_DEFAULTS.items():
-        if cfg[GUI_KEY][key] == default:
-            cfg[GUI_KEY].pop(key)
-    if all(value is None for value in cfg[GUI_KEY].values()):
-        cfg.pop(GUI_KEY)
     return cfg
 
 

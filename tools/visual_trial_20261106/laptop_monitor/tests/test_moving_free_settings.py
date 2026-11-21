@@ -25,8 +25,8 @@ class MovingFreeTests(unittest.TestCase):
         p.write_text(json.dumps(data))
         return p
 
-    def test_inherit_preserves_old_upload_and_board_roundtrip(self):
-        self.assertNotIn("gui_overrides", ts.board_json(ts.defaults()))
+    def test_numeric_defaults_and_board_roundtrip(self):
+        self.assertEqual(ts.board_json(ts.defaults())["gui_overrides"]["moving_front_radius_m"], 0.5)
         with tempfile.TemporaryDirectory() as td:
             home = Path(td) / "home"
             target = home / ts.REMOTE_DIR / "terrain.json"
@@ -35,7 +35,7 @@ class MovingFreeTests(unittest.TestCase):
             target.write_text(json.dumps(old))
             store = bs.BoardStore("terrain", "nvidia@fake", None, Path(td)/"state", runner=FakeJetson(home))
             cfg = store.read()["values"]
-            self.assertEqual(cfg["terrain"]["gui_overrides"]["moving_front_enabled"], "보드값")
+            self.assertEqual(cfg["terrain"]["gui_overrides"]["moving_front_enabled"], "켬")
             cfg["terrain"]["gui_overrides"].update(moving_front_enabled="끔", moving_front_radius_m=0.6,
                                                   moving_rear_length_m=0.4, moving_rear_half_width_m=0.25)
             store.save(cfg)
@@ -114,4 +114,45 @@ class MovingFreeTests(unittest.TestCase):
             cfg = ts.board_json(d.values())
             self.assertEqual(cfg["gui_overrides"]["moving_front_enabled"],"끔")
             self.assertEqual(cfg["gui_overrides"]["moving_rear_half_width_m"],0.25)
+            d.dialog.close()
+
+    def test_old_inherited_fields_read_actual_runtime_values(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = Path(td)/"home"
+            module = bs.TerrainModule()
+            runtime = home/module.default_paths[1]
+            runtime.parent.mkdir(parents=True)
+            semantic = self.semantic()
+            semantic["moving_front_free_region"].update(enabled=False, radius_m=0.8, rear_length_m=0.45, rear_half_width_m=0.3)
+            runtime.write_text(json.dumps(semantic))
+            original_bytes = runtime.read_bytes()
+            target = home/ts.REMOTE_DIR/"terrain.json"
+            target.parent.mkdir(parents=True)
+            target.write_text(json.dumps({"gui_overrides":{"moving_front_enabled":"보드값", "moving_front_radius_m":None}}))
+            store = bs.BoardStore("terrain","nvidia@fake",None,Path(td)/"state",runner=FakeJetson(home))
+            result = store.read()
+            self.assertEqual(result["problems"],[])
+            moving = result["values"]["terrain"]["gui_overrides"]
+            self.assertEqual({k:moving[k] for k in ts.MOVING_DEFAULTS}, dict(moving_front_enabled="끔",moving_front_radius_m=0.8,moving_rear_length_m=0.45,moving_rear_half_width_m=0.3))
+            store.save(result["values"])
+            self.assertEqual(runtime.read_bytes(), original_bytes)
+            self.assertEqual(json.loads(target.read_text())["gui_overrides"]["moving_front_radius_m"],0.8)
+
+    def test_dialog_shows_numeric_values_and_numeric_default_labels(self):
+        os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
+        from PyQt5 import QtWidgets
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        with tempfile.TemporaryDirectory() as td:
+            d = ts.SettingsDialog(None,Path(td))
+            for key, expected in (("moving_front_radius_m",0.5),("moving_rear_length_m",0.35),("moving_rear_half_width_m",0.2)):
+                widget = d.widgets[("terrain","gui_overrides."+key)][0]
+                self.assertEqual(widget.value(),expected)
+                self.assertEqual(widget.specialValueText(),"")
+                for table in d.dialog.findChildren(QtWidgets.QTableWidget):
+                    for row in range(table.rowCount()):
+                        if table.item(row,0).toolTip()=="gui_overrides."+key:
+                            self.assertIn("기본 "+str(expected),table.item(row,2).text())
+            combo=d.widgets[("terrain","gui_overrides.moving_front_enabled")][0]
+            self.assertEqual(combo.currentText(),"켬")
+            self.assertEqual([combo.itemText(i) for i in range(combo.count())],["켬","끔"])
             d.dialog.close()
