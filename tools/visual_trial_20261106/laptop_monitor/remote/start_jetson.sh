@@ -94,7 +94,7 @@ run=''
 fail() { printf 'RESUME_FAILED: %s\n' "$*" >&2; exit 1; }
 trap 'rc=$?; printf "RESUME_FAILED exit=%s run=%s; existing/new processes were not killed\n" "$rc" "${run:-not-created}" >&2' ERR
 
-# 2026-11-16: GUI class-boundary px / initial safe area for terrain and mapper3 only (null = keep the
+# GUI class-boundary px / initial safe area, plus terrain moving-region controls (null = keep the
 # board file value). Applied to per-run copies only; legacy manager files are never changed.
 #   terrain  laptop '기존 매퍼 개선 설정' (terrain_settings.py): OVERRIDES = a terrain.json, section
 #            "gui_overrides" (GUI-only; the terrain binary rejects unknown keys, so strip removes it)
@@ -105,12 +105,17 @@ trap 'rc=$?; printf "RESUME_FAILED exit=%s run=%s; existing/new processes were n
 #   show  KIND TARGET             print the effective values only
 #   strip terrain FILE            remove "gui_overrides" from FILE (a per-run copy) when present
 # Each prints "MAPPER_SETTINGS kind=... <key>=<value> ... overridden=<keys|none>" (apply/show).
+# Terrain also prints MOVING_FREE_SETTINGS. Optional check target validates merged geometry without writing.
 mapper_overrides="$HOME/nomad_settings/mapper_overrides/current.json"
 # BEGIN_MAPPER_OVERRIDE_PY
 nomad_mapper_override_py=$(cat <<'NOMAD_MAPPER_PY'
 import json, math, os, sys
 SPEC = {"terrain": (("boundary_margin_px", ("boundary_margin_px",), "px"),
-                    ("startup_radius_m", ("startup_free_region", "radius_m"), "m")),
+                    ("startup_radius_m", ("startup_free_region", "radius_m"), "m"),
+                    ("moving_front_enabled", ("moving_front_free_region", "enabled"), "choice"),
+                    ("moving_front_radius_m", ("moving_front_free_region", "radius_m"), "radius"),
+                    ("moving_rear_length_m", ("moving_front_free_region", "rear_length_m"), "m"),
+                    ("moving_rear_half_width_m", ("moving_front_free_region", "rear_half_width_m"), "m")),
         "mapper3": (("erode_px", ("sem_fit", "erode_px"), "px"),
                     ("start_free_radius_m", ("lidar", "start_free_radius_m"), "m"))}
 SECTION = {"terrain": "gui_overrides", "mapper3": "mapper3"}
@@ -154,6 +159,13 @@ if mode != "show":
         value = section.get(key)
         if value is None:
             continue
+        if unit == "choice":
+            if value == "보드값":
+                continue
+            if value not in ("켬", "끔"):
+                die(key + " must be 보드값, 켬 or 끔")
+            values[key] = value == "켬"
+            continue
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
             die(key + " is not a number")
         if unit == "px":
@@ -161,8 +173,8 @@ if mode != "show":
                 die(key + " must be an integer 0..20")
             value = int(value)
         else:
-            if not 0 <= value <= 5:
-                die(key + " must be 0..5 m")
+            if not (0.001 if unit == "radius" else 0) <= value <= 5:
+                die(key + (" must be 0.001..5 m" if unit == "radius" else " must be 0..5 m"))
             value = float(value)
         values[key] = value
     # 2026-11-16 '경사 점수 계수' k (slope_k.py): mapper3 only; null or 4 = board file (nothing to apply).
@@ -173,28 +185,59 @@ if mode != "show":
             die("slope_k must be 1.78..16")
         if abs(slope_k - 4.0) > 1e-9:
             values["slope_k"] = float(slope_k)
+# Validate the merged dimensions against the same limits as MovingFrontFreeRegion.
+# A check with a target validates before any sensors start, without writing the file.
+moving_values = {k: v for k, v in values.items() if k.startswith("moving_")}
+def validate_moving(root):
+    if not moving_values:
+        return
+    options = dict(root.get("moving_front_free_region", {}))
+    for key, path, _unit in SPEC["terrain"]:
+        if key in moving_values:
+            options[path[-1]] = values[key]
+    radius = options.get("radius_m", 0.5)
+    rear = options.get("rear_length_m", 0.0)
+    width = options.get("rear_half_width_m", 0.0)
+    front = options.get("driven_front_m", 0.025)
+    def number(v):
+        return not isinstance(v, bool) and isinstance(v, (int, float)) and math.isfinite(v)
+    if not number(radius) or not 0 < radius <= 5:
+        die("moving front radius must be in (0,5] m")
+    if any(not number(v) or not 0 <= v <= radius for v in (rear, width)):
+        die("moving rear length and half width must be within [0,radius]")
+    if options.get("driven_path_memory", False) and (
+            rear <= 0 or width <= 0 or not number(front) or not 0 <= front <= radius):
+        die("driven path memory requires positive rear dimensions and driven_front_m <= radius")
 if mode == "check":
+    if len(sys.argv) > 4 and moving_values:
+        with open(sys.argv[4], encoding="utf-8") as handle:
+            validate_moving(json.load(handle))
     sys.exit(0 if values else 1)
 target = sys.argv[4] if mode == "apply" else sys.argv[3]
 with open(target, encoding="utf-8") as handle:
     text = handle.read()
 root = json.loads(text)
 indent = indent_of(text)
+validate_moving(root)
 shown = []
+moving_shown = []
 for key, path, _unit in SPEC[kind]:
     node = root
     for part in path[:-1]:
         if kind == "terrain":
-            node = node.get(part) if isinstance(node, dict) else None
+            if isinstance(node, dict):
+                node = node.get(part, {}) if key.startswith("moving_") and key not in values else node.get(part)
+            else:
+                node = None
         else:
             node = node.setdefault(part, {}) if key in values else node.get(part, {})
         if not isinstance(node, dict):
             die("%s: %s is missing" % (target, ".".join(path)))
     if key in values:
-        if kind == "terrain" and path[-1] not in node:
+        if kind == "terrain" and not key.startswith("moving_") and path[-1] not in node:
             die("%s: %s is missing" % (target, ".".join(path)))
         node[path[-1]] = values[key]
-    shown.append("%s=%s" % (key, node.get(path[-1], "-")))
+    (moving_shown if key.startswith("moving_") else shown).append("%s=%s" % (key, node.get(path[-1], "-")))
 slope_line = None
 if "slope_k" in values:
     # mapper3 piecewise slope cost: break angles x 4/k (code defaults 8/20/25 deg when absent)
@@ -215,6 +258,8 @@ if values:
         handle.write(json.dumps(root, ensure_ascii=False, indent=indent) + "\n")
     os.replace(temporary, target)
 print("MAPPER_SETTINGS kind=%s %s overridden=%s" % (kind, " ".join(shown), ",".join(values) or "none"))
+if moving_shown:
+    print("MOVING_FREE_SETTINGS " + " ".join(moving_shown))
 if slope_line:
     print(slope_line)
 NOMAD_MAPPER_PY
@@ -374,7 +419,7 @@ export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
 case "${NOMAD_MAPPER:-legacy}" in
   terrain)
     override_rc=0
-    nomad_mapper_override check terrain "$HOME/nomad_terrain_ws/active_config/terrain.json" >/dev/null || override_rc=$?
+    nomad_mapper_override check terrain "$HOME/nomad_terrain_ws/active_config/terrain.json" "$prefix/share/nomad_costmap_cpp/config/semantic.real.json" || override_rc=$?
     [[ "$override_rc" -le 1 ]] || fail 'Invalid GUI values (gui_overrides) in ~/nomad_terrain_ws/active_config/terrain.json; sensors were not started'
     ;;
   mapper3)

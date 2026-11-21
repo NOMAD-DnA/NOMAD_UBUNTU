@@ -29,6 +29,13 @@ SLOPE_KEYS = ("slope_score_per_deg", "slope_block_deg")
 GUI_KEY = "gui_overrides"
 GUI_PX = "boundary_margin_px"
 GUI_RADIUS = "startup_radius_m"
+# Inherit the runtime configuration until the operator explicitly overrides a field.
+MOVING_DEFAULTS = {
+    "moving_front_enabled": "보드값",
+    "moving_front_radius_m": None,
+    "moving_rear_length_m": None,
+    "moving_rear_half_width_m": None,
+}
 
 
 class _Spec(SettingsSpec):
@@ -53,6 +60,16 @@ class _Spec(SettingsSpec):
             if px != int(px):
                 raise ValueError("클래스 경계 px: 정수여야 합니다")
             cfg[GUI_KEY][GUI_PX] = int(px)
+        moving = cfg[GUI_KEY]
+        for key in MOVING_DEFAULTS:
+            value = moving[key]
+            if key != "moving_front_enabled" and value is not None and not math.isfinite(value):
+                raise ValueError("이동 비용 0 영역: 유한한 값을 입력하세요")
+        radius = moving["moving_front_radius_m"]
+        if radius is not None:
+            for key in ("moving_rear_length_m", "moving_rear_half_width_m"):
+                if moving[key] is not None and moving[key] > radius:
+                    raise ValueError("이동 영역 뒤쪽 길이와 좌우 각각의 폭은 전방 반경 이하여야 합니다")
         return out
 
 
@@ -87,6 +104,9 @@ def board_json(configs: dict) -> dict:
     if slope_k.is_default(cfg["slope_score_per_deg"]):
         for key in SLOPE_KEYS:
             cfg.pop(key, None)
+    for key, default in MOVING_DEFAULTS.items():
+        if cfg[GUI_KEY][key] == default:
+            cfg[GUI_KEY].pop(key)
     if all(value is None for value in cfg[GUI_KEY].values()):
         cfg.pop(GUI_KEY)
     return cfg
@@ -119,7 +139,7 @@ class SettingsDialog(_Dialog):
         super().__init__(parent, state_root, SPEC, "기존 매퍼 개선 설정 · 시험 시작 때 Jetson에 적용",
                          "Jetson에 저장된 '기존 매퍼 개선' 값입니다. 경사·인지·비용 계산은 기존 매퍼와 같고, "
                          "여기서는 지도 크기, 경사 각도 기준, 경사 고정, 의미분할 이미지 누적, 경사 점수 계수, "
-                         "OAK 점군 누적 최대 수평거리(기본 2m), OAK/LiDAR 높이 차이 제거 기준(기본 12cm), 수평 검색 반경(기본 20cm), 클래스 경계 px와 초기 안전영역 반경을 바꿉니다. "
+                         "OAK 점군 누적 최대 수평거리(기본 2m), OAK/LiDAR 높이 차이 제거 기준(기본 12cm), 수평 검색 반경(기본 20cm), 클래스 경계 px, 초기 안전영역 반경과 이동 비용 0 영역의 사용 여부, 전방 반경, 뒤쪽 길이와 좌우 폭을 바꿉니다. "
                          "'시험 설정'에서 지도를 '기존 매퍼 개선'으로 고르면 시작할 때 이 값으로 켜집니다.", board=board)
         # 2026-11-16: '경사 막힘 각도' follows '경사 점수 계수' (80/k) and is read-only.
         import slope_k

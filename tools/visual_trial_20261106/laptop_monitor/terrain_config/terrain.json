@@ -16,7 +16,11 @@
   "slope_block_deg": 20.0,
   "gui_overrides": {
     "boundary_margin_px": null,
-    "startup_radius_m": null
+    "startup_radius_m": null,
+    "moving_front_enabled": "보드값",
+    "moving_front_radius_m": null,
+    "moving_rear_length_m": null,
+    "moving_rear_half_width_m": null
   },
   "oak_max_horizontal_distance_m": 2.0,
   "oak_lidar_max_abs_z_difference_cm": 12.0,

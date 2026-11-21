@@ -59,7 +59,7 @@ class SpecTests(unittest.TestCase):
     def test_defaults_are_board_values(self):
         self.assertEqual(ms.defaults(), {"mapper3": {"erode_px": None, "start_free_radius_m": None,
                                                      "slope_k": None}})   # slope_k: 2026-11-16 (slope_k.py)
-        self.assertEqual(ts.defaults()["terrain"]["gui_overrides"], {"boundary_margin_px": None, "startup_radius_m": None})
+        self.assertEqual(ts.defaults()["terrain"]["gui_overrides"], dict(ts.MOVING_DEFAULTS, **{"boundary_margin_px": None, "startup_radius_m": None}))
         from module_settings import leaves
         for part, _label in ms.PARTS:
             self.assertEqual(set(leaves(ms.defaults()[part])), set(ms.SPEC.docs()[part]))
@@ -77,7 +77,7 @@ class SpecTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 ms.validate(bad)
         t = ts.validate({"terrain": {"gui_overrides": {"boundary_margin_px": 6.0, "startup_radius_m": 1}}})
-        self.assertEqual(t["terrain"]["gui_overrides"], {"boundary_margin_px": 6, "startup_radius_m": 1.0})
+        self.assertEqual(t["terrain"]["gui_overrides"], dict(ts.MOVING_DEFAULTS, **{"boundary_margin_px": 6, "startup_radius_m": 1.0}))
         self.assertIsInstance(t["terrain"]["gui_overrides"]["boundary_margin_px"], int)
         for bad in ({"boundary_margin_px": 6.5}, {"boundary_margin_px": 21}, {"startup_radius_m": 5.5},
                     {"startup_radius_m": -0.1}, {"boundary_margin_px": True}):
@@ -159,7 +159,7 @@ class BoardStoreTests(unittest.TestCase):
             home.mkdir()
             store = bs.BoardStore("terrain", "nvidia@x", None, Path(temp) / "state", runner=FakeJetson(home))
             data = store.read()
-            self.assertEqual(data["values"]["terrain"]["gui_overrides"], {"boundary_margin_px": None, "startup_radius_m": None})
+            self.assertEqual(data["values"]["terrain"]["gui_overrides"], dict(ts.MOVING_DEFAULTS, **{"boundary_margin_px": None, "startup_radius_m": None}))
             store.save(data["values"])
             saved = json.loads((home / ts.REMOTE_DIR / "terrain.json").read_text())
             self.assertNotIn("gui_overrides", saved)
