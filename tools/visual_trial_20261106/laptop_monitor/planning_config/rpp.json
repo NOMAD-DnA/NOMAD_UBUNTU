@@ -1,0 +1,9 @@
+{
+ "rpp": {
+  "lookahead_candidates": [],
+  "lookahead": 0.8,
+  "adaptive_lookahead": true,
+  "lateral_accel": 0.35,
+  "unknown_speed": 0.1
+ }
+}

@@ -1,0 +1,77 @@
+{
+ "footprint_planning": {
+  "title": "차체 상자로 경로 검사",
+  "description": "GPP 경로와 RPP 궤적을 아래 '검사 상자'(반길이·반폭·위치) 크기로 검사해요. 끄면 기준점 한 점으로만 검사해요. '차체 길이·폭' 값은 여기에 쓰이지 않아요.",
+  "unit": "켬/끔",
+  "default": true,
+  "safety": true
+ },
+ "observed_guard.half_length": {
+  "title": "검사 상자 반길이",
+  "description": "차체 검사 상자의 앞뒤 절반 길이예요. 경로 충돌 검사(차체 상자로 경로 검사)와 관측 확인 감속 거리 계산에 같이 쓰여요(측정 전 값).",
+  "unit": "m",
+  "default": 0.1,
+  "min": 0.01,
+  "max": 1.0,
+  "safety": true
+ },
+ "observed_guard.half_width": {
+  "title": "검사 상자 반폭",
+  "description": "차체 검사 상자의 좌우 절반 폭이에요. 경로 충돌 검사와 관측 확인 감속에 같이 쓰여요(측정 전 값).",
+  "unit": "m",
+  "default": 0.05,
+  "min": 0.01,
+  "max": 1.0,
+  "safety": true
+ },
+ "observed_guard.center_offset": {
+  "title": "검사 상자 위치",
+  "description": "검사 상자 중심이 기준점에서 앞(+)뒤(-)로 떨어진 거리예요. 경로 충돌 검사와 관측 확인 감속에 같이 쓰여요.",
+  "unit": "m",
+  "default": -0.075,
+  "min": -1.0,
+  "max": 1.0,
+  "safety": true
+ },
+ "observed_guard.allow_initial_footprint_outside": {
+  "title": "시작 위치 지도 밖 허용",
+  "description": "출발할 때 차체가 지도 가장자리에 걸쳐 있어도 출발을 허용해요(새로 들어가는 바깥은 계속 막힘).",
+  "unit": "켬/끔",
+  "default": true,
+  "safety": true
+ },
+ "observed_guard.enabled": {
+  "title": "관측 확인 감속",
+  "description": "차 앞(검사 상자 진행 방향)이 관측되지 않았으면 미리 감속·정지해요. 끄면 GPP 경로를 관측된 칸까지 자르지 않고 따라가요.",
+  "unit": "켬/끔",
+  "default": true,
+  "safety": true
+ },
+ "observed_guard.deceleration": {
+  "title": "관측 감속도",
+  "description": "관측 안 된 칸 앞에서 멈출 때 쓰는 감속도예요.",
+  "unit": "m/s²",
+  "default": 0.4,
+  "min": 0.05,
+  "max": 3.0,
+  "safety": true
+ },
+ "observed_guard.latency": {
+  "title": "관측 감속 반응 지연",
+  "description": "명령이 실제 차에 반영되기까지 걸리는 시간 가정이에요.",
+  "unit": "s",
+  "default": 0.3,
+  "min": 0.0,
+  "max": 2.0,
+  "safety": true
+ },
+ "observed_guard.margin": {
+  "title": "관측 정지 여유",
+  "description": "멈출 때 남겨 두는 거리예요.",
+  "unit": "m",
+  "default": 0.1,
+  "min": 0.0,
+  "max": 1.0,
+  "safety": true
+ }
+}

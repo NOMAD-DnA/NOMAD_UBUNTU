@@ -1,0 +1,710 @@
+"""Laptop-only packet recording and offline playback controls for the same UI."""
+from __future__ import annotations
+
+import argparse
+import json
+import math
+from pathlib import Path
+import time
+
+from PyQt5 import QtCore, QtGui, QtWidgets
+
+from session_recording import SessionReader, SessionRecorder, recording_directory
+from recording_state import display_metadata, replay_display, comparison_baseline
+
+
+def shared_recordings_folder():
+    """Shared 주행기록 when this local GUI copy can reach the team share now, else None."""
+    try:
+        import local_install
+        return local_install.reachable_shared_recordings()
+    except Exception:
+        return None
+
+
+def choose_recording(parent, shared=None):
+    """2026-11-12: open dialog; when the shared folder is connected it opens there and
+    lists both folders (shared + this laptop) in the side panel."""
+    local = recording_directory()
+    shared = shared_recordings_folder() if shared is None else shared
+    if not shared:
+        # Not connected: the same native chooser as before, in this laptop's folder.
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(parent, "주행 기록 열기", str(local), "NOMAD 주행 기록 (*.nomad)")
+        return path
+    dialog = QtWidgets.QFileDialog(parent, "주행 기록 열기", str(shared or local), "NOMAD 주행 기록 (*.nomad)")
+    dialog.setFileMode(QtWidgets.QFileDialog.ExistingFile)
+    if shared:
+        # Qt's own dialog: the native one ignores the side panel entries.
+        dialog.setOption(QtWidgets.QFileDialog.DontUseNativeDialog, True)
+        dialog.setSidebarUrls([QtCore.QUrl.fromLocalFile(str(shared)), QtCore.QUrl.fromLocalFile(str(local))])
+        # Both folders are named 주행기록; labelled buttons say which is which.
+        row = QtWidgets.QHBoxLayout()
+        for text, folder in (("공유폴더 주행기록", shared), ("이 노트북 주행기록", local)):
+            button = QtWidgets.QPushButton(text)
+            button.setToolTip(str(folder))
+            button.clicked.connect(lambda _=False, f=str(folder): dialog.setDirectory(f))
+            row.addWidget(button)
+        layout = dialog.layout()
+        if isinstance(layout, QtWidgets.QGridLayout):
+            layout.addLayout(row, layout.rowCount(), 0, 1, layout.columnCount())
+        dialog.setLabelText(QtWidgets.QFileDialog.LookIn, "공유폴더 연결됨")
+        dialog.setWindowTitle("주행 기록 열기 · 공유폴더: " + str(shared))
+    try:
+        if dialog.exec_() != QtWidgets.QDialog.Accepted or not dialog.selectedFiles():
+            return ""
+        return dialog.selectedFiles()[0]
+    finally:
+        dialog.deleteLater()
+
+
+def timestamp_label(seconds):
+    seconds = max(0., float(seconds))
+    minutes, seconds = divmod(seconds, 60.)
+    hours, minutes = divmod(int(minutes), 60)
+    return f"{hours:02}:{minutes:02}:{seconds:04.1f}"
+
+
+class RecordingMixin:
+    """All playback input uses the existing validation/display path, never SSH."""
+
+    def init_recording(self, args):
+        self.replay_mode = bool(getattr(args, "replay", None))
+        self.recorder = None
+        self.recording_result = None
+        self._record_started = 0.
+        self._auto_trial_recording = False
+        self._trial_record_path = None
+        self._trial_record_paths = []
+        self._trial_notes_dialog = None
+        self._trial_notes_required = False
+        self._trial_record_closed = False
+        self._trial_stop_requested_at = None
+        self._trial_summary = None
+        self._trial_notes_copy_path = None
+        self._packet_cache = {}
+        self._display_packet_cache = {}
+        self._display_qimages = {}
+        self._image_packet_cache = {}
+        self._replay_rejections = []
+        self._replay_rejection_count = 0
+        self.recording_compatibility_note = ""
+        self._last_view_json = None
+        self._replay_windows = []
+        self.reader = None
+        self._replay_position = 0.
+        self._replay_seq = 0
+        self._replay_playing = False
+        self._replay_seeking = False
+        self._replay_seek_target = 0.
+        self._replay_error = None
+        self._replay_restore_windows = []
+        self._replay_resume_after_seek = False
+        self._replay_wall_anchor = time.monotonic()
+        self._replay_position_anchor = 0.
+        if self.replay_mode:
+            # Enforce this here as well as in parse_args: direct callers and
+            # developer windows cannot accidentally construct a board client.
+            args.no_ssh = True
+            args.relay_host = None
+            args.relay_listen = None
+            args.enable_trial_control = False
+            args.preview_heading_calibration = None
+            self.reader = SessionReader(Path(args.replay).expanduser().resolve())
+            try:
+                self.display_footprint, self.recording_compatibility_note = replay_display(self.reader.metadata)
+            except (ValueError, TypeError, KeyError):
+                self.reader.close()
+                raise
+        else:
+            from planning_footprint import load_footprint
+            self.display_footprint = load_footprint()
+
+    def now(self):
+        return 1_000_000. + self._replay_position if self.replay_mode else time.monotonic()
+
+    def wall_now(self):
+        if self.replay_mode:
+            return float(self.reader.metadata.get("started_wall_s", 0.)) + self._replay_position
+        return time.time()
+
+    def setup_recording_bar(self, layout):
+        bar = QtWidgets.QHBoxLayout()
+        if not self.replay_mode:
+            self.record_button = QtWidgets.QPushButton("기록 시작")
+            self.record_button.setToolTip("이미 받은 영상·지도·궤적·상태·로그·보드 CPU/메모리를 이 PC에 저장합니다.")
+            self.record_button.clicked.connect(self.toggle_recording)
+            bar.addWidget(self.record_button)
+            self.open_record_button = QtWidgets.QPushButton("기록 열기")
+            self.open_record_button.clicked.connect(self.open_recording_file)
+            bar.addWidget(self.open_record_button)
+            folder_button = QtWidgets.QPushButton("기록 폴더")
+            folder_button.clicked.connect(self.open_recording_folder)
+            bar.addWidget(folder_button)
+            self.record_label = QtWidgets.QLabel("출력 허용 시 자동 기록 · 수동 기록도 가능")
+            self.record_label.setWordWrap(True)
+            bar.addWidget(self.record_label, 1)
+        else:
+            self.replay_play = QtWidgets.QPushButton("재생")
+            self.replay_play.clicked.connect(self.toggle_replay)
+            bar.addWidget(self.replay_play)
+            reset = QtWidgets.QPushButton("처음으로")
+            reset.clicked.connect(lambda: self.seek_replay(0.))
+            bar.addWidget(reset)
+            self.replay_slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+            self.replay_slider.setRange(0, min(2_147_483_647, math.ceil(self.reader.duration * 1000)))
+            self.replay_slider.sliderPressed.connect(self.pause_replay)
+            self.replay_slider.sliderReleased.connect(lambda: self.seek_replay(self.replay_slider.value() / 1000.))
+            self.replay_slider.sliderMoved.connect(lambda value: self.replay_time.setText(
+                timestamp_label(value / 1000.) + " / " + timestamp_label(self.reader.duration)))
+            self.replay_slider.setAccessibleName("기록 재생 시각")
+            bar.addWidget(self.replay_slider, 1)
+            self.replay_time = QtWidgets.QLabel()
+            bar.addWidget(self.replay_time)
+            self.replay_speed = QtWidgets.QComboBox()
+            for speed in (.5, 1., 2., 4.):
+                self.replay_speed.addItem(f"{speed:g}배", speed)
+            self.replay_speed.setCurrentIndex(1)
+            self.replay_speed.currentIndexChanged.connect(self.reset_replay_anchor)
+            bar.addWidget(self.replay_speed)
+            self.record_label = QtWidgets.QLabel()
+            self.record_label.setWordWrap(True)
+        self.record_label.setTextFormat(QtCore.Qt.PlainText)
+        self.record_label.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+        layout.addLayout(bar)
+        if self.replay_mode:
+            layout.addWidget(self.record_label)
+
+    def _view_event(self):
+        # An explicit allowlist: no Namespace, environment, passwords, commands,
+        # or process settings are ever included in the recording metadata.
+        cpu_history = {}
+        for mode, values in getattr(self, "slope_cpu_history", {}).items():
+            entry = dict(values)
+            received = entry.pop("received", entry.pop("received_monotonic", None))
+            if isinstance(received, (int, float)) and math.isfinite(received):
+                entry["_record_received_offset_s"] = received - self._record_started
+            cpu_history[mode] = entry
+        return {"kind": "view", "source": "gui", "selected_goal": self.selected_goal,
+                "selected_goal_source": (getattr(self, "selected_goal_source", None)
+                                         if self.selected_goal is not None else None),
+                "active_model": self.active_model, "model_switch_result": self.model_switch_result,
+                "active_cloud_source": getattr(self, "active_cloud_source", None),
+                "active_slope_mode": getattr(self, "active_slope_mode", None),
+                "cloud_switch_result": getattr(self, "cloud_switch_result", None),
+                "slope_switch_result": getattr(self, "slope_switch_result", None),
+                "slope_cpu_history": cpu_history,
+                "trial_stop_result": self.trial_stop_result, "ssh": self.ssh_progress,
+                "heading_reset_result": getattr(self, "heading_reset_result", None),
+                "vio_restart_result": getattr(self, "vio_restart_result", None)}
+
+    def record_view(self, *, initial=False):
+        if self.recorder is None or self.replay_mode:
+            return
+        event = self._view_event()
+        encoded = json.dumps(event, sort_keys=True, ensure_ascii=False)
+        if encoded != self._last_view_json:
+            self._last_view_json = encoded
+            if initial:
+                event["_baseline_state"] = True
+            self.recorder.append("gui", event, max(0., time.monotonic() - self._record_started))
+
+    def record_packet(self, board, event, received_at):
+        if self.replay_mode:
+            return
+        raw = dict(event)
+        raw["_record_receive_age_s"] = max(0., self.now() - received_at)
+        kind, source = raw["kind"], raw["source"]
+        if kind != "log":
+            self._packet_cache[(board, kind, source)] = raw
+        if self.recorder is not None:
+            self.recorder.append(board, raw, max(0., time.monotonic() - self._record_started))
+
+    def toggle_recording(self):
+        if self.replay_mode:
+            return
+        if self._auto_trial_recording:
+            return  # An output-enabled trial is recorded through trial termination.
+        if self.recorder is not None:
+            self.stop_recording()
+            return
+        self.start_recording()
+
+    def start_recording(self, trigger="manual"):
+        if self.replay_mode:
+            return False
+        if self.recorder is not None:
+            return self.recorder.status()["state"] == "RECORDING"
+        self._record_started = time.monotonic()
+        try:
+            metadata = {**display_metadata(self.display_footprint),
+                "started_wall_s": time.time(), "recording_trigger": trigger,
+                "forward_axis": list(self.forward_axis),
+                "heading_note": self.heading_note, "ui_hz": self.args.ui_hz,
+                "active_model": self.active_model,
+                "active_cloud_source": getattr(self, "active_cloud_source", None),
+                "active_slope_mode": getattr(self, "active_slope_mode", None),
+                "scope": "accepted_gui_packets_after_ingress_coalescing",
+                "initial_history": "bounded history already visible at recording start; offset zero",
+                "resource_schema_version": 1,
+                "resource_scope": "1Hz board CPU and bounded process samples; not execution deadlines",
+                "streams": "images,poses,status,rates,telemetry,module logs,selected goal,board resources"}
+            baseline = self.recording_baseline()
+            # Check every initial object before creating a file/writer thread.
+            for _, event in baseline:
+                json.dumps(event, allow_nan=False)
+            destination = recording_directory() / (time.strftime("%Y%m%d_%H%M%S") +
+                                                   f"_{time.time_ns() % 1_000_000:06d}.nomad")
+            recorder = SessionRecorder(destination, metadata=metadata)
+        except (OSError, ValueError, TypeError, KeyError, RuntimeError) as error:
+            self.record_label.setText("기록 시작 실패 · " + str(error))
+            self.record_label.setStyleSheet("color:#fca5a5;")
+            return False
+        self.recorder = recorder
+        self.recording_result = None
+        self._last_view_json = None
+        for board, event in baseline:
+            if not recorder.append(board, event, 0.):
+                break  # Writer exposes FAILED and preserves the accepted prefix.
+        self.record_view(initial=True)
+        self.record_button.setText("기록 정지")
+        self.update_recording_bar()
+        return recorder.status()["state"] == "RECORDING"
+
+    def ensure_trial_recording(self, click_timing):
+        """Start/reuse one recording before sending an output-enable request."""
+        if not self.start_recording(trigger="output_allow"):
+            return False
+        if not self.recorder.wait_ready():
+            self.record_label.setText("기록 준비 실패 · 출력 허용 요청을 보내지 않았습니다.")
+            self.record_label.setStyleSheet("color:#fca5a5;")
+            return False
+        event = {**self._view_event(), "trial_action": "output_allow_requested",
+                 "click_wall_ns": click_timing[0], "click_monotonic_ns": click_timing[1]}
+        if not self.recorder.append("gui", event, max(0., time.monotonic()-self._record_started)):
+            self.update_recording_bar()
+            return False
+        self._auto_trial_recording = True
+        self._trial_record_path = self.recorder.path
+        self.record_button.setEnabled(False)
+        self.record_button.setText("자동 기록 중")
+        self.record_button.setToolTip("출력 정지·재허용에도 같은 기록을 유지하며 시험 종료 때 저장합니다.")
+        self.update_recording_bar()
+        return True
+
+    def request_trial_notes(self):
+        """Nonblocking dialog: called only after the board-stop worker starts."""
+        if self.replay_mode or self.spectator_mode:
+            return
+        self._trial_stop_requested_at = self._trial_stop_requested_at or time.time()
+        self._trial_notes_required = True
+        self._trial_record_closed = False
+        if self.recorder is None and self._trial_record_path is None:
+            # A trial that never enabled output still gets an explicitly labelled
+            # end snapshot, not a claim that its earlier motion was recorded.
+            self.start_recording(trigger="trial_end_without_output_allow")
+        if self.recorder is not None:
+            self._trial_record_path = self.recorder.path
+        if self._trial_notes_dialog is None:
+            from trial_summary import TrialSummaryDialog
+            dialog = TrialSummaryDialog(self, self.save_trial_notes, self._trial_summary,
+                                        save_copy=self.save_trial_notes_copy)
+            self._trial_notes_dialog = dialog
+        self._trial_notes_dialog.set_recording_state(False, "실행 모듈 종료 중 · 이름과 내용을 입력해 주세요.")
+        self._trial_notes_dialog.show()
+        self._trial_notes_dialog.raise_()
+        self._trial_notes_dialog.activateWindow()
+
+    def finish_trial_recording(self):
+        if not self._trial_notes_required:
+            return
+        self.drain_receivers()
+        recorder = self.recorder
+        self.stop_recording()
+        # A close timeout must not race a still-running database writer.
+        self._trial_record_closed = recorder is None or recorder.writer_finished()
+        self._auto_trial_recording = False
+        self.record_button.setEnabled(False)
+        if not self._trial_record_closed:
+            QtCore.QTimer.singleShot(200, lambda: self._wait_trial_writer(recorder))
+        self._update_trial_notes_state()
+
+    def _wait_trial_writer(self, recorder):
+        if not recorder.writer_finished():
+            QtCore.QTimer.singleShot(200, lambda: self._wait_trial_writer(recorder))
+            return
+        self._trial_record_closed = True
+        self._update_trial_notes_state()
+
+    def _update_trial_notes_state(self):
+        if self._trial_notes_dialog is None:
+            return
+        ok = bool((self.trial_stop_result or {}).get("ok"))
+        message = "모듈 종료 확인 · 시험 이름과 내용을 저장해 주세요." if ok else "일부 모듈 종료 미확인 · 내용을 저장한 뒤 종료 재시도가 가능합니다."
+        if not self._trial_record_closed:
+            message = "기록 파일을 마무리하는 중입니다. 입력한 내용은 유지됩니다."
+        elif (self.recording_result or {}).get("error"):
+            message += " 기록 오류가 있어 저장된 부분까지만 남습니다."
+        self._trial_notes_dialog.set_recording_state(self._trial_record_closed, message)
+
+    def save_trial_notes(self, name, description):
+        from session_recording import save_trial_summary
+        from recording_names import rename_trial_recording
+        if not self._trial_record_closed:
+            raise RuntimeError("기록 파일을 마무리 중입니다. 잠시 후 다시 저장해 주세요.")
+        if not self._trial_record_path:
+            raise RuntimeError("기록 파일을 만들지 못했습니다. 저장 위치와 디스크 여유를 확인해 주세요.")
+        if self._trial_record_path not in self._trial_record_paths:
+            self._trial_record_paths.append(self._trial_record_path)
+        for index, path in enumerate(self._trial_record_paths):
+            summary = save_trial_summary(path, name, description,
+                                         self.trial_stop_result, self._trial_stop_requested_at)
+            destination = rename_trial_recording(path, name)
+            # Update immediately so a later failure/retry uses the renamed file.
+            self._trial_record_paths[index] = destination
+            if self._trial_record_path == path:
+                self._trial_record_path = destination
+            if self.recording_result and self.recording_result.get("path") == path:
+                self.recording_result["path"] = destination
+        self._trial_summary = summary
+        self._trial_notes_required = False
+        self._trial_notes_copy_path = None
+        self.update_recording_bar()
+
+    def save_trial_notes_copy(self, name, description):
+        """Preserve notes elsewhere if the recording disk/file has failed."""
+        import os
+        import tempfile
+        if not name.strip() or not description.strip() or not self._trial_record_closed:
+            raise ValueError("시험 이름과 내용을 입력하고 기록 종료를 기다려 주세요.")
+        path, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, "메모만 별도 저장 · 주행 로그는 복구되지 않습니다", "시험메모.json", "시험 메모 (*.json)")
+        if not path:
+            return False
+        summary = {"name": name.strip(), "description": description.strip(),
+                   "stop_requested_wall_s": self._trial_stop_requested_at,
+                   "stop_result": self.trial_stop_result, "saved_wall_s": time.time()}
+        value = {"trial": summary, "recording": self.recording_result,
+                 "original_recording_path": self._trial_record_path, "contains_driving_log": False}
+        target = Path(path).expanduser().absolute()
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=target.parent,
+                                             prefix=".trial-notes-", delete=False) as stream:
+                temporary = Path(stream.name)
+                json.dump(value, stream, ensure_ascii=False, indent=2, allow_nan=False)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary is not None and temporary.exists():
+                temporary.unlink()
+        self._trial_summary = summary
+        self._trial_notes_copy_path = str(target)
+        self._trial_notes_required = False
+        self.update_recording_bar()
+        self.record_label.setText("메모만 별도 저장 · " + str(target) + " · 주행 기록은 오류 상태를 확인해 주세요.")
+        self.record_label.setStyleSheet("color:#fbbf24;")
+        return True
+
+    def recording_baseline(self):
+        rows = []
+        for source in ("vio", "fusion", "public"):
+            cached = self._packet_cache.get(("pi", "pose", source), {})
+            for pose in self.histories[source]:
+                rows.append(("pi", {**cached, **pose, "kind": "pose", "source": source,
+                                    "_record_receive_age_s": self.age("pose", source) or 0.}))
+        # Keep the last actually displayed frame before the most recent packet.
+        # The latter may be undecodable or have no map coordinates.
+        for source, (board, event, received) in self._display_packet_cache.items():
+            rows.append((board, {**event, "_record_receive_age_s": max(0., self.now()-received)}))
+        for (board, kind, source), cached in self._packet_cache.items():
+            if kind != "pose":
+                rows.append((board, {**cached, "_record_receive_age_s": self.age(kind, source) or 0.}))
+        # Derived positions are local GUI history, not new wire/ROS pose streams.
+        # Restore after diagnostics, whose epoch handling may clear comparison history.
+        for source in ("gnss", "vio_compare"):
+            event = {"kind": "comparison_baseline", "source": "gui", "history_source": source,
+                     "positions": list(self.histories[source]), "receive_age_s": self.age("pose", source) or 0.}
+            comparison_baseline(event)
+            rows.append(("gui", event))
+        for history in self.module_logs.values():
+            for event in history:
+                rows.append((event["board"], {**event, "_record_receive_age_s": self.age("log", event["source"]) or 0.}))
+        return rows
+
+    def stop_recording(self):
+        if self.recorder is None:
+            return
+        self.record_view()
+        self.recording_result = self.recorder.close(duration_s=max(0., time.monotonic() - self._record_started))
+        path = self.recording_result["path"]
+        if path not in self._trial_record_paths:
+            self._trial_record_paths.append(path)
+        self.recorder = None
+        self.record_button.setText("기록 시작")
+        self.update_recording_bar()
+
+    def update_recording_bar(self):
+        if self.replay_mode:
+            if self._replay_error:
+                self.record_label.setText("기록 재생 오류 · " + self._replay_error)
+                self.record_label.setStyleSheet("color:#fca5a5;")
+                return
+            if not self.replay_slider.isSliderDown():
+                self.replay_slider.setValue(round(self._replay_position * 1000))
+                self.replay_time.setText(timestamp_label(self._replay_position) + " / " + timestamp_label(self.reader.duration))
+            self.replay_play.setText("일시정지" if self._replay_playing else "재생")
+            incomplete = not self.reader.metadata.get("_recording", {}).get("complete", False)
+            state = "시각 이동 중…" if self._replay_seeking else ("재생 중" if self._replay_playing else "일시정지")
+            warnings = (f" · 적용 제외 {self._replay_rejection_count}건" if self._replay_rejection_count else "")
+            trial = self.reader.metadata.get("trial", {})
+            trial_name = " · " + trial["name"] if trial.get("name") else ""
+            self.record_label.setText(f"기록 재생 · {state} · {Path(self.args.replay).name}" + trial_name +
+                                      (" · 미완료 기록: 저장된 부분까지 재생" if incomplete else "") + warnings +
+                                      (" · " + self.recording_compatibility_note if self.recording_compatibility_note else ""))
+            self.record_label.setToolTip("\n".join(filter(None, [trial.get("description", ""), *self._replay_rejections])))
+            self.record_label.setStyleSheet("color:#fbbf24;" if warnings else "color:#7dd3fc;")
+            return
+        status = self.recorder.status() if self.recorder is not None else self.recording_result
+        if not status:
+            return
+        failed = status.get("state") == "FAILED" or bool(status.get("error"))
+        label = "기록 오류 · 누락 없는 저장 미확인" if failed else ("기록 중" if self.recorder else "저장 완료")
+        if self.recorder and self._auto_trial_recording:
+            label += " · 자동 / 시험 종료까지"
+        if self._trial_summary:
+            label += " · " + self._trial_summary["name"]
+        self.record_label.setText(f"{label} · {status.get('events', 0):,}개 · {status.get('path', '')}" +
+                                  (" · " + str(status["error"]) if failed else ""))
+        if self._trial_notes_copy_path:
+            self.record_label.setText(self.record_label.text() + " · 메모만 별도 저장: " + self._trial_notes_copy_path)
+        self.record_label.setToolTip(str(status.get("path", "")))
+        self.record_label.setStyleSheet("color:#fca5a5;" if failed else "color:#7dd3fc;")
+
+    def open_recording_file(self):
+        path = choose_recording(self)
+        if not path:
+            return
+        args = argparse.Namespace(**vars(self.args))
+        args.replay = path
+        args.state_file = args.ssh_progress_file = args.snapshot = None
+        args.quit_after_s = 0.
+        args.open_developer_window = []
+        try:
+            window = type(self)(args)
+        except (OSError, ValueError, RuntimeError) as error:
+            QtWidgets.QMessageBox.warning(self, "기록 열기 실패", str(error))
+            return
+        self._replay_windows.append(window)
+        window.show()
+
+    def open_recording_folder(self):
+        status = self.recorder.status() if self.recorder is not None else self.recording_result
+        path = Path(status["path"]).parent if status else recording_directory()
+        path.mkdir(parents=True, exist_ok=True)
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(path)))
+
+    def reset_replay_anchor(self, *_):
+        self._replay_wall_anchor = time.monotonic()
+        self._replay_position_anchor = self._replay_position
+
+    def pause_replay(self):
+        self._replay_playing = False
+        self._replay_resume_after_seek = False
+        self.update_recording_bar()
+
+    def toggle_replay(self):
+        if self._replay_seeking:
+            return
+        if self._replay_position >= self.reader.duration and not self._replay_playing:
+            self.seek_replay(0., resume=True)
+            return
+        self._replay_playing = not self._replay_playing
+        self.reset_replay_anchor()
+        self.update_recording_bar()
+
+    def _apply_replay_record(self, record):
+        self._replay_seq = record["seq"]
+        self._replay_position = record["offset_s"]
+        event = dict(record["event"])
+        if record["board"] == "gui" and event.get("kind") == "comparison_baseline":
+            if record["offset_s"] != 0.:
+                raise ValueError("비교 초기 궤적이 기록 시작 이후에 있습니다")
+            source, positions, age = comparison_baseline(event)
+            self.histories[source].clear()
+            self.histories[source].extend(positions)
+            if positions:
+                self.received["pose:" + source] = self.now()-age
+            else:
+                self.received.pop("pose:" + source, None)
+            return
+        if record["board"] == "gui" and event.get("kind") == "view":
+            goal = event.get("selected_goal")
+            self.selected_goal = tuple(goal) if isinstance(goal, list) and len(goal) == 3 else None
+            source = event.get("selected_goal_source")
+            self.selected_goal_source = source if source in ("manual", "click") else None
+            self.active_model = event.get("active_model")
+            self.model_switch_result = event.get("model_switch_result")
+            self.trial_stop_result = event.get("trial_stop_result")
+            self.active_cloud_source = event.get("active_cloud_source")
+            self.active_slope_mode = event.get("active_slope_mode")
+            self.cloud_switch_result = event.get("cloud_switch_result")
+            self.slope_switch_result = event.get("slope_switch_result")
+            self.slope_cpu_history = {}
+            for mode, values in event.get("slope_cpu_history", {}).items():
+                entry = dict(values)
+                offset = entry.pop("_record_received_offset_s", None)
+                if isinstance(offset, (int, float)) and math.isfinite(offset):
+                    entry["received"] = 1_000_000. + offset
+                self.slope_cpu_history[mode] = entry
+            self.heading_reset_result = event.get("heading_reset_result")
+            restart_result = event.get("vio_restart_result")
+            if (not event.get("_baseline_state") and isinstance(restart_result, dict) and restart_result.get("ok") is True and
+                    restart_result != self.vio_restart_result):
+                self.clear_raw_vio_history()
+            self.vio_restart_result = restart_result
+            ssh = event.get("ssh")
+            if isinstance(ssh, dict):
+                self.ssh_progress = ssh
+            for panel in self.panels.values():
+                panel.set_planning(self.telemetry.get("planning", {}), self.selected_goal)
+            return
+        age = event.get("_record_receive_age_s", 0.)
+        if not isinstance(age, (int, float)) or not math.isfinite(age) or age < 0:
+            raise ValueError("기록의 수신 시각이 유효하지 않습니다")
+        event["_local_received_monotonic"] = self.now() - age
+        event["_relay_age_s"] = age
+        if self.on_packet(record["board"], event) is False:
+            self.note_replay_rejection(record, "입력 계약/시각/순서 검사 거부")
+            return
+        if event.get("kind") == "image":
+            # A later malformed/unlocated preview must retain the earlier valid
+            # frame just as live refresh did, even when seeking skips paints.
+            self.decode_images((event.get("source"),))
+            if self.images.get(event.get("source"), {}).get("decode_error"):
+                self.note_replay_rejection(record, "영상 해독 실패 · 마지막 정상 영상 유지")
+
+    def note_replay_rejection(self, record, reason):
+        self._replay_rejection_count += 1
+        event = record["event"]
+        self._replay_rejections.append(f"seq {record['seq']} · {record['board']}/{event.get('source', '?')} · {reason}")
+        self._replay_rejections = self._replay_rejections[-20:]
+
+    def seek_replay(self, seconds, resume=False):
+        if self._replay_error:
+            return
+        self.pause_replay()
+        self._replay_resume_after_seek = resume
+        self._replay_seek_target = max(0., min(self.reader.duration, float(seconds)))
+        if not self._replay_seeking:
+            self._replay_restore_windows = [(part, window.isVisible(), window.saveGeometry())
+                                            for part, window in self.developer_windows.items()]
+            for window in self.developer_windows.values():
+                window.close()
+                window.deleteLater()
+            self.developer_windows.clear()
+        self._replay_seeking = True
+        self._replay_seq = 0
+        self._replay_position = 0.
+        self.reset_replay_data()
+        self.update_recording_bar()
+        self.advance_replay()
+
+    def reset_replay_data(self):
+        from relay import CaptureOrder
+        from module_logs import LogHistory
+        from render_utils import HistorySampler
+        for history in self.histories.values():
+            history.clear()
+        self._plot_samplers = {key: HistorySampler(4000) for key in self.histories}
+        self._plot_signatures.clear()
+        self._fit_initialized = False
+        self._decoded_payloads.clear()
+        self._replay_rejections.clear()
+        self._replay_rejection_count = 0
+        self.received.clear()
+        self.statuses.clear()
+        self.rates.clear()
+        self.images.clear()
+        self.latest_qimages.clear()
+        self._display_qimages.clear()
+        self._display_packet_cache.clear()
+        self._image_packet_cache.clear()
+        self.telemetry.clear()
+        self._comparison_epoch = None
+        self._raw_vio_epoch = None
+        self.heading_reset_result = None
+        self.vio_restart_result = None
+        self.module_logs = {part: LogHistory(128) for part in self.module_logs}
+        self.image_dirty.clear()
+        self.capture_order = CaptureOrder()
+        self.accepted_events = self.invalid_events = 0
+        self.selected_goal = None
+        self.selected_goal_source = None
+        self.active_model = self.reader.metadata.get("active_model")
+        self.active_cloud_source = self.reader.metadata.get("active_cloud_source")
+        self.active_slope_mode = self.reader.metadata.get("active_slope_mode")
+        self.cloud_switch_result = self.slope_switch_result = None
+        self.slope_cpu_history = {}
+        from resource_metrics import ResourceHistory
+        self.resource_history = ResourceHistory()
+        self.trial_stop_result = self.model_switch_result = None
+        self.ssh_progress = {board: {"phase": "recording"} for board in ("pi", "jetson")}
+        self.planning_message.setText("기록 재생 · 이 시각의 플래너 데이터 대기")
+        self.plot_dirty = True
+        for source in self.lines:
+            self.lines[source].set_data_3d([], [], [])
+            self.markers[source].set_data_3d([], [], [])
+        for panel in self.panels.values():
+            panel.clear_data()
+
+    def advance_replay(self):
+        if not self.replay_mode or self._replay_error:
+            return
+        target = self._replay_seek_target if self._replay_seeking else self._replay_position
+        if self._replay_playing:
+            speed = float(self.replay_speed.currentData())
+            target = min(self.reader.duration, self._replay_position_anchor +
+                         (time.monotonic() - self._replay_wall_anchor) * speed)
+        try:
+            # Bounded chunks keep seeking responsive and never queue one Qt
+            # signal per frame. Images update retained buffers; painting remains
+            # on the existing UI timer, including during a long seek.
+            deadline = time.monotonic() + .012
+            while True:
+                rows = self.reader.events_until(target, after_seq=self._replay_seq, limit=128)
+                for record in rows:
+                    self._apply_replay_record(record)
+                if not rows:
+                    self._replay_position = target
+                    if self._replay_seeking:
+                        self._replay_seeking = False
+                        for part, visible, geometry in self._replay_restore_windows:
+                            if visible:
+                                self.open_developer_window(part)
+                                self.developer_windows[part].restoreGeometry(geometry)
+                        self._replay_restore_windows = []
+                        if self._replay_resume_after_seek:
+                            self._replay_playing = True
+                            self._replay_resume_after_seek = False
+                            self.reset_replay_anchor()
+                    if target >= self.reader.duration:
+                        self._replay_playing = False
+                    break
+                if time.monotonic() >= deadline:
+                    break
+        except (OSError, ValueError, TypeError, KeyError, AttributeError, OverflowError, RuntimeError) as error:
+            self._replay_playing = self._replay_seeking = False
+            self._replay_error = str(error)
+            self.record_label.setText("기록 재생 오류 · " + str(error))
+            self.record_label.setStyleSheet("color:#fca5a5;")
+            self.replay_play.setEnabled(False)
+            self.replay_slider.setEnabled(False)
+            return
+        self.update_recording_bar()
+
+    def close_recording(self):
+        self.stop_recording()
+        if self.reader is not None:
+            self.reader.close()
+

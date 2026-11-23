@@ -1,0 +1,260 @@
+{
+ "publish_hz": {
+  "title": "출력 주기",
+  "description": "위치(odometry)를 내보내는 주기예요. 플래너가 받는 위치 주기예요.",
+  "unit": "Hz",
+  "min": 1.0,
+  "max": 50.0,
+  "default": 20.0
+ },
+ "solve_hz": {
+  "title": "최적화 주기",
+  "description": "창 최적화를 도는 주기예요.",
+  "unit": "Hz",
+  "min": 0.5,
+  "max": 10.0,
+  "default": 2.0
+ },
+ "keyframe_hz": {
+  "title": "키프레임 주기",
+  "description": "창에 상태를 넣는 주기예요.",
+  "unit": "Hz",
+  "min": 1.0,
+  "max": 20.0,
+  "default": 5.0
+ },
+ "window_s": {
+  "title": "최적화 창 길이",
+  "description": "최근 몇 초를 함께 최적화할지예요.",
+  "unit": "s",
+  "min": 2.0,
+  "max": 60.0,
+  "default": 10.0
+ },
+ "max_iterations": {
+  "title": "최적화 반복 수",
+  "description": "한 번 최적화할 때 최대 반복 수예요.",
+  "unit": "회",
+  "min": 1,
+  "max": 50,
+  "default": 10
+ },
+ "solver_time_s": {
+  "title": "최적화 시간 한도",
+  "description": "한 번 최적화에 쓰는 최대 시간이에요.",
+  "unit": "s",
+  "min": 0.01,
+  "max": 0.5,
+  "default": 0.05
+ },
+ "gps_max_age_s": {
+  "title": "GNSS 최대 나이",
+  "description": "이보다 오래된 GNSS 위치는 쓰지 않아요.",
+  "unit": "s",
+  "min": 0.5,
+  "max": 10.0,
+  "default": 2.5
+ },
+ "quality_max_age_s": {
+  "title": "GNSS 품질 최대 나이",
+  "description": "이보다 오래된 GNSS 품질 정보는 쓰지 않아요.",
+  "unit": "s",
+  "min": 0.5,
+  "max": 10.0,
+  "default": 2.5
+ },
+ "vio_stale_s": {
+  "title": "VIO 끊김 판정",
+  "description": "VIO가 이 시간 동안 안 오면 끊긴 것으로 봐요.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 3.0,
+  "default": 0.5,
+  "safety": true
+ },
+ "gps_horizontal_sigma_m": {
+  "title": "GNSS 수평 오차",
+  "description": "RTK 고정일 때 수평 위치 오차 가정이에요.",
+  "unit": "m",
+  "min": 0.01,
+  "max": 10.0,
+  "default": 0.5
+ },
+ "gps_vertical_sigma_m": {
+  "title": "GNSS 수직 오차",
+  "description": "RTK 고정일 때 높이 오차 가정이에요.",
+  "unit": "m",
+  "min": 0.01,
+  "max": 20.0,
+  "default": 1.0
+ },
+ "gps_nonfixed_sigma_m": {
+  "title": "GNSS 비고정 오차",
+  "description": "RTK 고정이 아닐 때 위치 오차 가정이에요.",
+  "unit": "m",
+  "min": 0.1,
+  "max": 20.0,
+  "default": 1.5
+ },
+ "use_reported_gps_covariance": {
+  "title": "수신기 오차 사용",
+  "description": "켜면 수신기가 보낸 오차를 써요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "gps_max_speed_mps": {
+  "title": "GNSS 최대 속도",
+  "description": "GNSS 위치가 이 속도보다 빨리 움직이면 튐으로 봐요.",
+  "unit": "m/s",
+  "min": 0.5,
+  "max": 20.0,
+  "default": 5.0
+ },
+ "gps_jump_margin_m": {
+  "title": "GNSS 튐 여유",
+  "description": "튐 판정에 더하는 여유 거리예요.",
+  "unit": "m",
+  "min": 0.01,
+  "max": 5.0,
+  "default": 0.5
+ },
+ "gps_reacquire_s": {
+  "title": "GNSS 재획득 시간",
+  "description": "GNSS가 다시 들어온 뒤 이 시간 동안 확인하고 써요.",
+  "unit": "s",
+  "min": 0.01,
+  "max": 30.0,
+  "default": 2.0
+ },
+ "gps_reacquire_agreement_m": {
+  "title": "GNSS 재획득 일치 거리",
+  "description": "재획득 확인 때 VIO와 이 거리 안에 맞아야 해요.",
+  "unit": "m",
+  "min": 0.05,
+  "max": 5.0,
+  "default": 0.5
+ },
+ "vio_max_speed_mps": {
+  "title": "VIO 최대 속도",
+  "description": "VIO 위치가 이 속도보다 빨리 움직이면 튐으로 봐요.",
+  "unit": "m/s",
+  "min": 0.5,
+  "max": 20.0,
+  "default": 5.0,
+  "safety": true
+ },
+ "vio_max_rotation_rate_rps": {
+  "title": "VIO 최대 회전 속도",
+  "description": "VIO 회전이 이보다 빠르면 튐으로 봐요.",
+  "unit": "rad/s",
+  "min": 0.5,
+  "max": 10.0,
+  "default": 3.0,
+  "safety": true
+ },
+ "vio_jump_margin_m": {
+  "title": "VIO 튐 여유",
+  "description": "VIO 튐 판정에 더하는 여유 거리예요.",
+  "unit": "m",
+  "min": 0.01,
+  "max": 2.0,
+  "default": 0.15,
+  "safety": true
+ },
+ "vio_translation_sigma_per_sqrt_s": {
+  "title": "VIO 위치 오차 증가",
+  "description": "VIO 위치 오차가 √s당 늘어나는 정도예요. 크게 하면 GNSS를 더 믿어요.",
+  "unit": "m/√s",
+  "min": 0.001,
+  "max": 1.0,
+  "default": 0.08
+ },
+ "vio_rotation_sigma_per_sqrt_s": {
+  "title": "VIO 회전 오차 증가",
+  "description": "VIO 회전 오차가 √s당 늘어나는 정도예요.",
+  "unit": "rad/√s",
+  "min": 0.001,
+  "max": 1.0,
+  "default": 0.02
+ },
+ "alignment_require_rtk_fixed": {
+  "title": "정렬에 RTK 고정 필요",
+  "description": "켜면 RTK 고정 위치만으로 VIO-GNSS 방향을 맞춰요.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "alignment_min_span_m": {
+  "title": "정렬 최소 이동",
+  "description": "VIO-GNSS 방향 맞추기 전에 필요한 최소 이동 거리예요.",
+  "unit": "m",
+  "min": 0.5,
+  "max": 50.0,
+  "default": 2.0
+ },
+ "alignment_max_rmse_m": {
+  "title": "정렬 최대 오차",
+  "description": "방향 맞추기 결과 오차가 이보다 크면 쓰지 않아요.",
+  "unit": "m",
+  "min": 0.1,
+  "max": 10.0,
+  "default": 1.5
+ },
+ "vio_health_required": {
+  "title": "VIO 상태 보고 필수",
+  "description": "켜면 Basalt 상태 보고가 없거나 실패가 반복될 때 위치 출력을 멈춰요.",
+  "unit": "켬/끔",
+  "default": true,
+  "safety": true
+ },
+ "vio_failure_threshold": {
+  "title": "VIO 실패 횟수",
+  "description": "실패 판정 창 안에서 이 횟수만큼 실패하면 VIO 실패로 봐요.",
+  "unit": "회",
+  "min": 1,
+  "max": 20,
+  "default": 3,
+  "safety": true
+ },
+ "vio_failure_window_s": {
+  "title": "VIO 실패 판정 창",
+  "description": "실패 횟수를 세는 시간 창이에요.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 10.0,
+  "default": 1.0
+ },
+ "vio_health_timeout_s": {
+  "title": "VIO 상태 보고 제한",
+  "description": "상태 보고가 이 시간 동안 없으면 실패로 봐요.",
+  "unit": "s",
+  "min": 0.2,
+  "max": 10.0,
+  "default": 1.0,
+  "safety": true
+ },
+ "vio_recovery_hold_s": {
+  "title": "VIO 회복 대기",
+  "description": "실패 뒤 이 시간 동안 정상이어야 다시 READY가 돼요.",
+  "unit": "s",
+  "min": 0.01,
+  "max": 10.0,
+  "default": 1.0
+ },
+ "gnss_fusion_mode": {
+  "title": "GNSS 융합 방식",
+  "description": "drift_correction: GNSS로 천천히 드리프트만 보정(11-12). window: 이전처럼 최적화 창에 GNSS를 넣어요.",
+  "unit": "선택",
+  "options": [
+   "drift_correction",
+   "window"
+  ],
+  "default": "drift_correction"
+ },
+ "gnss_position_fallback": {
+  "title": "GNSS 위치 대체",
+  "description": "켜면 VIO 실패 때 GNSS 위치로 대신 내보내요. 끄면 멈춰요.",
+  "unit": "켬/끔",
+  "default": false,
+  "safety": true
+ }
+}

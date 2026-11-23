@@ -1,0 +1,12 @@
+{
+ "odometry_timeout": 0.5,
+ "map_timeout": 2.5,
+ "status_timeout": 1.5,
+ "vehicle_timeout": 0.3,
+ "result_timeout": 1.0,
+ "clock_future_tolerance": 0.2,
+ "command_lease": 0.15,
+ "max_result_displacement": 0.4,
+ "max_result_rotation": 0.4,
+ "max_map_cells": 1000000
+}

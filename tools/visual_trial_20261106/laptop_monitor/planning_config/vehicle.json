@@ -1,0 +1,13 @@
+{
+ "wheelbase": 0.335,
+ "track": 0.6,
+ "wheel_radius": 0.055,
+ "max_steer": 0.6108652381980153,
+ "steering_joint_limit": 1.0813901513620499,
+ "reference_offset": -0.1675,
+ "body_length": 1.0,
+ "body_width": 0.65,
+ "rear_steer": true,
+ "forward_speed": 0.25,
+ "arrival_tolerance": 0.35
+}

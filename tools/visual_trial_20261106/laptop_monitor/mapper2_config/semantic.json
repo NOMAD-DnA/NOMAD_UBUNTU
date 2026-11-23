@@ -1,0 +1,37 @@
+{
+ "_comment": "mapper2 logic B (semantic). Descriptions: semantic_doc.json. Unknown keys are rejected.",
+ "max_range_m": 6.0,
+ "fan_margin_deg": 10.0,
+ "tf_wait_s": 0.2,
+ "tf_retry_s": 0.05,
+ "label_timeout_s": 3.0,
+ "publish_hz": 0.0,
+ "vote_decay": 0.8,
+ "max_pending_labels": 8,
+ "require_height_for_ready": true,
+ "boundary_mask": {
+  "enabled": true
+ },
+ "occlusion": {
+  "enabled": true,
+  "margin_m": 0.05
+ },
+ "dynamic": {
+  "enabled": true,
+  "block_radius_m": 0.5,
+  "hold_s": null
+ },
+ "past_label_reuse": {
+  "enabled": true,
+  "label_retention_s": 10.0,
+  "past_weight_per_s": 0.9,
+  "max_labels": 30
+ },
+ "height_change_revote": {
+  "enabled": true,
+  "min_change_m": 0.05
+ },
+ "slope_gate": {
+  "enabled": true
+ }
+}

@@ -1,0 +1,10 @@
+{
+ "first_source_row": 206,
+ "pixel_stride": 4,
+ "min_depth_m": 0.2,
+ "max_depth_m": 10.0,
+ "max_capture_age_s": 1.5,
+ "opencv_threads": 1,
+ "num_disparities": 192,
+ "block_size": 7
+}

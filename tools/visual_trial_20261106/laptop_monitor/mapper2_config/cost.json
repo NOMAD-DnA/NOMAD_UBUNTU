@@ -1,0 +1,59 @@
+{
+ "_comment": "mapper2 logic C (nomad_cost_layer). Descriptions: cost_doc.json. Unknown keys are rejected.",
+ "frames": {
+  "base_frame": "base_link",
+  "imu_frame": "oak_imu_frame"
+ },
+ "slope": {
+  "limit_deg": 20.0,
+  "score_per_deg": 4.0
+ },
+ "step_block": {
+  "enabled": true,
+  "max_step_m": 0.05
+ },
+ "semantic": {
+  "class_cost_enabled": true,
+  "slope_only_when_semantic_unknown": true
+ },
+ "dynamic_block": {
+  "enabled": true
+ },
+ "driven_path_free": {
+  "enabled": true,
+  "front_radius_m": 0.5,
+  "rear_length_m": 0.35,
+  "rear_half_width_m": 0.2,
+  "keep_measured_slope": true,
+  "driven_memory_enabled": true,
+  "driven_front_m": 0.025
+ },
+ "startup_flat": {
+  "enabled": true,
+  "radius_m": 2.0
+ },
+ "startup_stationary_s": 2.0,
+ "stationary": {
+  "window_s": 2.0,
+  "max_translation_m": 0.03,
+  "max_rotation_deg": 2.0
+ },
+ "freshness": {
+  "max_input_age_s": 2.0,
+  "max_pose_age_s": 0.5,
+  "local_max_age_s": 30.0,
+  "max_output_gap_s": 3.0,
+  "upstream_status_receipt_s": 1.0
+ },
+ "camera_support": {
+  "full_age_s": 10.0,
+  "zero_age_s": 30.0
+ },
+ "rates": {
+  "publish_hz": 0.0,
+  "status_hz": 10.0
+ },
+ "block_reason": {
+  "enabled": true
+ }
+}

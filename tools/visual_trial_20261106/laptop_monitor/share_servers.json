@@ -1,0 +1,8 @@
+{
+ "note": "팀 공유폴더를 띄우는 노트북(Samba [shared]). 교실은 이름(.local), 야지는 그 노트북 핫스팟 주소로 찾는다. 공유폴더 PC가 바뀌면 servers만 고친다.",
+ "share": "shared",
+ "servers": ["user-su.local", "10.42.0.1"],
+ "relative": "NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106",
+ "user": "user",
+ "domain": "WORKGROUP"
+}

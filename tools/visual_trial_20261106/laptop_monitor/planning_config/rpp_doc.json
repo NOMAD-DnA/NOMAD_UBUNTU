@@ -1,0 +1,43 @@
+{
+ "rpp.lookahead_candidates": {
+  "title": "캐럿 후보 거리 · 검사 순서",
+  "description": "배열의 왼쪽부터 검사하고 조향 한계·충돌·정지거리 검사를 처음 통과한 후보를 즉시 선택해요. 추가·제거하거나 배열을 직접 편집할 수 있어요. 저장 후 다음 Jetson 플래너 시작부터 적용돼요.",
+  "unit": "m",
+  "default": [],
+  "min": 0.1,
+  "max": 3.0,
+  "max_items": 32
+ },
+ "rpp.lookahead": {
+  "title": "앞보기 거리",
+  "description": "경로를 따라갈 때 이만큼 앞의 점을 겨냥해요. 짧으면 경로를 꼭 붙지만 흔들려요.",
+  "unit": "m",
+  "default": 0.8,
+  "min": 0.1,
+  "max": 3.0
+ },
+ "rpp.adaptive_lookahead": {
+  "title": "앞보기 거리 자동 조절",
+  "description": "속도·곡률에 따라 앞보기 거리를 바꿔요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "rpp.lateral_accel": {
+  "title": "최대 옆 가속",
+  "description": "급한 곡선에서 이 옆 가속을 넘지 않게 속도를 줄여요.",
+  "unit": "m/s²",
+  "default": 0.35,
+  "min": 0.05,
+  "max": 3.0,
+  "safety": true
+ },
+ "rpp.unknown_speed": {
+  "title": "미관측 칸 속도 제한",
+  "description": "차가 미관측 칸 위에 있을 때 최대 속도예요. 0이면 따로 제한하지 않아요. '최대 주행 속도'보다 크면 플래너가 시작하지 않아요.",
+  "unit": "m/s",
+  "default": 0.1,
+  "min": 0.0,
+  "max": 1.0,
+  "safety": true
+ }
+}

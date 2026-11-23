@@ -1,0 +1,13 @@
+{
+ "footprint_planning": true,
+ "observed_guard": {
+  "half_length": 0.1,
+  "half_width": 0.05,
+  "center_offset": -0.075,
+  "allow_initial_footprint_outside": true,
+  "enabled": true,
+  "deceleration": 0.4,
+  "latency": 0.3,
+  "margin": 0.1
+ }
+}

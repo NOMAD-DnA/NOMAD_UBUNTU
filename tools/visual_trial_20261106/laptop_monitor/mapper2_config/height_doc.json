@@ -1,0 +1,372 @@
+{
+ "lidar.enabled": {
+  "title": "라이다 사용",
+  "description": "라이다 점을 높이 지도에 넣을지 정해요. 끄면 OAK 점만 써요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "lidar.max_range_m": {
+  "title": "라이다 최대 거리",
+  "description": "이보다 먼 라이다 점은 버려요. 지도 반경(기본 10 m)보다 크게 둘 필요는 없어요.",
+  "unit": "m",
+  "min": 1.0,
+  "max": 30.0,
+  "default": 10.0
+ },
+ "lidar.sigma_m": {
+  "title": "라이다 높이 오차",
+  "description": "라이다 점 하나의 높이 오차예요. 작을수록 라이다를 더 믿어요.",
+  "unit": "m",
+  "min": 0.001,
+  "max": 0.5,
+  "default": 0.02
+ },
+ "oak.enabled": {
+  "title": "OAK 사용",
+  "description": "OAK 깊이 점을 높이 지도에 넣을지 정해요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "oak.min_range_m": {
+  "title": "OAK 최소 거리",
+  "description": "너무 가까우면 OAK가 잘 못 찍어서, 이보다 가까운 점은 버려요. 측정해서 정할 값이에요.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 3.0,
+  "default": 0.3
+ },
+ "oak.max_range_m": {
+  "title": "OAK 최대 거리",
+  "description": "멀수록 OAK 오차가 빠르게 커져서, 이보다 먼 점은 버려요.",
+  "unit": "m",
+  "min": 0.5,
+  "max": 20.0,
+  "default": 5.0
+ },
+ "oak.sigma_base_m": {
+  "title": "OAK 기본 오차",
+  "description": "OAK 점 높이 오차의 기본값이에요. 실제 오차 = 기본 + 거리²×계수.",
+  "unit": "m",
+  "min": 0.001,
+  "max": 0.5,
+  "default": 0.02
+ },
+ "oak.sigma_per_m2": {
+  "title": "OAK 거리 오차 계수",
+  "description": "거리 제곱에 곱하는 오차 계수예요. 5 m면 0.02 + 25×0.005 = 0.145 m.",
+  "unit": "m/m²",
+  "min": 0.0,
+  "max": 0.1,
+  "default": 0.005
+ },
+ "elevation_source": {
+  "title": "높이 계산 방식",
+  "description": "kalman = 새 방식(높이+오차로 섞음), legacy_median = 팀원 경사 로직이 계산한 칸 중앙값 높이를 그대로 씀.",
+  "unit": "선택",
+  "options": [
+   "kalman",
+   "legacy_median"
+  ],
+  "default": "kalman"
+ },
+ "outlier.enabled": {
+  "title": "튀는 점 거르기",
+  "description": "칸 높이와 너무 다른 점은 버려요. 같은 칸에서 연속으로 튀면 진짜 변화로 인정해요. (legacy_median 방식에서는 팀원 로직이 거름)",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "outlier.gate_sigma": {
+  "title": "튀는 점 기준",
+  "description": "칸 오차와 점 오차를 합친 값의 몇 배를 넘으면 튀는 점으로 볼지예요.",
+  "unit": "배",
+  "min": 1.0,
+  "max": 10.0,
+  "default": 3.0
+ },
+ "outlier.confirm_up": {
+  "title": "올라감 인정 횟수",
+  "description": "칸보다 높은 점이 연속 몇 번 오면 '뭔가 생겼다'로 인정할지예요. 장애물을 빨리 잡으려고 내려감보다 작게 둬요.",
+  "unit": "번",
+  "min": 1,
+  "max": 20,
+  "default": 2
+ },
+ "outlier.confirm_down": {
+  "title": "내려감 인정 횟수",
+  "description": "칸보다 낮은 점이 연속 몇 번 오면 '없어졌다'로 인정할지예요.",
+  "unit": "번",
+  "min": 1,
+  "max": 20,
+  "default": 3
+ },
+ "outlier.min_obs": {
+  "title": "최소 관측 수",
+  "description": "점이 이만큼 들어온 칸만 높이를 내보내요. 점 하나짜리 잡음 칸을 막아요.",
+  "unit": "개",
+  "min": 1,
+  "max": 50,
+  "default": 3
+ },
+ "clearing.enabled": {
+  "title": "빔 통과 지우기",
+  "description": "라이다 빔이 어떤 칸을 맞지 않고 지나가면, 그 칸에는 빔 높이까지 올라오는 물체가 지금 없다는 뜻이에요. 저장된 높이가 '빔 높이 − 지우기 여유' 이상이면(지나간 사람 다리, 잘못 잰 높이 등) 높이와 경사를 지우고 나중에 다시 재요. 빔이 맞은 끝 1.5칸은 지우지 않아요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "clearing.margin_m": {
+  "title": "지우기 여유",
+  "description": "저장 높이가 빔 높이보다 이만큼 낮은 것까지 '빔이 지나갔으니 틀린 높이'로 봐요. 크게 하면 빔 바로 아래 바닥까지 지울 수 있어요.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 0.5,
+  "default": 0.03
+ },
+ "clearing.min_hits": {
+  "title": "지우기 필요 횟수",
+  "description": "서로 다른 스캔에서 이 횟수만큼 빔이 지나가야 지워요(한 번의 노이즈로 지우지 않기). 사이에 그 칸이 다시 관측되면 횟수는 0부터.",
+  "unit": "번",
+  "min": 1,
+  "max": 20,
+  "default": 2
+ },
+ "clearing.protect_recent_s": {
+  "title": "최근 칸 보호",
+  "description": "이 시간 안에 점이 들어온 칸은 지우지 않아요.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 5.0,
+  "default": 0.3
+ },
+ "clearing.keep_frozen_slope": {
+  "title": "지우기 때 고정 경사 유지",
+  "description": "'첫 경사 고정'이 켜져 있을 때만 의미가 있어요. 켜면 빔 통과 지우기가 그 칸의 높이(턱·지나간 사람)는 지우되, 이미 고정된 경사는 남겨요. 끄면 높이와 경사를 함께 지우고 다시 재요(11-13 방식). 막힘(100) 경사는 고정이 아니라서 지워져요.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "forgetting.enabled": {
+  "title": "오래된 높이 잊기",
+  "description": "시간이 지나면 칸 오차를 키워서 새 점이 쉽게 덮어쓰게 해요(VIO 틀어짐 대비).",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "forgetting.variance_growth_m2_per_s": {
+  "title": "잊는 속도",
+  "description": "1초마다 칸 오차(분산)에 더하는 값이에요. 0.0001이면 100초에 오차가 약 10 cm만큼 커져요.",
+  "unit": "m²/s",
+  "min": 0.0,
+  "max": 0.01,
+  "default": 0.0001
+ },
+ "slope.enabled": {
+  "title": "경사 계산",
+  "description": "팀원 경사 로직(Ground)으로 경사를 계산해요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "slope.points": {
+  "title": "경사에 넣을 점",
+  "description": "all = 모든 점(카메라 밖 라이다 포함), ground_only = 인지가 장애물·움직이는 물체로 본 칸의 점은 빼요(예전 방식에 가까움).",
+  "unit": "선택",
+  "options": [
+   "all",
+   "ground_only"
+  ],
+  "default": "all"
+ },
+ "slope.update_hz": {
+  "title": "경사 갱신 주기",
+  "description": "0이면 새 프레임(LiDAR 스캔·OAK 프레임)이 처리될 때마다 바로 그 영향 칸만 다시 계산해요(통합 요청 2.6). 0보다 크면 그 횟수 이하로 제한해요(0.2~10). CPU가 빠듯하면 2 정도로 올리세요.",
+  "unit": "Hz (0=매 프레임)",
+  "min": 0.0,
+  "max": 10.0,
+  "default": 0.0
+ },
+ "publish_hz": {
+  "title": "내보내기 주기",
+  "description": "0이면 새 높이·경사 지도가 준비되는 즉시 내보내요(통합 요청 2.10). 0보다 크면 그 횟수 이하로 제한해요(0.5~20). 바뀐 칸이 없으면 내보내지 않아요.",
+  "unit": "Hz (0=즉시)",
+  "min": 0.0,
+  "max": 20.0,
+  "default": 0.0
+ },
+ "tf_wait_s": {
+  "title": "위치 기다리기",
+  "description": "점이 찍힌 순간의 위치(TF)가 아직 안 왔으면 이만큼 기다렸다가, 그래도 없으면 버려요.",
+  "unit": "s",
+  "min": 0.05,
+  "max": 3.0,
+  "default": 0.5
+ },
+ "status_timeout_s": {
+  "title": "입력 끊김 판단",
+  "description": "라이다·OAK 점이 이 시간 넘게 안 오면 준비 안 됨으로 알려요.",
+  "unit": "s",
+  "min": 0.2,
+  "max": 10.0,
+  "default": 1.0
+ },
+ "oak.sor_voxel": {
+  "title": "OAK 이상점 제거·3cm 정리",
+  "description": "OAK 점에 이상점 제거(SOR: 주변 80점 평균거리가 평균+1표준편차 넘는 점 제거) 뒤 3 cm 칸마다 평균점 하나로 줄여서, 같은 결과를 높이(칼만)와 경사 계산에 함께 넣어요(통합 요청 2.1). 끄면 OAK 원본 점을 그대로 넣어요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "slope.frame_bucket_s": {
+  "title": "같은 센서 프레임 건너뛰기 간격",
+  "description": "같은 센서의 다음 프레임이 이 시간 안에 오면 경사 누적에서 건너뛰어요. 0이면 모든 프레임을 써요. 기존 값은 0.2 s.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 0.5,
+  "default": 0.2
+ },
+ "slope.oak_lidar_height_gate": {
+  "title": "OAK-LiDAR 높이 차이 필터",
+  "description": "켜면 반경 12 cm 안 LiDAR 점과 높이가 12 cm 이상 다른 OAK 점을 경사 계산에서 빼요(예전 방식). 통합 요청 2.4로 기본은 꺼짐.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "slope.freeze_first_valid": {
+  "title": "첫 경사 고정",
+  "description": "켜면 칸마다 처음 잡힌 유효 경사를 계속 써요(예전 방식, 비용 100이면 재시도 포함). 통합 요청 2.5로 기본은 꺼짐: 새 점이 오면 다시 계산하고, 실패하면 이전 유효 평면을 유지해요.",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "slope.kalman_fallback.enabled": {
+  "title": "점 부족 시 칼만 높이로 경사",
+  "description": "점이 모자라 경사를 못 구할 때만, 칼만 높이 지도 3×3(그래도 부족하면 5×5)으로 평면을 다시 맞춰요(통합 요청 2.7). 평면 품질이 나빠 실패한 경우에는 쓰지 않고 이전 평면을 유지해요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "slope.kalman_fallback.max_sigma_m": {
+  "title": "칼만 보조 최대 불확실성",
+  "description": "높이 표준편차가 이보다 큰 칼만 칸은 보조 계산에 쓰지 않아요. 임시 값(통합 요청 5.2 미결정).",
+  "unit": "m",
+  "min": 0.001,
+  "max": 1.0,
+  "default": 0.05
+ },
+ "slope.kalman_fallback.max_age_s": {
+  "title": "칼만 보조 최대 경과 시간",
+  "description": "마지막으로 높이가 실제로 갱신(이상치 거부 제외)된 뒤 이 시간이 지난 칸은 쓰지 않아요. 임시 값(통합 요청 5.2 미결정).",
+  "unit": "s",
+  "min": 0.1,
+  "max": 120.0,
+  "default": 5.0
+ },
+ "expiry.enabled": {
+  "title": "오래 안 본 칸 지우기",
+  "description": "칸이 '최대 미관측 시간' 동안 다시 관측되지 않으면 높이와 경사를 지워 '모름'으로 돌려요(사람이 지나간 자국, 시작 때 잘못 잰 높이 등). 차 바로 옆처럼 센서가 못 보는 칸도 지워져요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "expiry.max_unseen_s": {
+  "title": "최대 미관측 시간",
+  "description": "이 시간보다 오래 다시 관측되지 않은 칸을 지워요.",
+  "unit": "s",
+  "min": 2.0,
+  "max": 600.0,
+  "default": 30.0
+ },
+ "expiry.keep_frozen_slope": {
+  "title": "만료 때 고정 경사 유지",
+  "description": "'첫 경사 고정'이 켜져 있을 때만 의미가 있어요. 켜면 오래 안 본 칸의 높이는 지우되, 고정된 경사는 지도 안에 있는 동안 남겨요. 끄면 높이와 경사를 함께 지워요(11-13 방식).",
+  "unit": "켬/끔",
+  "default": false
+ },
+ "step.confirm": {
+  "title": "턱 확정 방식",
+  "description": "켜면 턱(이웃 칸과의 높이 차)이 '턱 확정 시간' 동안 계속 보여야 턱으로 내보내요. 확정 전 후보는 '모름'으로 내보내서, 한 번 튄 높이로 막히지 않아요. 확정된 턱은 '턱 해제 시간' 동안 평평하게 재야 풀려요. 끄면 예전처럼 매번 잰 값을 그대로 내보내요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "step.threshold_m": {
+  "title": "턱 후보 높이",
+  "description": "이웃 칸과의 높이 차가 이 값보다 크면 턱 후보예요. 비용 층의 '넘을 수 있는 턱'과 같은 값으로 두세요.",
+  "unit": "m",
+  "min": 0.005,
+  "max": 1.0,
+  "default": 0.05
+ },
+ "step.max_sigma_m": {
+  "title": "턱 판정 최대 불확실성",
+  "description": "두 칸 모두 높이 표준편차가 이 값 이하일 때만 턱을 재요. 멀리서 한두 번 본 칸(오차 큼)은 턱을 만들지 않아요.",
+  "unit": "m",
+  "min": 0.001,
+  "max": 1.0,
+  "default": 0.03
+ },
+ "step.confirm_s": {
+  "title": "턱 확정 시간",
+  "description": "턱 후보가 이 시간 동안 계속 보이면 턱으로 확정해요.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 10.0,
+  "default": 0.5
+ },
+ "step.release_s": {
+  "title": "턱 해제 시간",
+  "description": "확정된 턱이 이 시간 동안 평평하게(후보 높이 이하로) 재이면 풀어요.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 30.0,
+  "default": 1.0
+ },
+ "semantic_points.enabled": {
+  "title": "인지 라벨이 붙은 점만 사용",
+  "description": "켜면 LiDAR·OAK 점 하나하나를 같은 시각의 ZED 인지 영상에 비춰 클래스를 붙이고, 지면 클래스(흙·자갈·포장·낙엽) 점만 높이와 경사에 써요(기존 매퍼의 규칙). 사람·차 점은 그 칸을 '사람 있음'으로, 장애물 클래스 점은 '장애물 칸'으로 표시해요. 라벨을 못 받은 점(카메라 시야 밖 등)은 쓰지 않아요. 끄면 모든 점을 높이·경사에 써요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "semantic_points.label_lead_s": {
+  "title": "점이 영상보다 늦어도 되는 시간",
+  "description": "점이 인지 영상보다 이 시간 이내로 늦게 찍혔을 때만 그 영상의 라벨을 써요(기존 값 0.1초).",
+  "unit": "s",
+  "min": 0.0,
+  "max": 1.0,
+  "default": 0.1
+ },
+ "semantic_points.label_window_s": {
+  "title": "점이 영상보다 일러도 되는 시간",
+  "description": "점이 인지 영상보다 이 시간 이내로 먼저 찍혔을 때만 그 영상의 라벨을 써요(기존 값 3초).",
+  "unit": "s",
+  "min": 0.1,
+  "max": 10.0,
+  "default": 3.0
+ },
+ "semantic_points.label_wait_s": {
+  "title": "라벨 기다리는 시간",
+  "description": "점 묶음이 맞는 인지 영상을 이 시간까지 기다려요. 넘으면 그 묶음은 쓰지 않고 버려요. 인지가 1 Hz라 보통 1초쯤 기다려요.",
+  "unit": "s",
+  "min": 0.2,
+  "max": 10.0,
+  "default": 2.0
+ },
+ "semantic_points.veto_previous_label": {
+  "title": "직전 영상과 어긋나면 제외",
+  "description": "점을 찍기 직전의 인지 영상에서 그 자리가 사람·차·장애물이었으면, 다음 영상이 지면이라고 해도 지면 점으로 쓰지 않아요(그 사이 사람이 지나간 경우를 거르기 위함).",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "semantic_points.previous_label_max_s": {
+  "title": "직전 영상 허용 시간",
+  "description": "점보다 이 시간 이내로 앞선 영상만 '직전 영상'으로 써요.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 10.0,
+  "default": 1.5
+ },
+ "semantic_points.person_ray_clear": {
+  "title": "LiDAR 광선으로 사람 칸 되돌리기",
+  "description": "사람·차로 표시된 칸을 더 새로운 LiDAR 광선 하나가 지나가면(높이는 보지 않음) 사람 표시를 내리고 그 칸의 원래 지형으로 되돌려요(기존 매퍼 규칙). 그 칸에 더 새로운 사람 아닌 점이 찍혀도 되돌려요.",
+  "unit": "켬/끔",
+  "default": true
+ },
+ "semantic_points.dynamic_retention_s": {
+  "title": "사람 표시 유지 시간",
+  "description": "사람·차가 마지막으로 보인 뒤 이 시간까지는 그 칸을 막아요. 지나면 LiDAR 광선이 지나가기 전까지 '모름'으로 둬요. 기존 매퍼 값은 1초.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 30.0,
+  "default": 1.0
+ }
+}

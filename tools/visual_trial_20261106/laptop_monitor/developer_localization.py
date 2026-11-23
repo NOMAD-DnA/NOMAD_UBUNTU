@@ -1,0 +1,913 @@
+"""Laptop localization comparison and an explicitly requested heading-reset action."""
+from __future__ import annotations
+
+import math
+import time
+from collections.abc import Mapping
+
+from PyQt5 import QtCore, QtGui, QtWidgets
+from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg
+from matplotlib.figure import Figure
+
+from magnetometer_panel import MagnetometerPanel
+from localization_state import FORWARD_TRUNCATED_TEXT, forward_truncated, localization_summary
+from heading_control import REASON_LABELS as HEADING_REASONS
+from vio_control import REASON_LABELS as VIO_REASONS
+from module_logs import attach_module_logs, update_module_logs
+from render_utils import HistorySampler, history_signature, fit_axes_3d, set_text, set_style, stable_metadata
+import developer_debug as dbg
+
+
+SOURCES = ("gnss", "vio_compare", "public", "fusion", "vio")
+COLORS = {"gnss": "#f472b6", "vio_compare": "#38bdf8", "fusion": "#fbbf24",
+          "public": "#34d399", "vio": "#a78bfa"}
+SOURCE_LABELS = {"gnss": "GNSS", "vio_compare": "VIO · 로컬 비교", "fusion": "내부 융합 · IMU 기준",
+                 "public": "융합 위치", "vio": "원본 VIO · 고유 좌표계"}
+LEGEND_LABELS = {"gnss": "GNSS", "vio_compare": "VIO (local)", "fusion": "Fusion (IMU)",
+                 "public": "Fusion", "vio": "VIO (raw frame)"}
+TEXT = "#e2e8f0"
+MUTED = "#94a3b8"
+WARNING = "#fbbf24"
+STALE = "#fb7185"
+
+
+def _number(value):
+    if isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if math.isfinite(result) else None
+
+
+def _text(value):
+    if value is None or value == "":
+        return "—"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return str(value)[:250]
+
+
+_COMMON_CONTROL_REASONS = {
+    "authentication_failed": "Pi5 인증에 실패했습니다.",
+    "host_key_check_failed": "Pi5 SSH 호스트 키를 확인해야 합니다.",
+    "ssh_unreachable": "Pi5에 접속할 수 없습니다.",
+    "local_ssh_failed": "PC의 SSH 연결을 시작하지 못했습니다.",
+    "timeout": "Pi5 접속 또는 응답 시간이 초과됐습니다.",
+    "wrong_board": "접속한 장치가 설정한 Pi5가 아닙니다.",
+    "workspace_unavailable": "Pi5 워크스페이스를 찾을 수 없습니다.",
+    "environment_unavailable": "Pi5 ROS 환경을 찾을 수 없습니다.",
+    "profile_unavailable": "Pi5 시험 설정을 찾을 수 없습니다.",
+    "invalid_pi5_address_or_options": "Pi5 주소 또는 요청 설정을 확인해 주세요.",
+    "local_control_error": "PC의 요청 처리 중 오류가 발생했습니다.",
+    "invalid_remote_result": "Pi5의 응답 형식을 확인할 수 없습니다.",
+    "vio_identity_mismatch": "VIO 실행 정보가 현재 프로세스와 일치하지 않습니다.",
+    "fusion_identity_mismatch": "융합기 실행 정보가 현재 프로세스와 일치하지 않습니다.",
+    "vio_restart_unconfirmed": "VIO 재실행 완료를 확인하지 못했습니다.",
+    "heading_reset_unconfirmed": "방향 초기화 완료를 확인하지 못했습니다.",
+    "missing_or_ambiguous_vio_result": "VIO 재실행 결과를 확인하지 못했습니다.",
+    "missing_or_ambiguous_heading_result": "방향 초기화 결과를 확인하지 못했습니다.",
+}
+
+
+def _control_reason(value, labels):
+    text = str(value or "")
+    return labels.get(text, labels.get(text.upper(), _COMMON_CONTROL_REASONS.get(text, text)))
+
+
+def _action_result_text(result, action):
+    if not isinstance(result, Mapping):
+        return str(result or "")
+    ok = result.get("ok", result.get("success")) is True
+    if action == "heading":
+        if ok:
+            return "현재 위치 유지 · 방향 초기화 완료"
+        detail = str(result.get("message") or _control_reason(result.get("reason"), HEADING_REASONS))
+        return "방향 초기화 실패" + (" · " + detail if detail else "")
+    if ok:
+        detail = _control_reason(result.get("reason"), VIO_REASONS)
+        if result.get("fusion_preserved") is True:
+            detail += " · 마지막 유효 위치·방향 유지"
+        return "VIO 재실행 완료" + (" · " + detail if detail else "")
+    detail = str(result.get("message") or _control_reason(result.get("reason"), VIO_REASONS))
+    return "VIO 재실행 실패" + (" · " + detail if detail else "")
+
+
+def _flatten(event):
+    """Accept direct telemetry or explicit DiagnosticStatus key/value records."""
+    if not isinstance(event, Mapping):
+        return {}
+    result = dict(event)
+    for key in ("data", "metrics", "fields"):
+        if isinstance(event.get(key), Mapping):
+            result.update(event[key])
+    values = event.get("values")
+    if isinstance(values, Mapping):
+        result.update(values)
+    elif isinstance(values, (tuple, list)):
+        result.update({str(v["key"]): v.get("value") for v in values
+                       if isinstance(v, Mapping) and isinstance(v.get("key"), str)})
+    diagnostics = event.get("diagnostics", event.get("status"))
+    if isinstance(diagnostics, (tuple, list)):
+        for status in diagnostics:
+            if isinstance(status, Mapping):
+                result.update(_flatten(status))
+    return result
+
+
+def _pick(data, *keys):
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
+
+
+def _metric(data, keys, unit="", digits=2):
+    value = _pick(data, *keys)
+    numeric = _number(value)
+    if numeric is not None:
+        return f"{numeric:.{digits}f}{unit}"
+    return _text(value)
+
+
+def _age(snapshot, kind, source):
+    receipts = snapshot.get("received", {})
+    if not isinstance(receipts, Mapping):
+        return None
+    receipt = receipts.get(f"{kind}:{source}")
+    if receipt is None and isinstance(receipts.get(kind), Mapping):
+        receipt = receipts[kind].get(source)
+    number = _number(receipt)
+    now = _number(snapshot.get("now"))
+    if number is None:
+        return None
+    return max(0.0, (time.monotonic() if now is None else now) - number)
+
+
+def _age_description(age, limit):
+    if age is None:
+        return "수신 시각 미확인", MUTED
+    if age > limit:
+        return f"오래됨 · {age:.1f}초 전 수신", STALE
+    return f"수신 중 · {age:.1f}초 전", "#34d399"
+
+
+def _stream_age(event, prefix, fallback):
+    """Keep cached Fix and quality ages separate even in a merged GNSS event."""
+    values = [_number(event.get(prefix + suffix))
+              for suffix in ("_received_age_s", "_age_s")]
+    valid = [value for value in values if value is not None and value >= 0.]
+    # Ages in the packet are frozen at collector emission; keep advancing them
+    # even after that source stops producing callbacks.
+    return max(valid) + max(0., fallback or 0.) if valid else fallback
+
+
+def _telemetry_age(event, fallback):
+    measured = _number(event.get("measurement_age_s"))
+    if measured is not None and measured >= 0.:
+        return measured + max(0., fallback or 0.)
+    return fallback
+
+
+class _ImageFallback(QtWidgets.QWidget):
+    def __init__(self, title):
+        super().__init__()
+        layout = QtWidgets.QVBoxLayout(self)
+        self.title = QtWidgets.QLabel(title)
+        self.display = QtWidgets.QLabel("미수신")
+        self.display.setAlignment(QtCore.Qt.AlignCenter)
+        self.display.setMinimumSize(220, 150)
+        self.display.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        self.meta = QtWidgets.QLabel("실제 VIO 추적 이미지 대기")
+        self.meta.setWordWrap(True)
+        self.pixmap = None
+        layout.addWidget(self.title)
+        layout.addWidget(self.display, 1)
+        layout.addWidget(self.meta)
+
+    def set_image(self, image):
+        self.pixmap = QtGui.QPixmap.fromImage(image)
+        self.redraw()
+
+    def redraw(self):
+        if self.pixmap is not None:
+            self.display.setPixmap(self.pixmap.scaled(
+                self.display.size(), QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.redraw()
+
+
+class _Card(QtWidgets.QGroupBox):
+    def __init__(self, title, fields):
+        super().__init__(title)
+        layout = QtWidgets.QGridLayout(self)
+        layout.setHorizontalSpacing(18)
+        self.receipt = QtWidgets.QLabel("미수신")
+        self.receipt.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        layout.addWidget(self.receipt, 0, 0, 1, 2)
+        self.values = {}
+        for row, (key, label) in enumerate(fields, 1):
+            caption = QtWidgets.QLabel(label)
+            caption.setStyleSheet(f"color:{MUTED};")
+            value = QtWidgets.QLabel("—")
+            value.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            value.setWordWrap(True)
+            value.setStyleSheet(f"color:{TEXT}; font-weight:600;")
+            layout.addWidget(caption, row, 0)
+            layout.addWidget(value, row, 1)
+            self.values[key] = value
+        layout.setColumnStretch(1, 1)
+
+    def set_values(self, values, age, limit, received):
+        summary, color = _age_description(age, limit)
+        set_text(self.receipt, summary if received else "미수신")
+        set_style(self.receipt, f"color:{color if received else MUTED}; font-size:11px;")
+        stale = received and age is not None and age > limit
+        for key, label in self.values.items():
+            set_text(label, _text(values.get(key)) if received else "—")
+            set_style(label, f"color:{STALE if stale else TEXT}; font-weight:600;")
+
+
+class LocalizationWindow(QtWidgets.QMainWindow):
+    """Uses the owning monitor's single receiver and visible-window timer."""
+
+    heading_reset_requested = QtCore.pyqtSignal()
+    vio_restart_requested = QtCore.pyqtSignal()
+
+    def __init__(self, parent=None, components=None):
+        super().__init__(parent)
+        self.setWindowFlag(QtCore.Qt.Window, True)
+        self.setWindowTitle("NOMAD | 위치추정 개발")
+        self.resize(1360, 900)
+        self.setMinimumSize(880, 600)
+        self.setStyleSheet("""
+            QMainWindow, QWidget { background:#111827; color:#e2e8f0; }
+            QGroupBox { border:1px solid #334155; border-radius:5px;
+                        margin-top:12px; padding:12px 9px 7px; font-weight:600; }
+            QGroupBox::title { subcontrol-origin:margin; left:10px; padding:0 5px; }
+            QPushButton { background:#1e293b; border:1px solid #475569; padding:5px 12px; }
+            QPushButton:hover { background:#334155; }
+            QCheckBox { spacing:6px; }
+        """)
+        self._dragging = False
+        self._signature = None
+        self._last_image_key = None
+        self._last_snapshot = {}
+        self._heading_note = ""
+        self._samplers = {source: HistorySampler(4000) for source in SOURCES}
+        self._source_signatures = {}
+        self._fit_initialized = False
+        self._visible_legend_sources = None
+        central = QtWidgets.QWidget(self)
+        root = QtWidgets.QVBoxLayout(central)
+        root.setContentsMargins(14, 12, 14, 10)
+        self.summary = QtWidgets.QLabel("위치추정 데이터 대기")
+        self.summary.setStyleSheet("font-size:16px; font-weight:600;")
+        root.addWidget(self.summary)
+        self.mode_detail = QtWidgets.QLabel("현재 출력에 사용하는 입력 대기")
+        self.mode_detail.setWordWrap(True)
+        self.mode_detail.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        root.addWidget(self.mode_detail)
+        self.input_states = QtWidgets.QLabel("VIO: 미수신 · GNSS: 미수신")
+        self.input_states.setWordWrap(True)
+        root.addWidget(self.input_states)
+        self.connections = QtWidgets.QLabel("Pi5 SSH: — · Jetson SSH: —")
+        self.connections.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        root.addWidget(self.connections)
+        splitter = QtWidgets.QSplitter(QtCore.Qt.Horizontal)
+        plot_box = QtWidgets.QWidget()
+        plot_layout = QtWidgets.QVBoxLayout(plot_box)
+        plot_layout.setContentsMargins(0, 0, 6, 0)
+        controls = QtWidgets.QHBoxLayout()
+        controls.addWidget(QtWidgets.QLabel("3D 궤적 · 마우스로 회전"))
+        controls.addStretch()
+        self.auto_fit = QtWidgets.QCheckBox("자동 범위")
+        self.auto_fit.setChecked(True)
+        controls.addWidget(self.auto_fit)
+        fit = QtWidgets.QPushButton("전체 보기")
+        fit.clicked.connect(self.fit_view)
+        controls.addWidget(fit)
+        reset = QtWidgets.QPushButton("시점 초기화")
+        reset.clicked.connect(self.reset_view)
+        controls.addWidget(reset)
+        plot_layout.addLayout(controls)
+        selections = QtWidgets.QGridLayout()
+        selections.setHorizontalSpacing(14)
+        selections.addWidget(QtWidgets.QLabel("표시"), 0, 0)
+        selections.addWidget(QtWidgets.QLabel("내부 진단"), 1, 0)
+        self.source_checks = {}
+        for index, source in enumerate(SOURCES):
+            check = QtWidgets.QCheckBox(SOURCE_LABELS[source])
+            check.setChecked(source not in ("fusion", "vio"))
+            check.setStyleSheet(f"color:{COLORS[source]};")
+            check.toggled.connect(self._selection_changed)
+            self.source_checks[source] = check
+            row, column = (0, index + 1) if index < 3 else (1, index - 2)
+            selections.addWidget(check, row, column)
+        selections.setColumnStretch(4, 1)
+        plot_layout.addLayout(selections)
+        self.figure = Figure(facecolor="#111827")
+        self.figure.subplots_adjust(left=.01, right=.98, bottom=.03, top=.98)
+        self.canvas = FigureCanvasQTAgg(self.figure)
+        self.ax = self.figure.add_subplot(111, projection="3d", facecolor="#111827")
+        self.ax.view_init(elev=24, azim=-60)
+        self.ax.set_box_aspect((1, 1, 1))
+        for axis, label in zip((self.ax.xaxis, self.ax.yaxis, self.ax.zaxis), ("X (m)", "Y (m)", "Z (m)")):
+            axis.set_pane_color((.065, .09, .14, 1.))
+            axis.label.set_color(TEXT)
+            axis.set_label_text(label)
+            axis._axinfo["grid"]["color"] = "#334155"
+        self.ax.tick_params(colors=MUTED, labelsize=8)
+        self.lines = {}
+        self.markers = {}
+        for source in SOURCES:
+            self.lines[source], = self.ax.plot([], [], [], color=COLORS[source], lw=1.6, label=LEGEND_LABELS[source])
+            self.markers[source], = self.ax.plot([], [], [], color=COLORS[source], marker="o", ms=4)
+            self.lines[source].set_visible(False)
+            self.markers[source].set_visible(False)
+        self.ax.set_xlim(-1, 1)
+        self.ax.set_ylim(-1, 1)
+        self.ax.set_zlim(-1, 1)
+        self.canvas.mpl_connect("button_press_event", self._press)
+        self.canvas.mpl_connect("button_release_event", self._release)
+        self.canvas.mpl_connect("scroll_event", self._scroll)
+        plot_layout.addWidget(self.canvas, 1)
+        self.pose_info = QtWidgets.QLabel("GNSS · VIO · 융합 로컬 좌표 대기")
+        self.pose_info.setWordWrap(True)
+        self.pose_info.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        plot_layout.addWidget(self.pose_info)
+        self.frame_info = QtWidgets.QLabel("좌표계 미수신")
+        self.frame_info.setWordWrap(True)
+        self.frame_info.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        plot_layout.addWidget(self.frame_info)
+        splitter.addWidget(plot_box)
+        right = QtWidgets.QWidget()
+        right_layout = QtWidgets.QVBoxLayout(right)
+        right_layout.setContentsMargins(4, 0, 0, 0)
+        image_type = (components or {}).get("ImagePanel", _ImageFallback)
+        self.tracking = image_type("VIO 실제 추적 이미지")
+        self.tracking.display.setText("미수신 · 실제 VIO 추적 이미지 대기")
+        self.tracking.meta.setWordWrap(True)
+        stable_metadata(self.tracking.meta)
+        right_layout.addWidget(self.tracking, 5)
+        self.features = QtWidgets.QLabel("추적 특징점: —")
+        self.features.setStyleSheet("font-size:14px; font-weight:600; color:#38bdf8;")
+        right_layout.addWidget(self.features)
+        self.magnetometer = MagnetometerPanel(self)
+        right_layout.addWidget(self.magnetometer)
+        self.heading_reset = QtWidgets.QPushButton("지자계로 방향 초기화")
+        self.heading_reset.setEnabled(False)
+        self.heading_reset.clicked.connect(self._request_heading_reset)
+        self.vio_restart = QtWidgets.QPushButton("VIO 재실행")
+        self.vio_restart.setEnabled(False)
+        self.vio_restart.clicked.connect(self._request_vio_restart)
+        actions = QtWidgets.QHBoxLayout()
+        actions.addWidget(self.heading_reset, 2)
+        actions.addWidget(self.vio_restart, 1)
+        right_layout.addLayout(actions)
+        self.heading_reset_note = QtWidgets.QLabel("방향 초기화 조건 확인 중 · 원본 VIO는 변경하지 않습니다.")
+        self.heading_reset_note.setWordWrap(True)
+        self.heading_reset_note.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        right_layout.addWidget(self.heading_reset_note)
+        self.vio_restart_note = QtWidgets.QLabel("융합기가 실행 중이면 마지막 유효 위치·방향에서 이어갑니다.")
+        self.vio_restart_note.setWordWrap(True)
+        self.vio_restart_note.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        right_layout.addWidget(self.vio_restart_note)
+        cards = QtWidgets.QHBoxLayout()
+        self.gnss = _Card("GNSS", (("fix", "Fix"), ("solution", "측위 상태"), ("satellites", "위성 수"),
+                                  ("h_accuracy", "수평 표준편차"), ("v_accuracy", "수직 정확도"),
+                                  ("rate", "갱신 주기")))
+        self.fusion = _Card("융합", (("mode", "모드"), ("source", "사용 입력"),
+                                   ("accepted", "GNSS 수용"), ("optimization", "최적화"),
+                                   ("solve_time", "최근 계산 시간")))
+        cards.addWidget(self.gnss)
+        cards.addWidget(self.fusion)
+        right_layout.addLayout(cards, 3)
+        self.detail = QtWidgets.QLabel("융합 상태 상세: —")
+        self.detail.setWordWrap(True)
+        self.detail.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        right_layout.addWidget(self.detail)
+        splitter.addWidget(right)
+        splitter.setStretchFactor(0, 6)
+        splitter.setStretchFactor(1, 5)
+        splitter.setSizes([650, 530])
+        root.addWidget(splitter, 1)
+        note = QtWidgets.QLabel("실제 수신 데이터만 표시 · 미수신 항목 — · 이 창을 닫아도 센서·시험은 계속 실행됩니다.")
+        note.setStyleSheet(f"color:{MUTED}; font-size:11px;")
+        root.addWidget(note)
+        self.setCentralWidget(central)
+        attach_module_logs(self)
+        self._feature_samples = []
+        self.transitions = dbg.TransitionLog(maxlen=60)
+        self.debug = dbg.DebugTools(self, "localization", "NOMAD 위치추정 개발", (
+            {"key": "pose:vio", "label": "원본 VIO 위치", "limit": 1., "rate": ("pi", "vio")},
+            {"key": "pose:fusion", "label": "내부 융합 위치", "limit": 1., "rate": ("pi", "fusion")},
+            {"key": "pose:public", "label": "공용 위치 (플래너 입력)", "limit": 1., "rate": ("pi", "public")},
+            {"key": "telemetry:fusion", "label": "융합 진단", "limit": 2., "rate": ("pi", "fusion_diagnostics")},
+            {"key": "telemetry:gnss", "label": "GNSS", "limit": 2.5, "rate": ("pi", "gnss_fix")},
+            {"key": "telemetry:vio_features", "label": "VIO 특징점", "limit": 2., "rate": ("pi", "vio_features")},
+            {"key": "image:vio_tracking", "label": "VIO 추적 영상", "limit": 1.5, "rate": ("pi", "vio_tracking")},
+            {"key": "telemetry:magnetometer", "label": "지자계", "limit": 2.},
+            {"key": "status:localization", "label": "위치 모듈 상태", "limit": 2., "rate": ("pi", "localization")},
+        ), log_dock=self.log_dock)
+        self.debug.clear_hooks.append(self._clear_debug)
+
+    def append_module_log(self, event):
+        return self.log_panel.append_event(event)
+
+    def _clear_debug(self):
+        self._feature_samples = []
+        self.transitions.clear()
+
+    def _observe(self, snapshot):
+        now = snapshot.get("now")
+        if not dbg.finite(now):
+            return
+        if self._feature_samples and now < self._feature_samples[-1][0] - .5:
+            self._clear_debug()
+        vio = _flatten(snapshot.get("telemetry", {}).get("vio_features", {}))
+        count = _number(_pick(vio, "feature_count", "tracked_features", "tracked_feature_count",
+                              "num_features", "n_features", "count"))
+        received = snapshot.get("received", {}).get("telemetry:vio_features")
+        if count is not None and vio.get("received") is not False and (
+                not self._feature_samples or self._feature_samples[-1][2] != received):
+            self._feature_samples.append((now, count, received))
+        self._feature_samples = [row for row in self._feature_samples if row[0] >= now - dbg.WINDOW_S][-2000:]
+        state = localization_summary(snapshot)
+        fusion = _flatten(snapshot.get("telemetry", {}).get("fusion", {}))
+        status = snapshot.get("statuses", {}).get("localization", {})
+        self.transitions.update(now, {"위치 모드": state.get("mode"), "출력 판정": state.get("state"),
+                                      "위치 유효": state.get("position_valid"), "방향 유효": state.get("orientation_valid"),
+                                      "방향 기준": state.get("orientation_text"), "모듈 상태": status.get("state") if status else None,
+                                      "융합 사유": fusion.get("reason")}, time.strftime("%H:%M:%S"))
+
+    def _debug_checks(self, snapshot):
+        state = localization_summary(snapshot)
+        level = {"READY": "ok", "WAITING": "unknown", "STALE": "fail", "INVALID": "fail"}.get(state.get("state"), "unknown")
+        checks = [("위치 출력 판정", level, f"{state.get('state')} · {state.get('label')} · {state.get('detail')}"),
+                  dbg.status_check("위치 모듈 상태 (READY 사유)", snapshot.get("statuses", {}).get("localization", {}),
+                                   _age(snapshot, "status", "localization"), 2.)]
+        for source, name in (("vio", "원본 VIO 위치"), ("fusion", "내부 융합 위치"), ("public", "공용 위치 (플래너 입력)")):
+            checks.append(dbg.freshness(name + " 수신", _age(snapshot, "pose", source), 1., 3.))
+        checks.append(dbg.freshness("융합 진단 수신", _age(snapshot, "telemetry", "fusion"), 2., 5.))
+        for key, name in (("position_valid", "위치 유효"), ("orientation_valid", "방향 유효")):
+            value = state.get(key)
+            checks.append((name, "ok" if value is True else "fail" if value is False else "unknown",
+                           {True: "true", False: "false"}.get(value, "보고 없음")))
+        checks.append(("방향 기준", "ok" if state.get("orientation_text") in ("전역 방향 유효", "로컬 방향 유효 · 전역 방위 미확정") else "warn"
+                       if state.get("orientation_text") not in ("방향 상태 미확인",) else "unknown", state.get("orientation_text") or "—"))
+        gnss = _flatten(snapshot.get("telemetry", {}).get("gnss", {}))
+        gnss_age = _age(snapshot, "telemetry", "gnss")
+        if not gnss:
+            checks.append(("GNSS", "unknown", "미수신 (GNSS 미사용 시험일 수 있음)"))
+        else:
+            fix_valid = gnss.get("fix_valid")
+            level = "ok" if fix_valid is not False and gnss_age is not None and gnss_age <= 2.5 else "warn"
+            checks.append(("GNSS", level, f"Fix 유효 {_text(fix_valid)} · 위성 {_text(_pick(gnss, 'satellites', 'satellites_used', 'num_sv'))}"
+                                         f" · {dbg.age_text(gnss_age)} 전"))
+        count = self._feature_samples[-1][1] if self._feature_samples else None
+        feature_age = _age(snapshot, "telemetry", "vio_features")
+        if count is None:
+            checks.append(("VIO 추적 특징점", "unknown", "미수신"))
+        else:
+            level = "fail" if count <= 0 else "warn" if count < 20 or (feature_age or 0) > 2. else "ok"
+            checks.append(("VIO 추적 특징점", level, f"{count:.0f}개 · {dbg.age_text(feature_age)} 전 (20개 미만 주의 · 화면 기준)"))
+        checks.append(dbg.freshness("지자계 수신", _age(snapshot, "telemetry", "magnetometer"), 2., 5., missing="unknown"))
+        reset_text = _control_reason(state.get("reset_reason"), HEADING_REASONS)
+        fusion_event = snapshot.get("telemetry", {}).get("fusion", {})
+        truncated = forward_truncated(fusion_event)
+        if truncated and "heading_reset_available" not in _flatten(fusion_event) and "전달 안 됨" not in reset_text:
+            reset_text = "알 수 없음(전달 안 됨) · " + reset_text
+        checks.append(("방향 초기화 가능", "ok" if state.get("can_reset_heading") else "unknown", reset_text))
+        if truncated:
+            checks.append(("GNSS 비교 좌표", "warn", FORWARD_TRUNCATED_TEXT))
+        checks.append(dbg.log_check(self.log_panel))
+        return checks
+
+    @staticmethod
+    def _pose_stats(history):
+        points = [p for p in history if all(_number(p.get(k)) is not None for k in ("t", "x", "y", "z"))]
+        if not points:
+            return None
+        latest = points[-1]["t"]
+        recent = [p for p in points if p["t"] >= latest - dbg.WINDOW_S]
+        distance, jumps, largest = 0., 0, 0.
+        for a, b in zip(recent, recent[1:]):
+            step = math.dist((a["x"], a["y"], a["z"]), (b["x"], b["y"], b["z"]))
+            dt = b["t"] - a["t"]
+            distance += step
+            largest = max(largest, step)
+            if step > .5 and (dt <= 0 or step / dt > 5.):
+                jumps += 1
+        speed = None
+        window = [p for p in recent if p["t"] >= latest - 1.]
+        if len(window) >= 2 and window[-1]["t"] > window[0]["t"]:
+            speed = math.dist((window[0]["x"], window[0]["y"]), (window[-1]["x"], window[-1]["y"])) / (window[-1]["t"] - window[0]["t"])
+        zs = [p["z"] for p in recent]
+        span = recent[-1]["t"] - recent[0]["t"] if len(recent) > 1 else 0.
+        return {"count": len(recent), "rate": (len(recent) - 1) / span if span > 0 else None, "distance": distance,
+                "jumps": jumps, "largest": largest, "speed": speed, "z": (min(zs), max(zs)), "last": recent[-1]}
+
+    def _debug_sections(self, snapshot):
+        histories = snapshot.get("histories", {})
+        pose_rows = []
+        for source in SOURCES:
+            result = self._pose_stats(histories.get(source, ()))
+            if result is None:
+                pose_rows.append([SOURCE_LABELS[source], "미수신", "—", "—", "—", "—", "—", "—"])
+                continue
+            last = result["last"]
+            pose_rows.append([SOURCE_LABELS[source], f"{result['count']}개 · {dbg.number_text(result['rate'], 1, ' Hz')}",
+                              f"({last['x']:.2f}, {last['y']:.2f}, {last['z']:.2f}) · {last.get('frame_id') or '—'}",
+                              dbg.number_text(result["speed"], 2, " m/s"), f"{result['distance']:.2f} m",
+                              f"{result['largest']:.2f} m", str(result["jumps"]),
+                              f"{result['z'][0]:.2f} ~ {result['z'][1]:.2f} m"])
+        features = [row[1] for row in self._feature_samples]
+        feature_rows = [["현재", dbg.number_text(features[-1], 0) if features else "—"],
+                        ["최근 60초 최소 / 평균 / 최대", dbg.stats_text(features, 0)],
+                        ["20개 미만 비율", f"{sum(1 for v in features if v < 20)/len(features)*100:.0f}%" if features else "—"],
+                        ["표본 수 (새로 받은 값만)", str(len(features))]]
+        rates = snapshot.get("rates", {}).get("pi", {})
+        return {
+            "위치 소스별 통계 · 최근 60초 (보드 시각 기준)": (["소스", "표본 · 평균 Hz", "마지막 위치 · 좌표계", "현재 속도 (1초)",
+                                                  "이동 거리", "최대 한 번 이동", "점프", "높이 범위"], pose_rows,
+                "점프 = 한 번에 0.5 m 넘게, 초속 5 m보다 빠르게 움직인 횟수 (이 차량이 낼 수 없는 이동). 받은 위치 기록에서 이 PC가 계산합니다."),
+            "VIO 특징점 수 · 최근 60초": (["항목", "값"], feature_rows, ""),
+            "상태 변화 기록 · 최근 60건": (["PC 시각", "항목", "이전", "현재"], self.transitions.table(),
+                                     "받은 상태가 바뀔 때만 한 줄 추가합니다. 위가 최신입니다."),
+            "융합 진단 원본 값 · 받은 필드 전체": (["필드", "값"],
+                [list(row) for row in dbg.flat_scalars(snapshot.get("telemetry", {}).get("fusion", {}))],
+                "공분산·품질·사유 등 보드가 보낸 필드를 그대로 보여 줍니다. 없는 필드는 표시하지 않습니다."),
+            "GNSS 원본 값": (["필드", "값"], [list(row) for row in dbg.flat_scalars(snapshot.get("telemetry", {}).get("gnss", {}))], ""),
+            "VIO 특징점 원본 값": (["필드", "값"],
+                [list(row) for row in dbg.flat_scalars(snapshot.get("telemetry", {}).get("vio_features", {}))], ""),
+            "Pi5 보고 Hz 전체": (["토픽 이름 (보드 집계)", "Hz"],
+                [[str(k), dbg.number_text(v, 2)] for k, v in sorted(rates.items())] if isinstance(rates, Mapping) else [],
+                "보드 수신 프로그램이 1초마다 센 콜백 수입니다."),
+        }
+
+    def _press(self, event):
+        if event.inaxes is self.ax:
+            self._dragging = True
+
+    def _release(self, event):
+        self._dragging = False
+
+    def _scroll(self, event):
+        if event.inaxes is self.ax:
+            self.auto_fit.setChecked(False)
+
+    def reset_view(self):
+        self.ax.view_init(elev=24, azim=-60)
+        self.canvas.draw_idle()
+
+    def fit_view(self):
+        self._fit(self._last_snapshot.get("histories", {}), force=True)
+        self.canvas.draw_idle()
+
+    def _selection_changed(self):
+        self._signature = None
+        self._plot(self._last_snapshot)
+
+    def _selected_points(self, histories, source):
+        if not self.source_checks[source].isChecked():
+            return []
+        return [p for p in self._samplers[source].sample(histories.get(source, ()))
+                if all(_number(p.get(k)) is not None for k in ("x", "y", "z"))]
+
+    def _fit(self, histories, force=False):
+        bounds = [p for source in SOURCES for p in self._selected_points(histories, source)]
+        self._fit_initialized = fit_axes_3d(self.ax, bounds, force=force, initialized=self._fit_initialized)
+
+    def _plot(self, snapshot):
+        histories = snapshot.get("histories", {})
+        signature, details, frames = [], [], []
+        visible_sources = []
+        frame_ids = set()
+        for source in SOURCES:
+            history = histories.get(source, ())
+            age = _age(snapshot, "pose", source)
+            stale = age is not None and age > 1.
+            selected = self.source_checks[source].isChecked()
+            points = self._selected_points(histories, source)
+            signature.append((history_signature(history), stale, selected))
+            if not selected:
+                continue
+            freshness = "로컬 좌표 대기 · 기준 좌표/위치 미수신" if not points else _age_description(age, 1.)[0]
+            details.append(f"{SOURCE_LABELS[source]} {len(history):,}개 · {self._rate(snapshot, source)} · {freshness}")
+            if points:
+                visible_sources.append(source)
+                source_frames = {p.get("frame_id") for p in points}
+                frame_ids.update(source_frames)
+                frames.append(f"{SOURCE_LABELS[source]}: {', '.join(str(f or '미확인') for f in sorted(source_frames, key=str))}")
+        set_text(self.pose_info, "\n".join(details) if details else "표시할 위치를 선택하세요.")
+        mixed = len(frame_ids) > 1
+        raw_selected = self.source_checks["vio"].isChecked()
+        if raw_selected:
+            note = "원본 VIO는 고유 좌표계입니다. 로컬 비교 VIO와 방향·원점이 다를 수 있습니다."
+        else:
+            note = "GNSS·VIO 비교·융합: 같은 로컬 좌표 기준 · 원본 VIO 수치는 유지합니다."
+        if mixed:
+            note = "주의: 서로 다른 좌표계가 함께 표시됩니다. 겹친 위치를 직접 비교하지 마세요. " + note
+        if not visible_sources:
+            note = "좌표계 미수신 · 유효한 실제 위치가 들어오면 표시합니다."
+        set_text(self.frame_info, note + ("\n" + " · ".join(frames) if frames else ""))
+        set_style(self.frame_info, f"color:{WARNING if mixed or raw_selected else MUTED}; font-size:11px;")
+        signature = tuple(signature)
+        if signature == self._signature or self._dragging:
+            return
+        self._signature = signature
+        for index, source in enumerate(SOURCES):
+            source_key = signature[index]
+            if self._source_signatures.get(source) == source_key:
+                continue
+            self._source_signatures[source] = source_key
+            points = self._selected_points(histories, source)
+            visible = bool(points)
+            self.lines[source].set_visible(visible)
+            self.markers[source].set_visible(visible)
+            self.lines[source].set_data_3d(*[[float(p[k]) for p in points] for k in ("x", "y", "z")])
+            self.markers[source].set_data_3d(*[[float(points[-1][k])] if points else [] for k in ("x", "y", "z")])
+            stale = source_key[1]
+            self.lines[source].set_alpha(.4 if stale else 1.)
+            self.lines[source].set_linestyle("--" if stale or source == "vio" else "-")
+        legend_sources = tuple(visible_sources)
+        if legend_sources != self._visible_legend_sources:
+            legend = self.ax.get_legend()
+            if legend is not None:
+                legend.remove()
+            if legend_sources:
+                legend = self.ax.legend([self.lines[s] for s in legend_sources],
+                                        [LEGEND_LABELS[s] for s in legend_sources],
+                                        loc="upper left", facecolor="#1e293b", edgecolor="#334155", fontsize=9)
+                for label in legend.get_texts():
+                    label.set_color(TEXT)
+            self._visible_legend_sources = legend_sources
+        if self.auto_fit.isChecked():
+            self._fit(histories)
+        # Only artists/limits change. The user's rotation is preserved.
+        self.canvas.draw_idle()
+
+    def _heading_gate(self, snapshot, state):
+        ui = snapshot.get("heading_ui", {})
+        if snapshot.get("replay"):
+            return False, "기록 재생 중에는 방향을 초기화할 수 없습니다."
+        if ui.get("spectator"):
+            return False, "관전 중에는 방향을 초기화할 수 없습니다."
+        if ui.get("no_ssh"):
+            return False, "보드 연결이 없어 방향을 초기화할 수 없습니다."
+        if snapshot.get("vio_ui", {}).get("busy"):
+            return False, "VIO 재실행 요청 처리 중"
+        if ui.get("busy"):
+            return False, "방향 초기화 요청 처리 중"
+        if not state.get("can_reset_heading"):
+            return False, _control_reason(state.get("reset_reason") or "VIO 단독·유효 지자계 조건을 기다립니다.", HEADING_REASONS)
+        if not ui.get("enabled"):
+            return False, _control_reason(ui.get("reason") or "운영 PC의 보드 연결을 기다립니다.", HEADING_REASONS)
+        return True, _control_reason(ui.get("reason") or "현재 위치를 유지하고 로컬 출력 방향을 지자계에 맞춥니다.", HEADING_REASONS)
+
+    def _request_heading_reset(self):
+        state = localization_summary(self._last_snapshot)
+        enabled, _ = self._heading_gate(self._last_snapshot, state)
+        if enabled:
+            self.heading_reset.setEnabled(False)
+            self.vio_restart.setEnabled(False)
+            self.heading_reset_requested.emit()
+
+    def _vio_restart_gate(self, snapshot):
+        ui = snapshot.get("vio_ui", {})
+        heading_ui = snapshot.get("heading_ui", {})
+        if snapshot.get("replay"):
+            return False, "기록 재생 중에는 VIO를 재실행할 수 없습니다."
+        if ui.get("spectator") or heading_ui.get("spectator"):
+            return False, "관전 중에는 VIO를 재실행할 수 없습니다."
+        if ui.get("no_ssh") or heading_ui.get("no_ssh"):
+            return False, "보드 연결이 없어 VIO를 재실행할 수 없습니다."
+        if heading_ui.get("busy"):
+            return False, "방향 초기화 요청 처리 중"
+        if ui.get("busy"):
+            return False, "VIO 재실행 요청 처리 중"
+        if not ui.get("enabled"):
+            return False, _control_reason(ui.get("reason") or "운영 PC의 보드 연결을 기다립니다.", VIO_REASONS)
+        return True, _control_reason(ui.get("reason") or "VIO만 재실행하며 카메라·융합은 유지합니다.", VIO_REASONS)
+
+    def _request_vio_restart(self):
+        enabled, _ = self._vio_restart_gate(self._last_snapshot)
+        if enabled:
+            self.vio_restart.setEnabled(False)
+            self.heading_reset.setEnabled(False)
+            self.vio_restart_requested.emit()
+
+    def _update_vio_restart(self, snapshot):
+        ui = snapshot.get("vio_ui", {})
+        enabled, reason = self._vio_restart_gate(snapshot)
+        self.vio_restart.setEnabled(enabled)
+        self.vio_restart.setToolTip(reason)
+        result = ui.get("result")
+        result_text = _action_result_text(result, "vio") if result else ""
+        if ui.get("fusion_continuity") is True:
+            continuity = "융합기가 실행 중이면 마지막 유효 위치·방향에서 이어갑니다."
+        elif ui.get("fusion_continuity") is False:
+            continuity = "융합기가 없으면 새 원점에서 시작합니다."
+        else:
+            continuity = "융합기가 실행 중이면 마지막 유효 위치·방향에서 이어갑니다."
+        note = "원본 VIO 궤적은 초기화됩니다. " + continuity
+        set_text(self.vio_restart_note, (result_text + "\n" if result_text else "") + reason + "\n" + note)
+
+    def _update_mode(self, snapshot):
+        state = localization_summary(snapshot)
+        set_text(self.summary, "현재 위치: " + str(state.get("label") or "입력 대기"))
+        set_style(self.summary, "font-size:16px; font-weight:600; color:" + str(state.get("color") or TEXT) + ";")
+        set_text(self.mode_detail, "사용 입력: " + str(state.get("source") or "미확인") + " · " +
+                 str(state.get("detail") or "사용 입력 확인 중"))
+        self.summary.setToolTip(str(state.get("detail") or ""))
+        set_text(self.input_states, "VIO: " + str(state.get("vio_text") or "미수신") + " · GNSS: " +
+                 str(state.get("gnss_text") or "미수신") + "\n" +
+                 str(state.get("orientation_text") or "방향 기준 미수신"))
+        enabled, reason = self._heading_gate(snapshot, state)
+        self.heading_reset.setEnabled(enabled)
+        self.heading_reset.setToolTip(reason)
+        result = snapshot.get("heading_ui", {}).get("result")
+        result_text = _action_result_text(result, "heading") if result else ""
+        set_text(self.heading_reset_note, (result_text + "\n" if result_text else "") +
+                 reason + " · 원본 VIO는 변경하지 않습니다.")
+
+    @staticmethod
+    def _rate(snapshot, source):
+        source = "vio" if source == "vio_compare" else source
+        for board in ("pi", "pi5", "jetson"):
+            rates = snapshot.get("rates", {}).get(board, {})
+            value = _number(rates.get(source)) if isinstance(rates, Mapping) else None
+            if value is not None:
+                return f"{value:.1f} Hz"
+        return "— Hz"
+
+    @QtCore.pyqtSlot(dict)
+    def update_snapshot(self, snapshot):
+        self.debug.observe(snapshot)
+        self._observe(snapshot)
+        if self.debug.frozen:
+            # Remote actions keep their live gates; only the display is frozen.
+            self._last_snapshot = snapshot
+            state = localization_summary(snapshot)
+            enabled, reason = self._heading_gate(snapshot, state)
+            self.heading_reset.setEnabled(enabled)
+            self.heading_reset.setToolTip(reason)
+            enabled, reason = self._vio_restart_gate(snapshot)
+            self.vio_restart.setEnabled(enabled)
+            self.vio_restart.setToolTip(reason)
+            return
+        self._update_view(snapshot)
+        self.debug.publish(snapshot, self._debug_checks(snapshot), self._debug_sections(snapshot))
+
+    def _update_view(self, snapshot):
+        update_module_logs(self, snapshot, "localization")
+        self._last_snapshot = snapshot
+        self._plot(snapshot)
+        self._update_mode(snapshot)
+        self._update_vio_restart(snapshot)
+        ssh = snapshot.get("ssh", {})
+        connections = []
+        for board, title in (("pi", "Pi5"), ("jetson", "Jetson")):
+            value = ssh.get(board, {})
+            connections.append(f"{title} SSH: {_text(value.get('phase')) if isinstance(value, Mapping) else _text(value)}")
+        self.connections.setText(" · ".join(connections))
+        telemetry = snapshot.get("telemetry", {})
+        self.magnetometer.set_data(telemetry.get("magnetometer", {}),
+                                   _age(snapshot, "telemetry", "magnetometer"))
+        gnss = _flatten(telemetry.get("gnss", {}))
+        fusion = _flatten(telemetry.get("fusion", {}))
+        vio = _flatten(telemetry.get("vio_features", {}))
+        gnss_received = bool(gnss) and gnss.get("received") is not False
+        fix_received = gnss_received and gnss.get("fix_received") is not False
+        quality_received = gnss_received and gnss.get("quality_received") is not False
+        gnss_elapsed = _age(snapshot, "telemetry", "gnss")
+        gnss_age = _telemetry_age(gnss, gnss_elapsed)
+        fix_age = _stream_age(gnss, "fix", gnss_elapsed) if fix_received else None
+        quality_age = _stream_age(gnss, "quality", gnss_elapsed) if quality_received else None
+        fix = _pick(gnss, "fix_label", "fix_type_label", "fix")
+        navsat = _pick(gnss, "fix_status", "navsat_status", "navsatfix_status")
+        if navsat is None and isinstance(gnss.get("status"), Mapping):
+            navsat = gnss["status"].get("status")
+        if fix is None and navsat is not None:
+            fix = {-1: "NO_FIX", 0: "FIX", 1: "SBAS_FIX", 2: "GBAS_FIX"}.get(_number(navsat), f"status {navsat}")
+        if not fix_received:
+            fix = None
+        elif gnss.get("fix_valid") is False:
+            fix = "위치 미유효" + (f" · {fix}" if fix is not None else "")
+        if fix is not None and fix_age is not None and fix_age > 2.5:
+            fix = f"{fix} · 오래됨 {fix_age:.1f}초"
+        horizontal = _metric(gnss, ("h_acc_m", "horizontal_accuracy_m", "horizontal_std_m", "h_accuracy_m"), " m")
+        vertical = _metric(gnss, ("v_acc_m", "vertical_accuracy_m", "vertical_std_m", "v_accuracy_m"), " m")
+        # A generic h_acc/v_acc has no guaranteed unit (receiver raw fields can be mm).
+        if horizontal == "—" and _pick(gnss, "h_acc", "hAcc") is not None:
+            horizontal = _text(_pick(gnss, "h_acc", "hAcc")) + " (단위 미확인)"
+        if vertical == "—" and _pick(gnss, "v_acc", "vAcc") is not None:
+            vertical = _text(_pick(gnss, "v_acc", "vAcc")) + " (단위 미확인)"
+        if not fix_received:
+            horizontal = vertical = "—"
+        rate = _metric(gnss, ("rate_hz", "hz"), " Hz", 1)
+        if _number(gnss.get("fix_hz")) is not None or _number(gnss.get("quality_hz")) is not None:
+            rate = ("Fix " + _metric(gnss, ("fix_hz",), " Hz", 1) +
+                    " · 품질 " + _metric(gnss, ("quality_hz",), " Hz", 1))
+        satellites = _pick(gnss, "satellites", "satellites_used", "num_sv", "numSV")
+        if not quality_received or gnss.get("satellites_valid") is False:
+            satellites = None
+        elif satellites is not None and quality_age is not None and quality_age > 2.5:
+            satellites = f"{satellites} · 오래됨 {quality_age:.1f}초"
+        solution = None
+        if quality_received:
+            solution_type = _number(gnss.get("fix_type"))
+            quality_flags = _number(gnss.get("quality_valid_fields"))
+            if quality_flags is None or int(quality_flags) & 1:
+                solution = {0: "UNKNOWN", 1: "NO_FIX", 2: "SINGLE", 3: "DGNSS",
+                            4: "RTK_FLOAT", 5: "RTK_FIXED"}.get(solution_type)
+            if solution is not None and quality_age is not None and quality_age > 2.5:
+                solution += f" · 오래됨 {quality_age:.1f}초"
+        self.gnss.set_values({"fix": fix, "solution": solution, "satellites": satellites,
+                              "h_accuracy": horizontal, "v_accuracy": vertical,
+                              "rate": self._rate(snapshot, "gnss") if rate == "—" else rate},
+                             gnss_age, 2.5, gnss_received)
+        if gnss_received:
+            fix_text = _age_description(fix_age, 2.5)[0] if fix_received else "미수신"
+            quality_text = _age_description(quality_age, 2.5)[0] if quality_received else "미수신"
+            self.gnss.receipt.setText(f"Fix: {fix_text}\n품질: {quality_text}")
+            stale = any(age is not None and age > 2.5 for age in (fix_age, quality_age))
+            set_style(self.gnss.receipt, f"color:{STALE if stale else MUTED}; font-size:11px;")
+        accepted = _pick(fusion, "gnss_accepted")
+        count = _pick(fusion, "gps_accepted", "accepted_gnss_count")
+        if accepted is None and count is not None:
+            accepted = f"누적 {_text(count)}건"
+        elif isinstance(accepted, bool):
+            accepted = "수용" if accepted else "미수용"
+        elif _number(accepted) is not None:
+            accepted = f"누적 {_text(accepted)}건"
+        rejected = _pick(fusion, "gnss_rejected", "rejected_gps")
+        if accepted is not None and rejected is not None:
+            accepted += f" · 거부 {_text(rejected)}건"
+        optimization = _pick(fusion, "optimization_state", "optimizer_state", "solve_state")
+        if optimization == "not_reported":
+            optimization = "진행 상태 미제공"
+            if fusion.get("solves") is not None:
+                optimization += f" · 누적 {_text(fusion['solves'])}회"
+                if fusion.get("discarded_solves") is not None:
+                    optimization += f" · 미적용 {_text(fusion['discarded_solves'])}회"
+        elif optimization is None and fusion.get("solves") is not None:
+            optimization = f"누적 {_text(fusion['solves'])}회"
+            if fusion.get("discarded_solves") is not None:
+                optimization += f" · 미적용 {_text(fusion['discarded_solves'])}회"
+        self.fusion.set_values({"mode": _pick(fusion, "mode", "state"), "source": _pick(fusion, "source", "active_source"),
+                                "accepted": accepted, "optimization": optimization,
+                                "solve_time": _metric(fusion, ("solve_ms", "optimization_ms"), " ms", 1)},
+                               _telemetry_age(fusion, _age(snapshot, "telemetry", "fusion")), 2.,
+                               bool(fusion) and fusion.get("received") is not False)
+        reasons = [_text(fusion[k]) for k in ("reason", "heading_reason") if fusion.get(k)]
+        self.detail.setText("융합 상태 상세: " + (" · ".join(reasons) if reasons else "—"))
+        self.detail.setToolTip("\n".join(f"{k}: {v}" for k, v in fusion.items()
+                                       if not isinstance(v, (dict, list))))
+        count = _pick(vio, "feature_count", "tracked_features", "tracked_feature_count", "num_features", "n_features", "count")
+        image = snapshot.get("images", {}).get("vio_tracking")
+        meta = snapshot.get("image_meta", {}).get("vio_tracking", {})
+        if count is None and isinstance(meta, Mapping):
+            count = _pick(meta, "feature_count", "tracked_features")
+        feature_age = _telemetry_age(vio, _age(snapshot, "telemetry", "vio_features"))
+        if vio.get("received") is False:
+            count = None
+        freshness = _age_description(feature_age, 2.)[0] if vio else "미수신"
+        detail = ""
+        if count is not None:
+            tracked, added = _pick(vio, "tracked_count"), _pick(vio, "new_count")
+            if tracked is not None or added is not None:
+                detail = f" · 유지 {_text(tracked)} / 신규 {_text(added)}"
+        self.features.setText(f"추적 특징점: {_text(count)}" + (f"개{detail}\n{freshness}" if count is not None else " · 미수신"))
+        set_style(self.features, "font-size:14px; font-weight:600; color:" +
+                  (STALE if feature_age is not None and feature_age > 2. else "#38bdf8") + ";")
+        image_age = _telemetry_age(meta, _age(snapshot, "image", "vio_tracking")) if isinstance(meta, Mapping) else _age(snapshot, "image", "vio_tracking")
+        if isinstance(image, QtGui.QImage) and not image.isNull():
+            key = image.cacheKey()
+            if key != self._last_image_key:
+                self.tracking.set_image(image)
+                self._last_image_key = key
+            freshness, color = _age_description(image_age, 1.5)
+            invalid = isinstance(meta, Mapping) and meta.get("decode_error")
+            if invalid:
+                freshness, color = "새 이미지 해석 실패 · 마지막 정상 이미지 유지 · " + freshness, STALE
+            self.tracking.meta.setText(f"실제 VIO 추적 이미지 · {image.width()}×{image.height()} · {freshness}")
+            set_style(self.tracking.meta, f"color:{color}; font-size:11px;")
+        else:
+            self.tracking.meta.setText("미수신 · 원본 VIO 추적 이미지가 전달되면 표시됩니다.")
+            set_style(self.tracking.meta, f"color:{MUTED}; font-size:11px;")
+
+
+if __name__ == "__main__":
+    import sys
+    application = QtWidgets.QApplication(sys.argv)
+    window = LocalizationWindow()
+    window.show()
+    window.update_snapshot({"now": time.monotonic()})
+    if "--smoke" in sys.argv:
+        QtCore.QTimer.singleShot(150, application.quit)
+    sys.exit(application.exec_())

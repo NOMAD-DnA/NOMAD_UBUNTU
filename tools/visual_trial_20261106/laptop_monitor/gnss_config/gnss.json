@@ -1,0 +1,5 @@
+{
+ "poll_hz": 1.0,
+ "max_age_s": 2.0,
+ "max_future_s": 0.2
+}

@@ -1,0 +1,4 @@
+{
+  "map": {"frame": "odom", "resolution_m": 0.125, "length_m": 20.0},
+  "tf_buffer_s": 12.0
+}

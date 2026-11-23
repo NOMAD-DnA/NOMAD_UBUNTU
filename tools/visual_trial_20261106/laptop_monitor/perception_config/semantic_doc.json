@@ -1,0 +1,10 @@
+{
+ "rate_hz": {
+  "title": "의미분할 주기",
+  "description": "의미분할(SegFormer)을 도는 주기예요. 지금 시작 기본값은 1 Hz예요. 올리면 GPU·지도 부하가 늘어요.",
+  "unit": "Hz",
+  "min": 0.2,
+  "max": 10.0,
+  "default": 1.0
+ }
+}

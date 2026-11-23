@@ -1,0 +1,26 @@
+{
+ "stereo_queue_size": {
+  "title": "스테레오 큐",
+  "description": "OAK에서 받는 좌우 영상 대기열 크기예요.",
+  "unit": "장",
+  "min": 1,
+  "max": 32,
+  "default": 8
+ },
+ "imu_queue_size": {
+  "title": "IMU 큐",
+  "description": "OAK IMU 대기열 크기예요.",
+  "unit": "개",
+  "min": 32,
+  "max": 1024,
+  "default": 256
+ },
+ "max_pending_pairs": {
+  "title": "대기 영상 쌍 상한",
+  "description": "IMU와 맞추기 전 기다리는 영상 쌍 최대 수예요.",
+  "unit": "쌍",
+  "min": 1,
+  "max": 100,
+  "default": 20
+ }
+}

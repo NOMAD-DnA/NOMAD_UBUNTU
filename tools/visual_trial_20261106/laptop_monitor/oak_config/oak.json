@@ -1,0 +1,5 @@
+{
+ "stereo_queue_size": 8,
+ "imu_queue_size": 256,
+ "max_pending_pairs": 20
+}

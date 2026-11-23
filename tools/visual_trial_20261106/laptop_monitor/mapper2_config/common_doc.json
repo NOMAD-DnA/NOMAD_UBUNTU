@@ -1,0 +1,6 @@
+{
+  "map.frame": {"title": "지도 좌표계", "description": "지도가 붙어 있는 좌표계예요. 땅에 고정된 odom만 허용해요.", "unit": "선택", "options": ["odom"], "default": "odom"},
+  "map.resolution_m": {"title": "칸 크기", "description": "지도 한 칸의 한 변 길이예요. 작을수록 자세하지만 계산이 늘어요.", "unit": "m", "min": 0.05, "max": 0.5, "default": 0.125},
+  "map.length_m": {"title": "지도 크기", "description": "차를 중심으로 한 정사각형 지도의 한 변 길이예요. 먼 목표를 다루려면 키우세요(계산·메모리 증가).", "unit": "m", "min": 5.0, "max": 100.0, "default": 20.0},
+  "tf_buffer_s": {"title": "위치 기록 보관 시간", "description": "각 모듈이 TF(차 위치) 기록을 보관하는 시간이에요. 지난 라벨 보관 시간보다 조금 길게 둬요.", "unit": "s", "min": 2.0, "max": 60.0, "default": 12.0}
+}

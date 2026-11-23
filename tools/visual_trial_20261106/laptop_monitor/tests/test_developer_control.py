@@ -1,0 +1,193 @@
+"""Control display contracts using local fixtures only; no board/output access."""
+import os
+from pathlib import Path
+import sys
+import time
+import unittest
+from unittest.mock import Mock, patch
+
+os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+os.environ.setdefault('NOMAD_VIEWER_STATE_DIR', '/tmp/nomad_control_developer_test')
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from PyQt5 import QtCore, QtWidgets
+from developer_control import ControlWindow, trace_from_line
+from module_logs import LogHistory
+import monitor
+
+
+def trace(stamp=None, fields=None):
+    stamp = time.time() if stamp is None else stamp
+    values = fields or ('source=LPP phase=STOPPED_OUTPUT requested_erpm=206.8 '
+                       'target_erpm=0.0 output_erpm=0.0 measured_erpm=-1.0 '
+                       'current_a=0.02 start_gate=planning target below minimum start ERPM; '
+                       'target not increased reset_required=0')
+    return f'[controller] [INFO] [{stamp:.9f}] [nomad_vesc_trial]: control_trace {values}'
+
+
+def log(text, seq=1, session='fixture'):
+    return dict(kind='log', board='pi4', source='planning', t=time.time(),
+                seq=seq, session=session, text=text)
+
+
+class ControlDeveloperTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def setUp(self):
+        self.windows = []
+
+    def tearDown(self):
+        for window in self.windows:
+            window.close()
+        self.app.processEvents()
+
+    def child(self):
+        child = ControlWindow()
+        self.windows.append(child)
+        return child
+
+    def test_open_reopen_and_planning_share_one_reader_without_commands(self):
+        with patch.object(sys, 'argv', ['monitor', '--no-ssh']), \
+                patch('module_log_client.ModuleLogClient') as reader:
+            window = monitor.MonitorWindow(monitor.parse_args())
+            self.windows.append(window)
+            window.timer.stop()
+            window.ingest_timer.stop()
+            command = Mock()
+            window.planning_client = type('Client', (), {'send': command})()
+            window.on_packet('pi4', log(trace()))
+            window.open_developer_window('control')
+            child = window.developer_windows['control']
+            window.open_developer_window('planning')
+            child.close()
+            window.open_developer_window('control')
+            self.assertIs(child, window.developer_windows['control'])
+            self.assertEqual(child.values['requested_erpm'].text(), '206.8')
+            self.assertIs(child.log_dock.parent(), child)
+            self.assertIn('control_trace', child.log_panel.text.toPlainText())
+            command.assert_not_called()
+            reader.assert_not_called()
+            self.assertEqual(window.workers, [])
+            window.planning_client = None
+
+    def test_controller_values_are_atomic_and_logs_filter_other_modules(self):
+        child = self.child()
+        history = LogHistory()
+        history.append(log('[planner] unrelated planner line\n' + trace() +
+                           '\n[driver] connected to VESC\n[log] helper note'))
+        snapshot = dict(module_logs={'planning': history}, now=time.monotonic())
+        child.update_snapshot(snapshot)
+        self.assertEqual(child.values['measured_erpm'].text(), '-1.0')
+        self.assertEqual(child.values['reset_required'].text(), '0')
+        self.assertIn('target not increased', child.values['start_gate'].text())
+        text = child.log_panel.text.toPlainText()
+        self.assertIn('[driver] connected', text)
+        self.assertNotIn('unrelated planner', text)
+        self.assertNotIn('helper note', text)
+        self.assertIsNone(child.servo.command)
+        self.assertFalse(child.servo.isEnabled())
+        # A later trace with missing fields cannot mix old and new samples.
+        child.append_module_log(log(trace(time.time()+.01, 'phase=IDLE requested_erpm=5'), seq=2))
+        child.update_snapshot({})
+        self.assertEqual(child.values['requested_erpm'].text(), '5.0')
+        self.assertEqual(child.values['measured_erpm'].text(), '미수신')
+        self.assertEqual(child.values['reset_required'].text(), '미수신')
+
+    def test_old_original_timestamp_is_not_made_fresh_by_new_receipt(self):
+        child = self.child()
+        child.append_module_log(log(trace(time.time()-45)))
+        child.update_snapshot({})
+        self.assertIn('오래된 값', child.trace_status.text())
+        # A backward timestamp within a session never replaces the newer trace.
+        child.append_module_log(log(trace(time.time()-60, 'requested_erpm=900'), seq=2))
+        child.update_snapshot({})
+        self.assertEqual(child.values['requested_erpm'].text(), '206.8')
+        child.append_module_log(log('[controller] mode=commission; controller startup',
+                                    seq=1, session='new-session'))
+        child.update_snapshot({})
+        self.assertEqual(child.values['requested_erpm'].text(), '미수신')
+
+    def test_four_log_records_share_the_order_and_restart_rules(self):
+        # 2026-11-19: control_trace, vesc_trace, link_trace and [SLIP] keep their last value under one rule
+        # (_keep_log_record): a line older than the one shown is ignored; a controller startup line clears only the
+        # older values; a new session clears all four.
+        child = self.child()
+        now = time.time()
+        pre = '[controller] [{level}] [{t:.9f}] [nomad_vesc_trial]: '
+        lines = {
+            '_trace': lambda t, v: pre.format(level='INFO', t=t) + f'control_trace phase=RUNNING requested_erpm={v}',
+            '_vesc': lambda t, v: pre.format(level='INFO', t=t) + f'vesc_trace voltage_v={v} fault_code=0',
+            '_link': lambda t, v: pre.format(level='INFO', t=t) + f'link_trace n={v} gap_ms=52 expired=0',
+            '_slip': lambda t, v: pre.format(level='WARN', t=t) + f'[SLIP] stuck end after {v} s',
+        }
+        seq = 1
+        def send(text, session='fixture'):
+            nonlocal seq
+            seq += 1
+            child.append_module_log(log(text, seq=seq, session=session))
+        key = {'_trace': 'requested_erpm', '_vesc': 'voltage_v', '_link': 'n', '_slip': 'duration_s'}
+        for name, make in lines.items():
+            send(make(now, 10))
+            send(make(now - 1, 20))        # older: ignored
+            self.assertEqual(getattr(child, name)[key[name]], 10.0, name)
+            send(make(now + 1, 30))        # newer: kept
+            self.assertEqual(getattr(child, name)[key[name]], 30.0, name)
+        # A startup line older than the values shown clears nothing; a newer one clears all four.
+        send(pre.format(level='INFO', t=now - 5) + 'mode=commission; raw units')
+        self.assertTrue(all(getattr(child, name) for name in lines))
+        send(pre.format(level='INFO', t=now + 2) + 'mode=commission; raw units')
+        self.assertTrue(all(getattr(child, name) is None for name in lines))
+        for name, make in lines.items():
+            send(make(now + 3, 40))
+        self.assertTrue(all(getattr(child, name) for name in lines))
+        send(lines['_trace'](now - 100, 50), session='other')  # a new session starts empty, even with an old stamp
+        self.assertEqual(child._trace['requested_erpm'], 50.0)
+        self.assertTrue(all(getattr(child, name) is None for name in ('_vesc', '_link', '_slip')))
+
+    def test_permission_is_received_not_inferred_from_trace_or_path(self):
+        child = self.child()
+        child.append_module_log(log(trace()))
+        child.update_snapshot({})
+        self.assertEqual(child.telemetry_values['armed'].text(), '미수신')
+        received = time.monotonic()-8
+        child.update_snapshot({'now': time.monotonic(),
+             'received': {'telemetry:planning': received},
+             'planning_ui': {'spectator': True, 'host': 'user@192.0.2.1'},
+             'telemetry': {'planning': {'armed': True, 'actuator_enabled': False,
+                 'state': 'WAIT', 'output_inhibit': 'LOCALIZATION_NOT_READY'}}})
+        self.assertIn('관전', child.host.text())
+        self.assertIn('오래된 상태', child.status.text())
+        self.assertEqual(child.telemetry_values['armed'].text(), 'true')
+        self.assertEqual(child.telemetry_values['actuator_enabled'].text(), 'false')
+        self.assertEqual(child.telemetry_values['output_inhibit'].text(), 'LOCALIZATION_NOT_READY')
+        # Only display tools plus the existing confirmed controller-latch reset;
+        # no drive/arm/goal command exists here, and the reset is off for spectators.
+        buttons = {button.text(): button for button in child.findChildren(QtWidgets.QPushButton)}
+        self.assertEqual(set(buttons), {'비우기', '화면 멈춤', '현재 상태 복사', 'JSON으로 저장',
+                                        '로그 숨기기', '기록 초기화', '제어기 복구'})
+        self.assertFalse(buttons['제어기 복구'].isEnabled())
+
+    def test_log_display_is_incremental_and_limited_to_one_update_per_second(self):
+        child = self.child()
+        history = LogHistory()
+        history.append(log(trace()))
+        snapshot = {'module_logs': {'planning': history}}
+        with patch('module_logs.time.monotonic', return_value=100.):
+            child.update_snapshot(snapshot)
+        initial = child.log_panel.text.toPlainText()
+        history.append(log('[controller] later row', seq=2))
+        with patch('module_logs.time.monotonic', return_value=100.5):
+            child.update_snapshot(snapshot)
+        self.assertEqual(child.log_panel.text.toPlainText(), initial)
+        with patch('module_logs.time.monotonic', return_value=101.1):
+            child.update_snapshot(snapshot)
+        self.assertEqual(child.log_panel.text.toPlainText().count('later row'), 1)
+        with patch('module_logs.time.monotonic', return_value=102.2):
+            child.update_snapshot(snapshot)
+        self.assertEqual(child.log_panel.text.toPlainText().count('later row'), 1)
+
+
+if __name__ == '__main__':
+    unittest.main()

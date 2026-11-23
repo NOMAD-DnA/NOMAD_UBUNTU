@@ -1,0 +1,32 @@
+# 실차 GUI 작업 지침
+
+- 실제 작업 기준은 `/home/user/samba/shared/NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106/laptop_monitor`의 현행 GUI다. 팀원은 기존 공유폴더 GUI를 계속 사용하며 다시 다운로드하거나 작업 위치를 옮길 필요가 없다. 사용자 승인 범위만 수정하고 실차 보드 런타임과 구별한다.
+- 저장소 `NOMAD-DnA/NOMAD_UBUNTU`의 기존 `feat/gui`는 공유 GUI의 백업 대상이다.
+- **공유폴더에서 수정·필요 확인 후 관련 파일만 commit하고 `feat/gui`에 push하여 원격 반영까지 확인한다. 작업 전 pull이나 clone을 강제하지 않는다. 원격 사본으로 공유폴더를 덮어쓰지 않는다.**
+- 백업 시 원격 `feat/gui`의 최신 head를 읽고 그 커밋을 부모로 공유본의 GUI 변경만 담는 방법도 허용한다. 무관한 원격 파일·기존 미커밋 변경·다른 에이전트 수정을 보존한다. 충돌·원격 분기가 있으면 알리며, 임의 reset/stash/force-push 금지.
+- 승인된 공유 GUI 수정의 마무리에 위 commit/push 백업을 기본으로 포함한다. 새 작업 전 범위 확인 규칙은 유지하고, 별도 보드 코드 수정·설치·모듈 실행·모터 시험·다른 작업까지 확대하지 않는다.
+- Python은 노트북 GUI/시각화에 사용한다. 보드 센서·실시간 코드의 C/C++ 정책을 임의로 바꾸지 않는다.
+- 실시간 데이터는 기존 단일 운영 PC 수신·관전 중계를 재사용한다. 개발 창이나 기록 때문에 새 보드 구독을 추가하지 않는다.
+- 재생은 파일 입력만 사용하고 SSH·중계·플래너/목표/arm/모델/종료 명령을 만들지 않는다. 원본 센서 시각을 보존하고 재생 가상 시계로 freshness를 계산한다.
+- 지도/영상은 보간하거나 현재 좌표를 임의 변경하지 않는다. 시간 이동 때 미래 프레임·경로·로그를 초기화한다.
+- 주행 기록 `*.nomad`, 로그·영상·캐시·초기화 스냅샷·known_hosts·비밀번호·토큰·키를 커밋하지 않는다. finder 비밀번호도 GUI 입력 또는 환경에서만 받는다.
+- 변경 범위에 맞는 오프라인 회귀 검사와 UI 확인을 한다. 테스트 가상 입력을 실제 주행 결과로 표현하지 않는다.
+- 공유폴더의 기존 GUI 폴더에서 `bash run_app.sh`로 실행한다. Git 백업본의 실행 진입점은 저장소 루트의 `bash scripts/run_live_trial_gui.sh`다. 공유폴더 앱의 기록 위치는 통합 상위 폴더의 `주행기록/`가 기본이다. 명시적인 `XDG_STATE_HOME`은 기존처럼 그 아래 `nomad-trial/recordings/`를 우선하고, 공유폴더 구조가 없는 Git 배포본은 `~/.local/state/nomad-trial/recordings/`를 사용한다. 필수 표시 config는 인접 `../config/oak_basalt_calib.json`을 유지한다.
+
+## 배포 구조 — 공유폴더 원본, 노트북은 로컬 사본 (2026-11-11 사용자 지정)
+
+- **공유폴더의 이 폴더가 유일한 원본이자 배포처다.** 코드·설정 수정은 여기서만 한다.
+- 다른 노트북은 공유폴더에서 바로 실행하지 않는다. 노트북 핫스팟을 켜면 공유폴더(samba) 연결이 끊겨 실행 중 GUI가 파일을 못 읽기 때문이다. 대신 한 번 설치한다:
+  `bash <공유폴더>/NOMAD_모듈별_통합_20261104/NOMAD_실물시험앱_20261106/GUI_설치_업데이트.sh`
+  → `~/nomad_gui/versions/<내용해시>/`에 `laptop_monitor/`, `config/`, 안내 문서를 복사하고 `~/nomad_gui/current`를 바꾸며 앱 목록·바탕화면에 "NOMAD GUI (로컬)"을 등록한다.
+- **로컬 사본(`~/nomad_gui/…`)은 수정하지 않는다.** 사본에는 `.nomad_local_install.json`(원본 경로·버전)과 `~/nomad_gui/AGENTS.md`(수정 금지 안내)가 있다. AI가 로컬 사본 폴더에서 작업을 요청받으면 원본 경로를 알려 주고 원본에서 고친다.
+- 로컬 사본 GUI는 켤 때 공유폴더에 연결돼 있으면 새 버전을 확인하고 업데이트를 묻는다(실행 중에는 바꾸지 않음, 시험 중이 아닐 때만). 연결이 없으면 묻지 않고 그대로 실행한다. 공유폴더 접근은 모두 짧은 시간 제한을 둔다.
+- 로컬 사본의 주행 기록은 `~/nomad_gui/주행기록/`에 저장되고, 공유폴더에 연결되면 공유 `주행기록/`으로 복사할지 묻는다(로컬 원본 유지).
+- 원본을 고친 뒤 할 일: 필요한 검사 → 기존 규칙대로 `feat/gui` 백업 → 팀원에게 "GUI 다시 켜면 업데이트" 안내. 버전은 파일 내용 해시라 원본을 고치면 자동으로 새 버전이 된다.
+- **공유폴더 찾기(2026-11-12):** 설치 때 기록한 경로(예: 교실 마운트 `~/team-shared`)가 안 열리면 로컬 GUI가 `share_servers.json`의 주소(교실 `user-su.local`, 야지 공유폴더 노트북 핫스팟 `10.42.0.1`)로 `gio mount`해 원본을 찾는다. 비밀번호는 처음 한 번 묻고 원하면 데스크톱 키링에 저장한다(파일·인자·로그에 남기지 않음, gio stdin으로만 전달). 연결 창 "이 노트북 핫스팟" 칸의 **공유폴더 연결** 버튼도 같은 동작. 공유폴더 PC가 바뀌면 `share_servers.json`의 servers만 고친다. 구현 `share_mount.py`.
+- 관련 파일: `local_install.py`(설치·버전·업데이트·기록 올리기), 상위 `GUI_설치_업데이트.sh`, `session_recording.recording_directory()`(로컬 사본이면 `~/nomad_gui/주행기록`).
+
+## NOMAD VIO 시험기(서브 GUI) — 2026-11-17 사용자 요청
+- 별도 실행 앱: `run_vio_tester.sh` → `vio_tester.py`(화면) + `vio_tester_view.py`(관전 중계 수신·bag 읽기). 로컬 설치 시 `local_install.py`가 "NOMAD VIO 시험기 (로컬)" 아이콘도 등록, 켤 때 업데이트 확인(`offer(window, runner="run_vio_tester.sh")`).
+- 운영 GUI가 시험을 시작한 상태에서 옆에 띄워 쓴다. 위치추정 보기는 운영 GUI 관전 중계(기본 127.0.0.1:8768)만 쓰고 새 보드 구독을 만들지 않는다. 키보드 주행·녹화는 `drive_record_dialog`를 수정 없이 연다.
+- Pi5 융합기 전환 버튼: `remote/pi5_fusion_test_{on,off,status}.sh` → Pi5 `~/nomad_fusion_test_kit/fusion_test_swap.sh`(키트는 상위 `pi5_fusion_test_kit/`). 운영 GUI 화면 코드(launcher·monitor 등)는 바꾸지 않았다.

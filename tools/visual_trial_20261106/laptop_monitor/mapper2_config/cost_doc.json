@@ -1,0 +1,258 @@
+{
+ "frames.base_frame": {
+  "title": "차체 좌표 이름",
+  "description": "차 중심 좌표(TF 프레임) 이름입니다. 차 밑·지나온 길과 시작 평지 가정의 중심이 됩니다.",
+  "unit": "",
+  "min": null,
+  "max": null,
+  "default": "base_link"
+ },
+ "frames.imu_frame": {
+  "title": "IMU 좌표 이름",
+  "description": "VIO 위치가 붙는 IMU 프레임 이름입니다. 기존 매퍼처럼 IMU 위치와 차체←IMU 고정값으로 차 위치를 구합니다. base_frame과 같게 두면 차체 위치를 바로 씁니다.",
+  "unit": "",
+  "min": null,
+  "max": null,
+  "default": "oak_imu_frame"
+ },
+ "slope.limit_deg": {
+  "title": "경사 한계",
+  "description": "평면 전체 기울기(tilt)가 이 값 이상이면 그 칸은 100(못 감)입니다. 차가 어느 방향을 보든 같습니다(통합 요청 2.9). 2026-11-16부터 직접 고치지 않고 '경사 점수 계수'로 자동 계산합니다(80 ÷ 계수, 계수 4면 20°). 기존 값 20°는 검증된 차량 한계가 아닌 초안입니다.",
+  "unit": "deg",
+  "min": 1.0,
+  "max": 45.0,
+  "default": 20.0
+ },
+ "step_block.enabled": {
+  "title": "턱 막기 켜기",
+  "description": "켜면 턱이 기준을 넘는 칸을 100으로 만듭니다. 턱이 있는 칸은 경사보다 먼저 판단해서, 턱 경계에 맞춰진 가파른 평면은 경사로 쓰지 않습니다. 시작 평지 가정으로 가려지지 않고, 지나온 길 처리만 예외입니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "step_block.max_step_m": {
+  "title": "넘을 수 있는 턱",
+  "description": "이 높이보다 큰 턱은 못 넘는다고 봅니다. 바퀴 반경 약 5 cm 기준의 임시값입니다.",
+  "unit": "m",
+  "min": 0.005,
+  "max": 1.0,
+  "default": 0.05
+ },
+ "semantic.class_cost_enabled": {
+  "title": "클래스 비용 사용",
+  "description": "끄면 인지 결과를 비용에 넣지 않고 경사만으로 계산합니다(시험용).",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "semantic.slope_only_when_semantic_unknown": {
+  "title": "인지 못 본 칸은 경사만으로",
+  "description": "켜면 경사만 있는 칸도 경사 점수로 비용 지도를 채우고 의미 층은 비웁니다(NaN). 끄면 기존 매퍼처럼 -1(모름)로 둡니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "dynamic_block.enabled": {
+  "title": "사람·차 바로 막기",
+  "description": "인지가 사람·차 근처라고 표시한 칸을 100으로 만듭니다. 차 밑·지나온 길·시작 평지 가정으로도 풀리지 않습니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "driven_path_free.enabled": {
+  "title": "차 밑·앞·지나온 길 갈 수 있음",
+  "description": "차 앞 반원과 차체 아래 띠를 갈 수 있는 칸으로 둡니다(사람 제외). 기존 매퍼의 움직이는 자유 영역과 같은 코드입니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "driven_path_free.front_radius_m": {
+  "title": "앞 반원 반경",
+  "description": "차 기준 앞쪽 반원의 반경입니다. 이 안의 칸은 인지 비용을 0으로 봅니다.",
+  "unit": "m",
+  "min": 0.05,
+  "max": 5.0,
+  "default": 0.5
+ },
+ "driven_path_free.rear_length_m": {
+  "title": "차체 띠 길이(뒤)",
+  "description": "차 기준 뒤쪽으로 갈 수 있음 처리할 길이입니다. 앞 반원 반경보다 클 수 없습니다.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 5.0,
+  "default": 0.35
+ },
+ "driven_path_free.rear_half_width_m": {
+  "title": "차체 띠 반폭",
+  "description": "차체 띠의 좌우 반폭입니다. 앞 반원 반경보다 클 수 없습니다.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 5.0,
+  "default": 0.2
+ },
+ "driven_path_free.keep_measured_slope": {
+  "title": "앞 반원에서 측정 경사 유지",
+  "description": "켜면 앞 반원 안에서도 실제로 잰 경사는 그대로 써서 가파르면 막습니다. 끄면 경사도 0으로 봅니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "driven_path_free.driven_memory_enabled": {
+  "title": "지나온 길 기억",
+  "description": "차체가 실제로 덮은 칸을 계속 기억해 비용 0(사람 제외)으로 둡니다. 지도 창 밖으로 나가도 기억합니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "driven_path_free.driven_front_m": {
+  "title": "지나온 길 앞 끝",
+  "description": "차 기준 이만큼 앞까지를 '덮은 칸'으로 기록합니다.",
+  "unit": "m",
+  "min": 0.0,
+  "max": 5.0,
+  "default": 0.025
+ },
+ "startup_flat.enabled": {
+  "title": "시작 위치 평지 가정",
+  "description": "시작 시 차 주변 원을 평지(경사 0, 인지 0)로 가정합니다. 실제 관측이 들어온 칸은 가정을 해제합니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "startup_flat.radius_m": {
+  "title": "평지 가정 반경",
+  "description": "시작 위치 평지로 가정할 원의 반경입니다.",
+  "unit": "m",
+  "min": 0.1,
+  "max": 10.0,
+  "default": 2.0
+ },
+ "startup_stationary_s": {
+  "title": "시작 정지 시간",
+  "description": "차가 이 시간 동안 멈춰 있어야 지도를 시작(초기화)합니다. 그 전에는 READY가 되지 않습니다.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 30.0,
+  "default": 2.0
+ },
+ "stationary.window_s": {
+  "title": "정지 판단 구간",
+  "description": "이 구간 동안의 위치 변화로 멈춤을 판단합니다.",
+  "unit": "s",
+  "min": 0.5,
+  "max": 10.0,
+  "default": 2.0
+ },
+ "stationary.max_translation_m": {
+  "title": "정지 허용 이동",
+  "description": "판단 구간 동안 이보다 적게 움직이면 멈춘 것으로 봅니다.",
+  "unit": "m",
+  "min": 0.001,
+  "max": 1.0,
+  "default": 0.03
+ },
+ "stationary.max_rotation_deg": {
+  "title": "정지 허용 회전",
+  "description": "판단 구간 동안 이보다 적게 돌면 멈춘 것으로 봅니다.",
+  "unit": "deg",
+  "min": 0.1,
+  "max": 30.0,
+  "default": 2.0
+ },
+ "freshness.max_input_age_s": {
+  "title": "지도 최대 나이",
+  "description": "가장 새 입력(높이·의미) 시각이 지금보다 이만큼 넘게 오래되면 내보내지 않고 READY를 내립니다.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 30.0,
+  "default": 2.0
+ },
+ "freshness.max_pose_age_s": {
+  "title": "위치 최대 나이",
+  "description": "TF 차 위치가 이보다 오래되면 READY를 내리고 차 밑 영역을 갱신하지 않습니다.",
+  "unit": "s",
+  "min": 0.05,
+  "max": 5.0,
+  "default": 0.5
+ },
+ "freshness.local_max_age_s": {
+  "title": "지역 지도 관측 나이",
+  "description": "지역 비용 지도에는 이 시간 안에 관측된 칸만 값을 넣고 나머지는 -1로 둡니다.",
+  "unit": "s",
+  "min": 1.0,
+  "max": 600.0,
+  "default": 30.0
+ },
+ "freshness.max_output_gap_s": {
+  "title": "출력 최대 간격",
+  "description": "마지막 지도 발행 후 이 시간이 지나면 READY를 내립니다.",
+  "unit": "s",
+  "min": 0.2,
+  "max": 30.0,
+  "default": 3.0
+ },
+ "freshness.upstream_status_receipt_s": {
+  "title": "A·B 상태 수신 간격",
+  "description": "높이(A)·의미(B) 상태 메시지를 이 시간 안에 받아야 READY로 인정합니다.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 10.0,
+  "default": 1.0
+ },
+ "camera_support.full_age_s": {
+  "title": "카메라 확인 완전 유효",
+  "description": "카메라가 이 시간 안에 본 칸은 확인 값 100입니다.",
+  "unit": "s",
+  "min": 0.0,
+  "max": 600.0,
+  "default": 10.0
+ },
+ "camera_support.zero_age_s": {
+  "title": "카메라 확인 소멸",
+  "description": "카메라가 본 지 이 시간이 지나면 확인 값이 0이 됩니다. 사이 구간은 직선으로 줄어듭니다.",
+  "unit": "s",
+  "min": 0.1,
+  "max": 600.0,
+  "default": 30.0
+ },
+ "rates.publish_hz": {
+  "title": "최대 발행 주기",
+  "description": "0이면 새 높이·의미 지도가 들어오는 즉시 비용 지도를 냅니다(통합 요청 2.10). 차 이동·만료 같은 상태 변화는 5 Hz로 확인합니다. 0보다 크면 그 주기 이하로 냅니다(0.5~30).",
+  "unit": "Hz (0=즉시)",
+  "min": 0.0,
+  "max": 30.0,
+  "default": 0.0
+ },
+ "rates.status_hz": {
+  "title": "상태 발행 주기",
+  "description": "READY 상태 메시지를 내는 주기입니다(기존 10 Hz).",
+  "unit": "Hz",
+  "min": 1.0,
+  "max": 50.0,
+  "default": 10.0
+ },
+ "block_reason.enabled": {
+  "title": "막힌 이유 층",
+  "description": "칸이 왜 막혔는지(턱·경사·클래스·사람·미관측)를 진단용 지도로 냅니다. 플래너는 쓰지 않습니다.",
+  "unit": "bool",
+  "min": null,
+  "max": null,
+  "default": true
+ },
+ "slope.score_per_deg": {
+  "title": "경사 점수 계수",
+  "description": "경사 한계 미만에서 기본 경사 점수 = 계수 × 전체 기울기(도)(80점 미만). 경사 한계는 80 ÷ 계수로 함께 바뀌어 그 이상은 100(못 감)입니다. 기존 값 4면 15°는 60점, 한계 20°. 계수 8이면 한계 10°, 2면 40°. 최종 비용은 의미 비용·예외와 합쳐집니다.",
+  "unit": "점/도",
+  "min": 1.78,
+  "max": 16.0,
+  "default": 4.0
+ }
+}

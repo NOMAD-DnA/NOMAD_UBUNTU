@@ -1,0 +1,139 @@
+{
+ "optical_flow_detection_grid_size": {
+  "title": "특징점 격자 크기",
+  "description": "영상을 이 크기(px) 칸으로 나눠 칸마다 특징점을 찾아요. 작게 하면 점이 많아져 CPU가 늘어요.",
+  "unit": "px",
+  "min": 20,
+  "max": 80,
+  "default": 40
+ },
+ "optical_flow_max_recovered_dist2": {
+  "title": "되찾기 허용 거리²",
+  "description": "앞뒤로 추적한 점이 이 거리(px²) 안에 돌아와야 써요. 작을수록 엄격해요.",
+  "unit": "px²",
+  "min": 0.005,
+  "max": 0.25,
+  "default": 0.04
+ },
+ "optical_flow_levels": {
+  "title": "피라미드 단계",
+  "description": "광류 추적 영상 피라미드 단계 수예요. 빠른 움직임엔 늘리고, CPU를 줄이려면 줄여요.",
+  "unit": "단계",
+  "min": 1,
+  "max": 5,
+  "default": 3
+ },
+ "optical_flow_skip_frames": {
+  "title": "광류 건너뛰기",
+  "description": "1이면 모든 프레임을 처리해요. 2면 한 장씩 건너뛰어 CPU가 줄지만 추적이 약해져요.",
+  "unit": "프레임",
+  "min": 1,
+  "max": 3,
+  "default": 1
+ },
+ "optical_flow_epipolar_error": {
+  "title": "좌우 일치 허용 오차",
+  "description": "왼·오른 영상 점이 같은 줄 위에 있는지 보는 허용 오차예요. 작을수록 엄격해요.",
+  "unit": "",
+  "min": 0.001,
+  "max": 0.05,
+  "default": 0.005
+ },
+ "vio_max_states": {
+  "title": "최근 프레임 수",
+  "description": "최적화 창에 두는 최근 프레임 수예요. 늘리면 안정적이지만 느려져요.",
+  "unit": "개",
+  "min": 2,
+  "max": 6,
+  "default": 3
+ },
+ "vio_max_kfs": {
+  "title": "키프레임 수",
+  "description": "최적화 창에 두는 키프레임 수예요. 늘리면 안정적이지만 느려져요.",
+  "unit": "개",
+  "min": 3,
+  "max": 12,
+  "default": 7
+ },
+ "vio_min_frames_after_kf": {
+  "title": "키프레임 최소 간격",
+  "description": "새 키프레임을 만들기 전 최소 프레임 수예요.",
+  "unit": "프레임",
+  "min": 1,
+  "max": 15,
+  "default": 5
+ },
+ "vio_new_kf_keypoints_thresh": {
+  "title": "새 키프레임 기준",
+  "description": "이전 키프레임 점이 이 비율 아래로 남으면 새 키프레임을 만들어요.",
+  "unit": "비율",
+  "min": 0.3,
+  "max": 0.95,
+  "default": 0.7
+ },
+ "vio_obs_std_dev": {
+  "title": "관측 표준편차",
+  "description": "특징점 위치 오차 가정(px)이에요. 크게 하면 영상을 덜 믿어요.",
+  "unit": "px",
+  "min": 0.1,
+  "max": 3.0,
+  "default": 0.5,
+  "safety": true
+ },
+ "vio_obs_huber_thresh": {
+  "title": "Huber 기준",
+  "description": "이보다 큰 관측 오차는 덜 반영해요(이상치 완화).",
+  "unit": "px",
+  "min": 0.1,
+  "max": 5.0,
+  "default": 1.0
+ },
+ "vio_outlier_threshold": {
+  "title": "이상치 제거 기준",
+  "description": "재투영 오차가 이보다 크면 점을 버려요. 작을수록 엄격해요.",
+  "unit": "px",
+  "min": 1.0,
+  "max": 10.0,
+  "default": 3.0,
+  "safety": true
+ },
+ "vio_filter_iteration": {
+  "title": "이상치 거르기 반복",
+  "description": "이 반복 차수에서 이상치를 걸러요.",
+  "unit": "회",
+  "min": 1,
+  "max": 10,
+  "default": 4
+ },
+ "vio_max_iterations": {
+  "title": "최적화 반복 수",
+  "description": "프레임마다 최적화 최대 반복 수예요. 늘리면 정확하지만 느려져요.",
+  "unit": "회",
+  "min": 1,
+  "max": 20,
+  "default": 7
+ },
+ "vio_min_triangulation_dist": {
+  "title": "최소 삼각측량 거리",
+  "description": "새 점을 만들 때 필요한 최소 기준선이에요.",
+  "unit": "m",
+  "min": 0.01,
+  "max": 0.5,
+  "default": 0.05
+ },
+ "vio_enforce_realtime": {
+  "title": "실시간 강제",
+  "description": "켜면 밀린 프레임을 버려 지연을 줄여요. 끄면 모든 프레임을 처리해요(기존).",
+  "unit": "켬/끔",
+  "default": false,
+  "safety": true
+ },
+ "vio_kf_marg_feature_ratio": {
+  "title": "키프레임 정리 비율",
+  "description": "보이는 점이 이 비율 아래인 키프레임을 먼저 정리해요.",
+  "unit": "비율",
+  "min": 0.05,
+  "max": 0.5,
+  "default": 0.2
+ }
+}
