@@ -45,7 +45,7 @@ STEP_THRESHOLD_S = 0.5
 MAX_UPDATE_AGE_S = 70.0
 # comm names are cut to 15 characters (nomad_terrain_mapper -> nomad_terrain_m).
 TRIAL_PROCESSES = ('oak_publisher', 'vio_backend_node', 'vio_frontend_node', 'fusion_node', 'nomad_mapper',
-                   'nomad_mapper2', 'nomad_terrain_m',
+                   'nomad_mapper2', 'nomad_terrain_m', 'nomad_indoor_ma',
                    'nomad_runtime_manager', 'planner_node', 'controller_node', 'vesc_driver_node')
 
 

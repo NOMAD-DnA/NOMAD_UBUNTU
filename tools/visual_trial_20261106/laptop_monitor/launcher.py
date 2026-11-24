@@ -285,6 +285,9 @@ class Launcher(QtWidgets.QMainWindow):
         self.mapper3_button.setToolTip("Jetson에 저장된 '새 매퍼3 v3' 값(클래스 경계 px·초기 안전영역 반경·경사 점수 계수)을 보고 바꿉니다. Jetson에 저장되고 시작할 때 실행별 사본에 적용됩니다. 프리셋 저장·불러오기 가능.")
         self.mapper3_button.clicked.connect(self.edit_mapper3_settings)
         dialog_layout.addWidget(self.mapper3_button)
+        self.indoor_button = QtWidgets.QPushButton("실내 매퍼 설정…")
+        self.indoor_button.clicked.connect(self.edit_indoor_settings)
+        dialog_layout.addWidget(self.indoor_button)
         self.planning_settings_button = QtWidgets.QPushButton("플래너 세부 설정…")
         self.planning_settings_button.setToolTip("Jetson에 저장된 플래너 값(차량·비용·따라가기·안전)을 보고 바꿉니다. Jetson에 저장되고 플래너 연결 때 적용됩니다. 프리셋 저장·불러오기 가능.")
         self.planning_settings_button.clicked.connect(self.edit_planning_settings)
@@ -304,6 +307,12 @@ class Launcher(QtWidgets.QMainWindow):
             module_row.addWidget(button)
             self.module_param_buttons[key] = button
         dialog_layout.addLayout(module_row)
+        def refresh_indoor_modules():
+            indoor = self.setting_combos["mapper"].currentData() == "indoor"
+            for key in ("oak", "perception"):
+                self.module_param_buttons[key].setVisible(not indoor)
+        self.setting_combos["mapper"].currentIndexChanged.connect(refresh_indoor_modules)
+        refresh_indoor_modules()
         buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Save | QtWidgets.QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.settings_dialog.accept)
         buttons.rejected.connect(self.settings_dialog.reject)
@@ -912,6 +921,12 @@ class Launcher(QtWidgets.QMainWindow):
                                         board=self.board_settings_store("terrain")).exec_()
         self.show_trial_settings()
 
+    def edit_indoor_settings(self):
+        import indoor_settings
+        indoor_settings.SettingsDialog(self.settings_dialog, STATE_ROOT,
+                                       board=self.board_settings_store("indoor")).exec_()
+        self.show_trial_settings()
+
     def edit_mapper3_settings(self):
         import mapper_settings
         mapper_settings.SettingsDialog(self.settings_dialog, STATE_ROOT,
@@ -928,6 +943,10 @@ class Launcher(QtWidgets.QMainWindow):
             import terrain_settings
             terrain_configs = terrain_settings.load(STATE_ROOT)
             text += " · " + terrain_settings.summary(terrain_configs) + " · " + terrain_settings.gui_summary(terrain_configs)
+        if self.trial_settings()["mapper"] == "indoor":
+            import indoor_settings
+            cfg = indoor_settings.load(STATE_ROOT)["indoor"]
+            text += f" / VIO 고정 Z {cfg['vio_fixed_z_m']:g} m / 평면 기준 Z {cfg['floor_z_cm']:g} cm"
         if self.trial_settings()["mapper"] == "mapper3":
             import mapper_settings
             text += " · " + mapper_settings.summary(mapper_settings.load(STATE_ROOT))

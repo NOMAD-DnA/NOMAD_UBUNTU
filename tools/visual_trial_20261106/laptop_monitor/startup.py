@@ -59,7 +59,7 @@ def start_boards(
         raise ValueError("알 수 없는 OAK 점군 주기입니다.")
     if slope_mode not in (None, "sequential", "parallel"):
         raise ValueError("알 수 없는 경사 계산 방식입니다.")
-    if mapper not in ("legacy", "mapper2", "terrain", "mapper3"):
+    if mapper not in ("legacy", "mapper2", "terrain", "mapper3", "indoor"):
         raise ValueError("알 수 없는 지도(매퍼) 선택입니다.")
     started_at = time.monotonic()
     stage_started = {}
@@ -129,7 +129,7 @@ def start_boards(
 
     if not parallel("preflight", {
         "pi5": ("preflight_pi.sh", 18, False),
-        "jetson": ("preflight_jetson.sh", 18, False),
+        "jetson": ("preflight_indoor_jetson.sh" if mapper == "indoor" else "preflight_jetson.sh", 18, False),
     }, "보드 모델·설치된 작업 폴더 확인"):
         return result(False, "preflight", "보드 확인 실패. 실행 중인 모듈은 변경하지 않았습니다.")
     for board in hosts:
@@ -182,7 +182,7 @@ def start_boards(
         failed = [board for board, value in stages["wifi_power"].items() if not value.get("ok")]
         notify("wifi_power", "Wi-Fi 절전 끄기 실패: " + ", ".join(failed) + " · 시작은 계속합니다.", ok=False)
 
-    if slope_mode is not None:
+    if slope_mode is not None and mapper != "indoor":
         # Saved on the Jetson before the map starts, so the map starts in this mode.
         notify("settings", "경사 계산 방식 저장 (지도 시작 전): " + slope_mode)
         from slope_control import switch_slope_mode
@@ -224,6 +224,20 @@ def start_boards(
             return result(False, "settings", "기존 매퍼 개선 설정을 Jetson에 올리지 못했습니다. 센서는 시작하지 않았습니다.")
         notify("settings", "기존 매퍼 개선 설정 저장됨", ok=True)
 
+    if mapper == "indoor":
+        import indoor_settings
+        notify("settings", "실내 매퍼 설정 확인 (Jetson 저장값 사용)")
+        upload = tempfile.NamedTemporaryFile("w", suffix=".sh", prefix="nomad-indoor-config-", delete=False)
+        with upload:
+            upload.write(indoor_settings.upload_script(indoor_settings.defaults(), if_missing=True))
+        try:
+            uploaded = run_remote(jetson_host, Path(upload.name), password, timeout_s=20)
+        finally:
+            os.unlink(upload.name)
+        stages.setdefault("settings", {})["indoor"] = uploaded
+        if not uploaded.get("ok"):
+            return result(False, "settings", "실내 매퍼 설정 확인 실패. 센서는 시작하지 않았습니다.")
+
     pi_sensor_script = "start_pi_gnss.sh" if use_gnss else "start_pi_run_only.sh"
     # OAK cloud source is chosen at start (no switch afterwards).
     jetson_script = tempfile.NamedTemporaryFile("w", suffix=".sh", prefix="nomad-start-jetson-", delete=False)
@@ -244,6 +258,9 @@ def start_boards(
     sensor_message = (("GNSS·" if use_gnss else "GNSS 제외 · ") + "카메라·LiDAR·인지·지도 기동 · 점군 " + cloud_source + " " +
                       oak_cloud_hz + "Hz" + {"mapper2": " · 새 매퍼", "terrain": " · 기존 매퍼 개선", "mapper3": " · 새 매퍼3 v3"}.get(mapper, "") +
                       " · 인지 " + semantic_model)
+
+    if mapper == "indoor":
+        sensor_message = "실내 매퍼: VIO용 영상과 IMU, LiDAR 기동 / ZED와 의미분할 및 OAK 점군 사용 안 함"
 
     def remote_job(board: str, script, timeout: int) -> dict:
         try:
@@ -311,7 +328,7 @@ def start_boards(
     }, "기동한 프로세스 확인"):
         return result(False, "running", "일부 모듈이 종료되었습니다. 화면에서 실패 원인을 확인해 주세요.")
     model_note = ""
-    if semantic_model == "fcn":
+    if semantic_model == "fcn" and mapper != "indoor":
         # b2/indoor start directly in start_jetson.sh (2026-11-13); FCN still starts as b2 and switches once.
         notify("model", "인지 모델 전환: " + semantic_model)
         from model_control import switch_model
@@ -355,7 +372,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--cloud-source", default="opencv", choices=("opencv", "device", "opencv3way"))
     parser.add_argument("--oak-cloud-hz", default="1", choices=("1", "2", "3", "5"))
     parser.add_argument("--slope-mode", default=None, choices=("sequential", "parallel"))
-    parser.add_argument("--mapper", default="legacy", choices=("legacy", "mapper2", "terrain", "mapper3"))
+    parser.add_argument("--mapper", default="legacy", choices=("legacy", "mapper2", "terrain", "mapper3", "indoor"))
     parser.add_argument("--pi4-host", default=None, help="user@Pi4주소 (Wi-Fi 절전 끄기만, 선택)")
     args = parser.parse_args(argv)
     password = os.environ.get("NOMAD_BOARD_PASSWORD1", "")

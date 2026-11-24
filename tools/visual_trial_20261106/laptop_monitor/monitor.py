@@ -1045,6 +1045,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.slope_message = QtWidgets.QLabel("경사 방식: 미확인. CPU는 개발 창 > 인지에서 확인하세요.")
             self.slope_message.setWordWrap(True)
             self.settings_layout.addWidget(self.slope_message)
+            self.indoor_unused_layouts = (model_bar, cloud_bar, slope_bar)
             front_bar = QtWidgets.QHBoxLayout()
             front_bar.addWidget(QtWidgets.QLabel("전방 녹화"))
             self.front_check_button = QtWidgets.QPushButton("녹화 확인")
@@ -1650,6 +1651,17 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             values = trial_settings.validate(json.loads(text)) if text else None
         except ValueError:
             values = None
+        self.trial_mapper = values["mapper"] if values else "legacy"
+        indoor = self.trial_mapper == "indoor"
+        for row in getattr(self, "indoor_unused_layouts", ()):
+            for index in range(row.count()):
+                widget = row.itemAt(index).widget()
+                if widget is not None:
+                    widget.setVisible(not indoor)
+        for name in ("model_message", "cloud_message", "slope_message"):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.setVisible(not indoor)
         if values:
             for name, key in (("model_combo", "semantic_model"), ("cloud_combo", "cloud_source"),
                               ("slope_combo", "slope_mode"), ("planning_mode", "control_mode"),
@@ -1913,6 +1925,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.request_trial_notes()
 
     def apply_model(self):
+        if getattr(self, "trial_mapper", "legacy") == "indoor":
+            return
         if self.spectator_mode or self.args.no_ssh or not self.args.enable_trial_control or self.model_switch_in_progress or self.cloud_switch_in_progress or self.slope_switch_in_progress:
             return
         # A failed/partial stop also leaves the trial's running state uncertain.
@@ -1972,6 +1986,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 widget.setEnabled(enabled)
 
     def apply_cloud_source(self, checked=False, *, query=False):
+        if getattr(self, "trial_mapper", "legacy") == "indoor":
+            return
         if (self.spectator_mode or self.args.no_ssh or not self.args.enable_trial_control or
                 self.model_switch_in_progress or self.cloud_switch_in_progress or self.slope_switch_in_progress or
                 self.trial_stop_result is not None or
@@ -2045,6 +2061,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 widget.setEnabled(enabled)
 
     def apply_slope_mode(self, checked=False, *, query=False):
+        if getattr(self, "trial_mapper", "legacy") == "indoor":
+            return
         if (self.spectator_mode or self.args.no_ssh or not self.args.enable_trial_control or
                 self.model_switch_in_progress or self.cloud_switch_in_progress or self.slope_switch_in_progress or
                 self.trial_stop_result is not None or

@@ -308,6 +308,78 @@ if [[ -x /usr/local/lib/nomad-network/time_agent.py ]]; then
   nomad_time=$(python3 /usr/local/lib/nomad-network/time_agent.py --check || true)
   [[ "$nomad_time" == *'"ok": true'* ]] || { printf 'TIME_NOT_READY: %s\n' "${nomad_time#NOMAD_TIME_RESULT=}" >&2; exit 1; }
 fi
+# Indoor branch exits before all ZED/semantic/cloud checks and startup paths.
+if [[ "${NOMAD_MAPPER:-legacy}" == indoor ]]; then
+  iw="$HOME/nomad_indoor_ws"
+  ibin="$iw/install/nomad_indoor_mapper/lib/nomad_indoor_mapper/nomad_indoor_mapper"
+  iprobe="$iw/install/nomad_indoor_mapper/lib/nomad_indoor_mapper/indoor_probe"
+  [[ -x "$ibin" && -x "$iprobe" && -r "$iw/active_config/indoor.json" ]] || fail 'Indoor mapper is not installed or configured'
+  "$iprobe" "$iw/active_config/indoor.json" </dev/null || fail 'Invalid indoor configuration; no sensors started'
+  exec 9>/tmp/nomad_resume_jetson_final_preview.lock
+  flock -n 9 || fail 'Another final-preview startup is active'
+  for cmdline in /proc/[0-9]*/cmdline; do
+    [[ -r "$cmdline" ]] || continue
+    args=(); mapfile -d '' -t args < "$cmdline" 2>/dev/null || continue
+    for arg in "${args[@]}"; do
+      case "${arg##*/}" in
+        oak_publisher|ydlidar_ros2_driver_node|nomad_indoor_mapper|nomad_terrain_mapper|nomad_mapper|nomad_mapper2|nomad_mapper3|nomad_runtime_manager)
+          fail 'Existing sensor or mapper process is running; stop the prior trial first';;
+      esac
+    done
+  done
+  port=${NOMAD_LIDAR_PORT:-/dev/serial/by-id/usb-Silicon_Labs_CP2102_USB_to_UART_Bridge_Controller_0001-if00-port0}
+  [[ -c "$port" && -r "$port" && -w "$port" ]] || fail 'LiDAR port absent/inaccessible'
+  if command -v fuser >/dev/null 2>&1 && fuser "$port" >/dev/null 2>&1; then fail 'LiDAR serial port already in use'; fi
+  for f in "$ws/scripts/run_oak_cpp.sh" "$root/config/oak_basalt_calib.json" "$root/config/factory_eeprom.json" "$prefix/share/nomad_costmap_cpp/config/g2b.yaml"; do
+    [[ -r "$f" ]] || fail "Missing indoor input file: $f"
+  done
+  [[ -x "$prefix/lib/ydlidar_ros2_driver/ydlidar_ros2_driver_node" ]] || fail 'LiDAR executable missing'
+  source /opt/ros/humble/install/setup.bash
+  source "$ws/install/setup.bash"
+  export ROS_DOMAIN_ID=59 ROS_LOCALHOST_ONLY=0 RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+  export FASTRTPS_DEFAULT_PROFILES_FILE="$ws/config/oak_fastdds_wired.xml" RMW_FASTRTPS_USE_QOS_FROM_XML=0
+  export LD_LIBRARY_PATH="$prefix/lib:/opt/ros/humble/install/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+  export OPENBLAS_NUM_THREADS=1 OMP_NUM_THREADS=1
+  run="$ws/log/visual_trial_$(TZ=Asia/Seoul date +%Y%m%d_%H%M%S)_$$"
+  mkdir -p "$run/ros" "$run/oak/ros" "$run/indoor_cfg"
+  planning_output_profile="$run/planning_output_fastdds.xml"
+  nomad_write_planning_output_profile "$planning_output_profile" 10.77.0.1 10.77.0.2
+  cp -- "$iw/active_config/indoor.json" "$run/indoor_cfg/indoor.json"
+  printf '%s\n' "$run" > /tmp/nomad_integrated_jetson_run_dir
+  printf '%s\n' "$run/oak" > /tmp/nomad_oak_cpp_run_dir
+  printf '%s\n' "$start_token" > "$run/start_token"
+  printf '%s\n' "$prefix" > "$run/private_runtime_path"
+  printf '%s\n' "$port" > "$run/lidar_port"
+  printf 'indoor\n' > "$run/mapper_kind"
+  # Only the images/IMU required by Pi5 VIO remain. No OAK depth/point cloud or ZED inference.
+  setsid env ROS_LOG_DIR="$run/oak/ros" bash "$ws/scripts/run_oak_cpp.sh" \
+    -p enable_device_depth:=false -p enable_color_jpeg:=true -p color_fps:=10.0 -p color_jpeg_quality:=80 \
+    -p rectified_calibration_json:="$root/config/oak_basalt_calib.json" \
+    -p factory_calibration_json:="$root/config/factory_eeprom.json" 9>&- </dev/null > "$run/oak/oak.log" 2>&1 &
+  printf '%s\n' "$!" > "$run/oak.pid"; cp "$run/oak.pid" "$run/oak/oak.pid"
+  ln -s oak/oak.log "$run/oak.log"
+  setsid env ROS_LOG_DIR="$run/ros" AMENT_PREFIX_PATH="$prefix:/opt/ros/humble/install" \
+    "$prefix/lib/ydlidar_ros2_driver/ydlidar_ros2_driver_node" --ros-args \
+    --params-file "$prefix/share/nomad_costmap_cpp/config/g2b.yaml" -p "port:=$port" 9>&- </dev/null > "$run/lidar.log" 2>&1 &
+  printf '%s\n' "$!" > "$run/lidar.pid"
+  setsid env ROS_LOG_DIR="$run/ros" FASTRTPS_DEFAULT_PROFILES_FILE="$planning_output_profile" \
+    bash "$(readlink -f "$iw")/../run_jetson.sh" "$run/indoor_cfg/indoor.json" 9>&- </dev/null > "$run/indoor.log" 2>&1 &
+  printf '%s\n' "$!" > "$run/indoor.pid"
+  for tick in $(seq 1 30); do
+    sleep .5
+    for name in oak lidar indoor; do
+      kill -0 "$(cat "$run/$name.pid")" 2>/dev/null || { tail -n 8 "$run/$name.log"; fail "$name exited"; }
+    done
+    if ((tick >= 6)) && grep -q 'OAK: rectified' "$run/oak/oak.log" && grep -q 'Lidar has started' "$run/lidar.log" && grep -q indoor_mapper_started "$run/indoor.log"; then break; fi
+  done
+  grep -q indoor_mapper_started "$run/indoor.log" || fail 'Indoor mapper startup marker missing'
+  grep -q 'OAK: rectified' "$run/oak/oak.log" || fail 'VIO camera stream did not start'
+  grep -q 'Lidar has started' "$run/lidar.log" || fail 'LiDAR did not start'
+  printf 'RUN=%s\nLIDAR_PORT=%s\nMAPPER=indoor\nSTARTED_ONLY=jetson\n' "$run" "$port"
+  for name in oak lidar indoor; do printf '%s RUNNING pid=%s\n' "$name" "$(cat "$run/$name.pid")"; done
+  exit 0
+fi
+
 exec 9>/tmp/nomad_resume_jetson_final_preview.lock
 flock -n 9 || fail 'Another final-preview startup is active'
 
@@ -322,7 +394,7 @@ for cmdline in /proc/[0-9]*/cmdline; do
   for arg in "${args[@]}"; do
     token=${arg##*/}
     case "$token" in
-      oak_publisher|run_oak_cpp.sh|run_zed_sensors.sh|zed_camera.launch.py|zed_camera.preview.launch.py|ydlidar_ros2_driver_node|nomad_external_frame_alias|nomad_semantic_id_adapter|nomad_fcn_preview|external_stereo_cloud|nomad_runtime_manager|nomad_mapper|nomad_mapper2|nomad_mapper3|nomad_terrain_mapper|nomad_monitor|semantic.sh|nomad_perception.modules.semantic)
+      oak_publisher|run_oak_cpp.sh|run_zed_sensors.sh|zed_camera.launch.py|zed_camera.preview.launch.py|ydlidar_ros2_driver_node|nomad_external_frame_alias|nomad_semantic_id_adapter|nomad_fcn_preview|external_stereo_cloud|nomad_runtime_manager|nomad_mapper|nomad_mapper2|nomad_mapper3|nomad_terrain_mapper|nomad_indoor_mapper|nomad_monitor|semantic.sh|nomad_perception.modules.semantic)
         printf 'DUPLICATE_MODULE pid=%s token=%s\n' "${cmdline#/proc/}" "$token" >&2
         duplicate=1
         break

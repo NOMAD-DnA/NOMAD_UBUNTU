@@ -16,8 +16,8 @@ class Mapper3OptionTests(unittest.TestCase):
 
     def test_startup_accepts_mapper3(self):
         src = (ROOT / "startup.py").read_text(encoding="utf-8")
-        self.assertIn('choices=("legacy", "mapper2", "terrain", "mapper3")', src)
-        self.assertIn('mapper not in ("legacy", "mapper2", "terrain", "mapper3")', src)
+        self.assertIn('choices=("legacy", "mapper2", "terrain", "mapper3", "indoor")', src)
+        self.assertIn('mapper not in ("legacy", "mapper2", "terrain", "mapper3", "indoor")', src)
 
     def test_jetson_scripts_start_check_and_stop_mapper3(self):
         start = (ROOT / "remote/start_jetson.sh").read_text(encoding="utf-8")

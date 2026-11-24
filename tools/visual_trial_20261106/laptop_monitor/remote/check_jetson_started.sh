@@ -6,6 +6,21 @@ ws=/home/nvidia/nomad_ws
 root="$ws/tools/visual_trial_20261106"
 run=$(cat /tmp/nomad_integrated_jetson_run_dir)
 [[ "$run" = "$ws/log/visual_trial_"* && -d "$run" ]] || { echo 'INVALID_JETSON_RUN' >&2; exit 1; }
+if [[ "$(cat "$run/mapper_kind" 2>/dev/null)" == indoor ]]; then
+  for name in oak lidar indoor; do
+    pid=$(cat "$run/$name.pid")
+    [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { echo "EXITED=$name"; exit 1; }
+    cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")
+    if [[ "$name" == indoor ]]; then
+      [[ "$cmd" == *nomad_indoor_mapper* && ( "$cmd" == *"/mnt/ssd/nomad/indoor_mapper_20261124/"* || "$cmd" == *"/home/nvidia/nomad_indoor_ws/"* ) ]] || { echo STALE_PID=indoor; exit 1; }
+    else
+      [[ "$cmd" == *"$ws/"* ]] || { echo "STALE_PID=$name"; exit 1; }
+    fi
+    printf 'RUNNING=%s pid=%s\n' "$name" "$pid"
+  done
+  printf 'STARTED_ONLY=jetson\nRUN=%s\n' "$run"
+  exit 0
+fi
 for name in oak zed lidar semantic frame_alias semantic_adapter external_cloud; do
   pid=$(cat "$run/$name.pid")
   [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { echo "EXITED=$name" >&2; exit 1; }

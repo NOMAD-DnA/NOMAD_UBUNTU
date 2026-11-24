@@ -1,0 +1,132 @@
+{
+ "floor_z_cm": {
+  "title": "평면 기준 Z",
+  "unit": "cm",
+  "description": "이 값 이하와 같은 점은 포장면, 초과하는 점은 장애물. 지도 odom의 절대 기준 Z",
+  "min": -10000.0,
+  "max": 10000.0
+ },
+ "vio_fixed_z_m": {
+  "title": "VIO 위치 Z 고정값",
+  "unit": "m",
+  "description": "들어오는 VIO 위치 Z 대신 사용하는 값. XY와 회전 및 점군의 3차원 높이는 유지",
+  "min": -100.0,
+  "max": 100.0
+ },
+ "resolution_m": {
+  "title": "지도 셀 크기",
+  "unit": "m",
+  "description": "",
+  "min": 0.01,
+  "max": 1.0
+ },
+ "map_length_m": {
+  "title": "차량 중심 지도 길이",
+  "unit": "m",
+  "description": "0은 무제한, 그 외 4m 이상",
+  "min": 0,
+  "max": 100.0
+ },
+ "startup_radius_m": {
+  "title": "초기 자유 공간 반경",
+  "unit": "m",
+  "description": "시작 위치에 고정된 360도 자유 공간과 경사0 가정. 장애물 우선",
+  "min": 0.01,
+  "max": 30.0
+ },
+ "max_map_cells": {
+  "title": "셀 수 상한",
+  "unit": "개",
+  "description": "0은 끔, 그 외 1000 이상",
+  "min": 0,
+  "max": 1000000
+ },
+ "map_keep_radius_m": {
+  "title": "셀 보존 반경",
+  "unit": "m",
+  "description": "",
+  "min": 1.0,
+  "max": 30.0
+ },
+ "slope_score_per_deg": {
+  "title": "기존 융합 경사 점수 계수",
+  "unit": "",
+  "description": "평면 가정0 또는 미관측을 사용하며 경사 계산은 하지 않음",
+  "min": 0.01,
+  "max": 100.0
+ },
+ "slope_block_deg": {
+  "title": "기존 융합 경사 차단 각도",
+  "unit": "도",
+  "description": "실내 평면 가정은0도",
+  "min": 0.01,
+  "max": 90.0
+ },
+ "initialization_stationary_hold_s": {
+  "title": "초기 정지 유지 시간",
+  "unit": "초",
+  "description": "",
+  "min": 0.0,
+  "max": 60.0
+ },
+ "max_pending_frames": {
+  "title": "LiDAR 대기 스캔 상한",
+  "unit": "개",
+  "description": "",
+  "min": 1,
+  "max": 1000
+ },
+ "max_pose_gap_ms": {
+  "title": "VIO 보간 최대 간격",
+  "unit": "ms",
+  "description": "",
+  "min": 0.01,
+  "max": 1000.0
+ },
+ "moving_free_region.enabled": {
+  "title": "이동 비용0 영역 사용",
+  "unit": "",
+  "description": "높이 장애물은 항상 보호"
+ },
+ "moving_free_region.radius_m": {
+  "title": "이동 영역 전방 반경",
+  "unit": "m",
+  "description": "",
+  "min": 0.01,
+  "max": 5.0
+ },
+ "moving_free_region.rear_length_m": {
+  "title": "이동 영역 뒤쪽 길이",
+  "unit": "m",
+  "description": "",
+  "min": 0.0,
+  "max": 5.0
+ },
+ "moving_free_region.rear_half_width_m": {
+  "title": "이동 영역 좌우 각각의 폭",
+  "unit": "m",
+  "description": "",
+  "min": 0.0,
+  "max": 5.0
+ },
+ "moving_free_region.driven_path_memory": {
+  "title": "주행 경로 자유 공간 기억",
+  "unit": "",
+  "description": "높이 장애물은 항상 우선"
+ },
+ "moving_free_region.driven_front_m": {
+  "title": "주행 경로 전방 길이",
+  "unit": "m",
+  "description": "",
+  "min": 0.0,
+  "max": 5.0
+ },
+ "cost_area": {
+  "title": "지도 출력 범위",
+  "options": [
+   "known_cells",
+   "map_window"
+  ],
+  "description": "알려진 셀 경계 또는 지도 창 전체"
+ }
+}

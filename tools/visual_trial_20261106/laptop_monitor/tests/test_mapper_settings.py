@@ -113,7 +113,7 @@ class SpecTests(unittest.TestCase):
 
     def test_mapper_choice_unchanged(self):
         self.assertEqual(trial_settings.defaults()["mapper"], "legacy")
-        self.assertEqual(set(trial_settings.SETTINGS["mapper"][1]), {"legacy", "terrain", "mapper2", "mapper3"})
+        self.assertEqual(set(trial_settings.SETTINGS["mapper"][1]), {"legacy", "terrain", "mapper2", "mapper3", "indoor"})
         self.assertNotIn("--mapper", trial_settings.start_arguments(trial_settings.defaults()))
         self.assertEqual(trial_settings.start_arguments(dict(mapper="terrain"))[-2:], ["--mapper", "terrain"])
 
@@ -315,7 +315,7 @@ class StartScriptTests(unittest.TestCase):
     def test_overrides_checked_before_sensors_start(self):
         # review fix 2026-11-16: a broken file stops Start before any sensor/module is started
         text, pre, block = self.precheck_block()
-        self.assertLess(text.index("case \"${NOMAD_MAPPER:-legacy}\" in", pre - 600), text.index('run="$ws/log/visual_trial_'))
+        self.assertLess(text.index("case \"${NOMAD_MAPPER:-legacy}\" in", pre - 600), text.index('run="$ws/log/visual_trial_', pre))
         self.assertLess(pre, text.index("start_module "))
         self.assertIn('[[ "$override_rc" -le 1 ]] || fail', block)
         start = text.index('mapper_overrides="$HOME/nomad_settings/mapper_overrides/current.json"')

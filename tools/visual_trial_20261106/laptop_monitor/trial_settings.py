@@ -28,6 +28,7 @@ SETTINGS = {
     # 2026-11-13: new mapper (height map, mapper2) is a trial option; details in mapper2_settings.py.
     # 2026-11-13: "terrain" = legacy map logic in one process (terrain_settings.py).
     "mapper": ("지도(매퍼)", {"legacy": "기존 매퍼", "terrain": "기존 매퍼 개선 (단일 프로세스)",
+                             "indoor": "실내 매퍼 (LiDAR 전용)",
                              "mapper2": "새 매퍼 (높이 지도 · 시험용)",
                              # 2026-11-15: 새 매퍼3 v3 (Jetson SSD /mnt/ssd/nomad/nomad_mapper3_ws, 추천 설정 그대로).
                              "mapper3": "새 매퍼3 v3 (경사 정확도·넓이 개선)"}, "legacy"),
@@ -78,7 +79,8 @@ def save(values, state_root=None) -> dict:
 
 def summary(values) -> str:
     values = validate(values)
-    return " · ".join(SETTINGS[key][1][values[key]] for key in SETTINGS)
+    hidden = {"semantic_model", "cloud_source", "oak_cloud_hz", "slope_mode"} if values["mapper"] == "indoor" else set()
+    return " / ".join(SETTINGS[key][1][values[key]] for key in SETTINGS if key not in hidden)
 
 
 def start_arguments(values) -> list:
@@ -89,7 +91,7 @@ def start_arguments(values) -> list:
             "--slope-mode", values["slope_mode"]]
     if values["gnss"] == "off":
         args.append("--no-gnss")
-    if values["mapper"] in ("mapper2", "terrain", "mapper3"):
+    if values["mapper"] in ("mapper2", "terrain", "mapper3", "indoor"):
         args += ["--mapper", values["mapper"]]
     return args
 
@@ -117,6 +119,17 @@ def form(parent=None, values=None, keys=None):
         row, column = divmod(index, 3)
         grid.addWidget(QtWidgets.QLabel(label), row, column * 2)
         grid.addWidget(combo, row, column * 2 + 1)
+    if "mapper" in combos:
+        def refresh_indoor():
+            indoor = combos["mapper"].currentData() == "indoor"
+            for key in ("semantic_model", "cloud_source", "oak_cloud_hz", "slope_mode"):
+                if key in combos:
+                    combos[key].setVisible(not indoor)
+                    index = list(keys or SETTINGS).index(key)
+                    row, column = divmod(index, 3)
+                    grid.itemAtPosition(row, column * 2).widget().setVisible(not indoor)
+        combos["mapper"].currentIndexChanged.connect(refresh_indoor)
+        refresh_indoor()
     return widget, combos
 
 

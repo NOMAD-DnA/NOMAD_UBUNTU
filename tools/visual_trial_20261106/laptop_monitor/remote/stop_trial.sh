@@ -113,7 +113,8 @@ valid_module_command() {
   # 2026-11-13: the new mapper lives in its own workspace next to nomad_ws.
   [[ "$command" == *"$ws/"* || ( "$label" == mapper2 && "$command" == *"${ws%/nomad_ws}/nomad_mapper2_ws/"* ) ||
      ( "$label" == terrain && "$command" == *"${ws%/nomad_ws}/nomad_terrain_ws/"* ) ||
-     ( "$label" == mapper3 && "$command" == *"/mnt/ssd/nomad/nomad_mapper3_ws/"* ) ]] || return 1
+     ( "$label" == mapper3 && "$command" == *"/mnt/ssd/nomad/nomad_mapper3_ws/"* ) ||
+     ( "$label" == indoor && ( "$command" == *"/mnt/ssd/nomad/indoor_mapper_20261124/"* || "$command" == *"/home/nvidia/nomad_indoor_ws/"* ) ) ]] || return 1
   mapfile -d '' -t argv < "/proc/$pid/cmdline" 2>/dev/null || return 1
   [[ ${#argv[@]} -gt 0 ]] || return 1
   # The alternate semantic producer and its passthrough adapter are native
@@ -123,7 +124,7 @@ valid_module_command() {
       [[ "${argv[0]}" == "$ws/"* ]] && return 0;;
   esac
   case "$label:$command" in
-    oak:*oak*|zed:*zed*|lidar:*ydlidar_ros2_driver_node*|semantic:*semantic*|frame_alias:*nomad_external_frame_alias*|semantic_adapter:*semantic*adapter*|external_cloud:*external_stereo_cloud*|gnss:*gnss*|gnss:*ublox*|vio:*basalt*|fusion:*fusion*|vio_supervisor:*nomad_vio_supervisor*|front_recorder:*nomad_front_recorder*|costmap:*nomad_runtime_manager*|mapper:*nomad_mapper*|mapper2:*nomad_mapper2*|mapper3:*nomad_mapper3*|terrain:*nomad_terrain_mapper*|monitor:*nomad_monitor*) return 0;;
+    oak:*oak*|zed:*zed*|lidar:*ydlidar_ros2_driver_node*|semantic:*semantic*|frame_alias:*nomad_external_frame_alias*|semantic_adapter:*semantic*adapter*|external_cloud:*external_stereo_cloud*|gnss:*gnss*|gnss:*ublox*|vio:*basalt*|fusion:*fusion*|vio_supervisor:*nomad_vio_supervisor*|front_recorder:*nomad_front_recorder*|costmap:*nomad_runtime_manager*|mapper:*nomad_mapper*|mapper2:*nomad_mapper2*|mapper3:*nomad_mapper3*|terrain:*nomad_terrain_mapper*|indoor:*nomad_indoor_mapper*|indoor:*indoor_mapper_20261124*run_jetson.sh*|monitor:*nomad_monitor*) return 0;;
   esac
   return 1
 }
@@ -197,6 +198,8 @@ token_label() {
     nomad_fcn_preview|semantic.sh|nomad_perception.modules.semantic) module=semantic;;
     external_stereo_cloud) module=external_cloud;;
     nomad_runtime_manager) module=costmap;;
+    nomad_indoor_mapper) module=indoor;;
+    run_jetson.sh) [[ "$token" != /mnt/ssd/nomad/indoor_mapper_20261124/* ]] || module=indoor;;
     nomad_mapper|nomad_mapper2|nomad_mapper3|nomad_terrain_mapper|nomad_monitor) module=${token##*/}; module=${module#nomad_}
       [[ "$module" != terrain_mapper ]] || module=terrain;;
     receiver) [[ "$token" != "$ws/install/nomad_gnss/lib/nomad_gnss/receiver" ]] || module=gnss;;
@@ -460,7 +463,7 @@ main() {
     [[ -f "$file" && ! -L "$file" && $(stat -c %u "$file") == "$current_uid" ]] || continue
     name=${file##*/}; name=${name%.pid}
     case "$board:$name" in
-      pi5:gnss|pi5:vio|pi5:fusion|pi5:vio_supervisor|pi5:front_recorder|jetson:oak|jetson:zed|jetson:lidar|jetson:semantic|jetson:frame_alias|jetson:semantic_adapter|jetson:external_cloud|jetson:costmap|jetson:mapper2|jetson:mapper3|jetson:terrain) ;;
+      pi5:gnss|pi5:vio|pi5:fusion|pi5:vio_supervisor|pi5:front_recorder|jetson:oak|jetson:zed|jetson:lidar|jetson:semantic|jetson:frame_alias|jetson:semantic_adapter|jetson:external_cloud|jetson:costmap|jetson:mapper2|jetson:mapper3|jetson:terrain|jetson:indoor) ;;
       *) continue;;
     esac
     pid=$(cat "$file")

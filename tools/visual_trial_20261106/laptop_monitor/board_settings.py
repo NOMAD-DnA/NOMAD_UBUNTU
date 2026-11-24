@@ -250,6 +250,33 @@ class TerrainModule(Mapper2Module):
         return [json.dumps(self.board_json(configs), ensure_ascii=False, indent=1) + "\n"]
 
 
+class IndoorModule(Module):
+    """Editable indoor fields; retain the board's hidden calibration and frame values."""
+    def __init__(self):
+        import indoor_settings as i
+        super().__init__("indoor", "실내 매퍼", i.SPEC,
+            ["nomad_indoor_ws/active_config/indoor.json"],
+            ["nomad_indoor_ws/src/nomad_indoor_mapper/config/indoor.json"], i.save)
+        self.runtime = i.runtime_config(i.defaults())
+
+    def configs_from_default(self, files):
+        import indoor_settings as i
+        if files[0] is None:
+            return None, []
+        self.runtime = json.loads(files[0].decode("utf-8"))
+        return merge_values(self.spec, self.spec.defaults(), {"indoor": self.runtime})
+
+    def configs_from_current(self, files):
+        if files[0] is None:
+            return None, []
+        self.runtime = json.loads(files[0].decode("utf-8"))
+        return {"indoor": self.runtime}, []
+
+    def current_files(self, configs):
+        import indoor_settings as i
+        return [json.dumps(i.runtime_config(configs, self.runtime), ensure_ascii=False, indent=1) + "\n"]
+
+
 class MapperOverridesModule(Module):
     """'새 매퍼3 v3 설정' (2026-11-16): mapper3 class-boundary px, initial safe area and slope k, one JSON
     file nomad_settings/mapper_overrides/current.json (null = board file value). No board default file:
@@ -382,7 +409,7 @@ class BasaltModule(Module):
         return [json.dumps(configs, ensure_ascii=False, indent=1) + "\n", text]
 
 
-MODULES = {"planner": PlannerModule, "mapper2": Mapper2Module, "terrain": TerrainModule,
+MODULES = {"indoor": IndoorModule, "planner": PlannerModule, "mapper2": Mapper2Module, "terrain": TerrainModule,
            "mapper_overrides": MapperOverridesModule, "vio": BasaltModule,
            "fusion": lambda: RosOverrideModule("fusion"), "gnss": lambda: RosOverrideModule("gnss"),
            "oak": lambda: RosOverrideModule("oak"), "perception": lambda: RosOverrideModule("perception")}
