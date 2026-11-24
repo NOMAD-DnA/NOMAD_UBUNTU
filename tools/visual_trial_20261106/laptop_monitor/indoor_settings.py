@@ -71,7 +71,7 @@ def upload_script(configs, if_missing=False):
 class SettingsDialog(_Dialog):
     def __init__(self, parent, state_root, board=None):
         super().__init__(parent, state_root, SPEC, "실내 매퍼 설정",
-            "카메라 정면 기준 LiDAR 사용 반각을 ±40~±100도 사이에서 직접 입력할 수 있습니다. "
+            "카메라 정면 기준 LiDAR 사용 반각을 ±10~±100도 사이에서 직접 입력할 수 있습니다. "
             "차량 반경 2m 안 종점은 높이와 관계없이 장애물이며 광선 통과 셀은 포장면입니다. "
             "XY와 회전 및 3차원 점군은 유지합니다. 저장값은 다음 실내 매퍼 시작부터 적용됩니다.", board=board)
 

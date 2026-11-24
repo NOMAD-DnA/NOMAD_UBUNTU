@@ -30,7 +30,7 @@ class IndoorSettingsTests(unittest.TestCase):
 
     def test_angle_range_fractional_save_and_board_roundtrip(self):
         self.assertEqual(indoor.defaults()["indoor"]["lidar_half_fov_deg"], 80.)
-        for angle in (40., 55.25, 72.5, 80., 100.):
+        for angle in (10., 20.25, 40., 55.25, 72.5, 80., 100.):
             c = indoor.defaults()
             c["indoor"]["lidar_half_fov_deg"] = angle
             with tempfile.TemporaryDirectory() as d:
@@ -43,7 +43,7 @@ class IndoorSettingsTests(unittest.TestCase):
             saved = json.loads(module.current_files(c)[0])
             self.assertEqual(saved["lidar_half_fov_deg"], angle)
             self.assertEqual(saved["T_imu_from_lidar"], original["T_imu_from_lidar"])
-        for angle in (39.999, 100.001, float("nan"), float("inf"), True, "80"):
+        for angle in (9.999, 100.001, float("nan"), float("inf"), True, "80"):
             c = indoor.defaults()
             c["indoor"]["lidar_half_fov_deg"] = angle
             with self.assertRaises(ValueError):
@@ -167,7 +167,7 @@ class IndoorUiTests(unittest.TestCase):
             dialog = indoor.SettingsDialog(None, d)
             try:
                 angle = dialog.widgets[("indoor", "lidar_half_fov_deg")][0]
-                self.assertEqual((angle.minimum(), angle.maximum()), (40., 100.))
+                self.assertEqual((angle.minimum(), angle.maximum()), (10., 100.))
                 angle.setValue(72.5)
                 self.assertEqual(indoor.validate(dialog.values())["indoor"]["lidar_half_fov_deg"], 72.5)
                 self.assertIn("145도", dialog.fov_summary.text())
