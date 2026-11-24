@@ -1,4 +1,9 @@
 {
+ "lock_obstacle_cells": {
+  "title": "장애물 셀 고정",
+  "unit": "",
+  "description": "켬: 한 번 장애물로 관측된 셀은 광선이 통과해도 유지. 끔: 광선 통과 시 포장면으로 해제. 다음 새 시험부터 적용하며 지도 범위 밖 삭제는 유지"
+ },
  "lidar_half_fov_deg": {
   "title": "LiDAR 전방 좌우 반각",
   "unit": "도 (±)",

@@ -49,6 +49,29 @@ class IndoorSettingsTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 indoor.validate(c)
 
+    def test_obstacle_lock_boolean_roundtrip_and_legacy_default(self):
+        self.assertIs(indoor.defaults()["indoor"]["lock_obstacle_cells"], False)
+        for enabled in (False, True):
+            c = indoor.defaults()
+            c["indoor"]["lock_obstacle_cells"] = enabled
+            with tempfile.TemporaryDirectory() as d:
+                indoor.save(c, d)
+                self.assertIs(indoor.load(d)["indoor"]["lock_obstacle_cells"], enabled)
+            module = board_settings.IndoorModule()
+            original = indoor.runtime_config(indoor.defaults())
+            original.pop("lock_obstacle_cells")
+            module.configs_from_current([json.dumps(original).encode()])
+            saved = json.loads(module.current_files(c)[0])
+            self.assertIs(saved["lock_obstacle_cells"], enabled)
+            self.assertEqual(saved["T_imu_from_lidar"], original["T_imu_from_lidar"])
+        legacy = indoor.defaults()
+        legacy["indoor"].pop("lock_obstacle_cells")
+        self.assertIs(indoor.validate(legacy)["indoor"]["lock_obstacle_cells"], False)
+        for value in (0, 1, "true", None):
+            c = indoor.defaults()
+            c["indoor"]["lock_obstacle_cells"] = value
+            with self.assertRaises(ValueError): indoor.validate(c)
+
     def test_signed_z_values_save_and_reload(self):
         c = indoor.defaults()
         c["indoor"]["floor_z_cm"] = -3.5
@@ -166,6 +189,10 @@ class IndoorUiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             dialog = indoor.SettingsDialog(None, d)
             try:
+                lock = dialog.widgets[("indoor", "lock_obstacle_cells")][0]
+                for enabled in (True, False):
+                    lock.setChecked(enabled)
+                    self.assertIs(indoor.validate(dialog.values())["indoor"]["lock_obstacle_cells"], enabled)
                 angle = dialog.widgets[("indoor", "lidar_half_fov_deg")][0]
                 self.assertEqual((angle.minimum(), angle.maximum()), (10., 100.))
                 angle.setValue(72.5)

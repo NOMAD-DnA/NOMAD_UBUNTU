@@ -1,4 +1,5 @@
 {
+ "lock_obstacle_cells": false,
  "lidar_half_fov_deg": 80.0,
  "build_id": "nomad-indoor-mapper-20261124-1",
  "floor_z_cm": 5.0,
