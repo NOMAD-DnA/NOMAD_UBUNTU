@@ -946,7 +946,7 @@ class Launcher(QtWidgets.QMainWindow):
         if self.trial_settings()["mapper"] == "indoor":
             import indoor_settings
             cfg = indoor_settings.load(STATE_ROOT)["indoor"]
-            text += f" / VIO 고정 Z {cfg['vio_fixed_z_m']:g} m / 평면 기준 Z {cfg['floor_z_cm']:g} cm"
+            text += f" / VIO 고정 Z {cfg['vio_fixed_z_m']:g} m / LiDAR ±{cfg['lidar_half_fov_deg']:g}도 (전체 {2*cfg['lidar_half_fov_deg']:g}도)"
         if self.trial_settings()["mapper"] == "mapper3":
             import mapper_settings
             text += " · " + mapper_settings.summary(mapper_settings.load(STATE_ROOT))

@@ -28,6 +28,27 @@ class IndoorSettingsTests(unittest.TestCase):
         self.assertFalse(any(any(word in k for word in ("oak", "zed", "label", "camera")) for k in keys))
         self.assertIn("moving_free_region.radius_m", keys)
 
+    def test_angle_range_fractional_save_and_board_roundtrip(self):
+        self.assertEqual(indoor.defaults()["indoor"]["lidar_half_fov_deg"], 80.)
+        for angle in (40., 55.25, 72.5, 80., 100.):
+            c = indoor.defaults()
+            c["indoor"]["lidar_half_fov_deg"] = angle
+            with tempfile.TemporaryDirectory() as d:
+                indoor.save(c, d)
+                self.assertEqual(indoor.load(d)["indoor"]["lidar_half_fov_deg"], angle)
+            module = board_settings.IndoorModule()
+            original = indoor.runtime_config(indoor.defaults())
+            original.pop("lidar_half_fov_deg")
+            module.configs_from_current([json.dumps(original).encode()])
+            saved = json.loads(module.current_files(c)[0])
+            self.assertEqual(saved["lidar_half_fov_deg"], angle)
+            self.assertEqual(saved["T_imu_from_lidar"], original["T_imu_from_lidar"])
+        for angle in (39.999, 100.001, float("nan"), float("inf"), True, "80"):
+            c = indoor.defaults()
+            c["indoor"]["lidar_half_fov_deg"] = angle
+            with self.assertRaises(ValueError):
+                indoor.validate(c)
+
     def test_signed_z_values_save_and_reload(self):
         c = indoor.defaults()
         c["indoor"]["floor_z_cm"] = -3.5
@@ -145,6 +166,11 @@ class IndoorUiTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             dialog = indoor.SettingsDialog(None, d)
             try:
+                angle = dialog.widgets[("indoor", "lidar_half_fov_deg")][0]
+                self.assertEqual((angle.minimum(), angle.maximum()), (40., 100.))
+                angle.setValue(72.5)
+                self.assertEqual(indoor.validate(dialog.values())["indoor"]["lidar_half_fov_deg"], 72.5)
+                self.assertIn("145도", dialog.fov_summary.text())
                 floor = dialog.widgets[("indoor", "floor_z_cm")][0]
                 fixed = dialog.widgets[("indoor", "vio_fixed_z_m")][0]
                 floor.setValue(7.5)
