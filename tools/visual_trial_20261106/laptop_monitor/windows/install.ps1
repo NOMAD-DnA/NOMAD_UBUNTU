@@ -37,6 +37,9 @@ try {
     Copy-Item -Path (Join-Path $PSScriptRoot 'app\*') -Destination $destination -Recurse -Force
     & $appPython -c 'import sys; sys.path.insert(0, sys.argv[1]); import windows_spectator, monitor' (Join-Path $destination 'laptop_monitor')
     if ($LASTEXITCODE -ne 0) { throw 'App dependency check failed.' }
+    & $appPython (Join-Path $destination 'laptop_monitor\windows_spectator.py') --init-demo-config
+    if ($LASTEXITCODE -ne 0) { throw 'Could not create the demo address settings file.' }
+    $demoConfig = Join-Path $root 'demo.ini'
     $shell = New-Object -ComObject WScript.Shell
     $locations = @([Environment]::GetFolderPath('Desktop'), (Join-Path ([Environment]::GetFolderPath('Programs')) 'NOMAD'))
     foreach ($folder in $locations) {
@@ -51,10 +54,17 @@ try {
         $demoShortcut.TargetPath = $shortcut.TargetPath
         $demoShortcut.Arguments = $shortcut.Arguments + ' --demo'
         $demoShortcut.WorkingDirectory = $destination
-        $demoShortcut.Description = 'NOMAD demo spectator - auto connect to 10.42.0.1:8768'
+        $demoShortcut.Description = 'NOMAD demo spectator - auto connect using demo.ini'
         $demoShortcut.Save()
+        $settingsShortcut = $shell.CreateShortcut((Join-Path $folder 'NOMAD Demo Settings.lnk'))
+        $settingsShortcut.TargetPath = Join-Path $env:WINDIR 'System32\notepad.exe'
+        $settingsShortcut.Arguments = '"' + $demoConfig + '"'
+        $settingsShortcut.WorkingDirectory = $root
+        $settingsShortcut.Description = 'Edit the NOMAD Demo relay address, save, then reopen NOMAD Demo'
+        $settingsShortcut.Save()
     }
-    Write-Host 'Installed. Open NOMAD Demo to auto-connect to 10.42.0.1:8768.' -ForegroundColor Green
+    Write-Host 'Installed. Open NOMAD Demo to auto-connect using demo.ini.' -ForegroundColor Green
+    Write-Host 'Use NOMAD Demo Settings to edit the address. Save, then reopen NOMAD Demo.'
     Write-Host 'NOMAD Spectator is also available for manual address entry.'
     Write-Host 'The shared folder is no longer required to run this installed copy.'
     exit 0

@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt5 import QtCore, QtGui, QtWidgets
 import monitor
 from relay import RelayServer
-from windows_spectator import connection_args, spectator_args
+from windows_spectator import connection_args, ensure_demo_config, load_demo_relay, spectator_args
 
 
 class WindowsSpectatorTest(unittest.TestCase):
@@ -24,16 +24,43 @@ class WindowsSpectatorTest(unittest.TestCase):
     def setUpClass(cls):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix='nomad-demo-config-test-')
+        self.addCleanup(directory.cleanup)
+        self.config = Path(directory.name) / 'demo.ini'
+
     def test_demo_skips_dialog_and_ignores_saved_manual_address(self):
         settings = mock.Mock()
         settings.value.return_value = '192.0.2.123:9999'
         with mock.patch.object(QtWidgets.QInputDialog, 'getText', side_effect=AssertionError('Demo must not prompt')):
-            args = connection_args(settings, demo=True)
+            args = connection_args(settings, demo=True, config_path=self.config)
         self.assertEqual(args.relay_host, '10.42.0.1:8768')
         self.assertTrue(args.no_ssh)
         self.assertFalse(args.enable_trial_control)
         settings.value.assert_not_called()
         settings.setValue.assert_not_called()
+
+    def test_edited_config_is_used_and_preserved_by_reinitialization(self):
+        ensure_demo_config(self.config)
+        self.config.write_text('[connection]\nrelay = 192.0.2.8:9876\n', encoding='utf-8-sig')
+        before = self.config.read_bytes()
+        ensure_demo_config(self.config)
+        self.assertEqual(self.config.read_bytes(), before)
+        settings = mock.Mock()
+        with mock.patch.object(QtWidgets.QInputDialog, 'getText', side_effect=AssertionError('No dialog')):
+            args = connection_args(settings, demo=True, config_path=self.config)
+        self.assertEqual(args.relay_host, '192.0.2.8:9876')
+        self.assertTrue(args.no_ssh)
+        self.assertFalse(args.enable_trial_control)
+
+    def test_invalid_config_fails_without_overwriting_or_defaulting(self):
+        for text in ('invalid ini', '[connection]\nrelay = host:0\n', '[wrong]\nrelay = host:8768\n',
+                     '[connection]\nrelay = a b:8768\n', '[connection]\nrelay = \n'):
+            with self.subTest(text=text):
+                self.config.write_text(text, encoding='utf-8')
+                with self.assertRaisesRegex(ValueError, 'relay = 10.42.0.1:8768'):
+                    load_demo_relay(self.config)
+                self.assertEqual(self.config.read_text(), text)
 
     def test_manual_address_and_cancel_still_work(self):
         settings = mock.Mock()
@@ -63,7 +90,8 @@ class WindowsSpectatorTest(unittest.TestCase):
         server.start()
         self.addCleanup(server.close)
         address = server.status()
-        args = spectator_args('127.0.0.1:' + str(address['port']))
+        self.config.write_text('[connection]\nrelay = 127.0.0.1:' + str(address['port']) + '\n')
+        args = connection_args(mock.Mock(), demo=True, config_path=self.config)
         with mock.patch.object(monitor, 'Collector', side_effect=AssertionError('No SSH')), \
                 mock.patch('control.run_remote', side_effect=AssertionError('No remote commands')):
             window = monitor.MonitorWindow(args)

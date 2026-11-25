@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import configparser
 import os
 from pathlib import Path
 import sys
@@ -9,9 +10,38 @@ import sys
 DEMO_RELAY = "10.42.0.1:8768"
 
 
-def connection_args(settings, *, demo=False):
+def demo_config_path():
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "NOMAD-Spectator" / "demo.ini"
+
+
+def ensure_demo_config(path=None):
+    path = Path(path) if path is not None else demo_config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        # Exclusive creation preserves edits across reinstall and app upgrades.
+        with path.open("x", encoding="utf-8", newline="\n") as handle:
+            handle.write("; Save this file, then reopen NOMAD Demo to apply.\n"
+                         "[connection]\nrelay = " + DEMO_RELAY + "\n")
+    except FileExistsError:
+        pass
+    return path
+
+
+def load_demo_relay(path=None):
+    path = ensure_demo_config(path)
+    config = configparser.ConfigParser(interpolation=None)
+    try:
+        config.read_string(path.read_text(encoding="utf-8-sig"))
+        from launcher import validate_relay_address
+        return validate_relay_address(config.get("connection", "relay").strip())
+    except (configparser.Error, ValueError, UnicodeError) as error:
+        raise ValueError("시연 주소 설정을 확인하세요.\n" + str(path) +
+                         "\n\n[connection]\nrelay = 10.42.0.1:8768") from error
+
+
+def connection_args(settings, *, demo=False, config_path=None):
     if demo:
-        return spectator_args(DEMO_RELAY)
+        return spectator_args(load_demo_relay(config_path))
     from PyQt5 import QtWidgets
     address = str(settings.value("relay", ""))
     while True:
@@ -42,7 +72,11 @@ def spectator_args(endpoint):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", action="store_true", help="Open the demo hotspot relay without an address dialog")
+    parser.add_argument("--init-demo-config", action="store_true", help="Create the user demo config if missing, preserving existing settings")
     options = parser.parse_args()
+    if options.init_demo_config:
+        print(ensure_demo_config())
+        return 0
     state = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "NOMAD-Spectator" / "state"
     state.mkdir(parents=True, exist_ok=True)
     os.environ["NOMAD_VIEWER_STATE_DIR"] = str(state)
@@ -52,7 +86,11 @@ def main():
     app = QtWidgets.QApplication([sys.argv[0]])
     app.setApplicationName("NOMAD Spectator")
     settings = QtCore.QSettings(str(state / "connection.ini"), QtCore.QSettings.IniFormat)
-    args = connection_args(settings, demo=options.demo)
+    try:
+        args = connection_args(settings, demo=options.demo)
+    except (OSError, ValueError) as error:
+        QtWidgets.QMessageBox.critical(None, "시연 설정 오류", str(error))
+        return 1
     if args is None:
         return 0
     import monitor
