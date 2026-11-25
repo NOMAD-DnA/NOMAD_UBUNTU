@@ -147,6 +147,7 @@ VESC가 보내는 값 중 지금까지 제어기가 넘기지 않던 것을 GUI 
   - `input_current_a`: 배터리(입력) 전류 A. 상 전류로 계산한 VESC 추정값입니다(75_300에는 직류 전류 측정 저항이 없음).
   - `input_power_w`: 배터리 전력 W(전압 × 입력 전류, 회생이면 음수).
   - `iq_a`·`id_a`: 토크·자속 전류 A(VESC `avg_iq`·`avg_id`). `iq_a`가 모터 힘을 가장 잘 보여 줍니다. HFI에서는 `id_a`가 0 근처입니다.
+  - `current_a`와 `iq_a`의 차이: `current_a`(`control_trace`, `status_json`, `[RESTART_TRACE]`; 텍스트 상태의 `current_motor_a`)는 드라이버의 `current_motor`(펌웨어 평균 모터 전류)이고, 제어기 모터 과전류 잠금(55 A)이 보는 값입니다. HFI 평지 주행에서는 `iq_a`의 약 1/4로 읽힙니다. 정지 유지 전류 계산과 미끄러짐 표시는 `iq_a`를 씁니다. 그래서 정지 유지 중에 두 값이 크게 다를 수 있습니다.
   - `duty`: −1~1. 절댓값이 VESC 최대 0.95에 가까우면 그 배터리 전압에서 낼 수 있는 최고 속도입니다.
   - `vd_v`·`vq_v`: d·q축 전압 V(진단용).
   - `esc_mos_temps_c`: MOSFET 온도 3개 각각(`esc_temp_c`는 그중 최고).
@@ -604,13 +605,14 @@ e173e9f까지는 저장소에서 Pi4 `~/nomad_cpp_ws`로 배포했습니다(실�
 | d1bc2aa | (11-20) 1·2순위 뒤 정리: 감속 명령 바닥 설정의 '설정 안 함'을 0으로(−1 거부), 감속 ROS 시험을 `planning_stop_ramp_ros_1`·`_2`로 나눔(각 약 32·35초), 출력 흐름 설명 주석. 차 동작 같음(11-20 21:16 Pi4 배포) |
 | 2a6e027 | (11-20) d1bc2aa Pi4 배포 기록(`4e09619b…`) |
 | a4ef992 | (11-20) 리팩토링 3순위 일부: `[LPP_LOST]`를 쓰는 두 곳(명령 받기, 20 ms 처리)을 `linkLost()` 하나로. 줄 내용과 차 동작 같음. 3순위의 나머지(`setupPlanning`·`tickPlanning` 나누기)는 11-27 시연 뒤로 미룸(11-25 12:11 Pi4 배포) |
-| (이 커밋) | (11-25) a4ef992 Pi4 배포 기록(`fe153ab4…`, Pi4 단위 20/20·ROS 6/6) |
+| 6af7b5b | (11-25) a4ef992 Pi4 배포 기록(`fe153ab4…`, Pi4 단위 20/20·ROS 6/6) |
+| (이 커밋) | (11-25) 11-22 VESC 설정 `mcconf_20261122_FINAL.xml`·`acconf_20261122_FINAL.xml` 기록(배터리 4셀·차단 13.6/12.8 V, ERPM ±3000, Timeout Brake 0 A 유지), `current_a`·`iq_a` 설명. 문서·설정 파일만, 제어기 코드·설정 같음(Pi4 배포 불필요) |
 
 통합 GUI(`feat/gui` ddfb8c3, a1c24af): 플래닝 창 '제어기 복구' 버튼, 복구 결과 전용 표시, 복구 중 창 닫기 보호.
 
 ### 남은 일
 
-1. VESC 전류 한계 정리: 11-13 VESC에 적용(모터 ±50 A, 배터리 30 A, 회생 −30 A, 같은 날 `s_pid_ki` 0.04·`s_pid_kp` 0.010). 정지 브레이크 때문에 `l_current_min`은 −30 A 이하로 둡니다(지금 −50 A). 설정 파일 `vesc_config_20261112/VESC_설정파일/mcconf_20261113_PID_kp010.xml`.
+1. VESC 전류 한계 정리: 11-13 VESC에 적용(모터 ±50 A, 배터리 30 A, 회생 −30 A, 같은 날 `s_pid_ki` 0.04·`s_pid_kp` 0.010). 정지 브레이크 때문에 `l_current_min`은 −30 A 이하로 둡니다(지금 −50 A). 지금 설정 파일은 `vesc_config_20261112/VESC_설정파일/mcconf_20261122_FINAL.xml`입니다(11-22: 배터리 4셀·차단 13.6/12.8 V·4.4 Ah, ERPM ±3000 추가, 속도 PID·전류 한계는 kp010 그대로; 앱 설정은 바뀌지 않았고 Timeout Brake 0 A 유지). 제어기 모터 과전류 잠금 55/60 A는 VESC 50 A보다 높아서 VESC 넘침이나 잡음 때만 걸립니다.
 2. 수동 GUI VESC 점검(`ensure_gui.sh`): 11-13 새 VESC 값으로 맞춤(모터 ≤50 A·하한 −50~−30 A, 배터리 ≤30 A·회생 −30~0 A, PID 최소 50). 자율주행 경로(`run_planning_output.sh`)에는 VESC 설정 점검이 없습니다. Pi4 `~/vesc_ws/inspect_vesc.py --bench-current-a`는 VESC 전류 한계를 써 버리므로(회생 0 A) 쓰지 마세요.
 3. 리뷰에서 나온 개선 후보(미수정): 전류 피크 직후 재출발 대기 없음, 과속 감속 명령이 VESC PID 최소값 아래로 내려감, 운영자 STOP 후 복구하면 곧바로 출발.
 4. 플래너 쪽 합의: 명령 유효시간 0.15 → 0.3초(11-16 짧은 끊김 정지 12번 해당), `vehicle_state` 구독 best_effort, STOP을 매 주기 반복 발행(그 뒤 제어기 명령 구독 best_effort 가능), 플래너가 1000 ERPM 하한을 모름, 종료 시 드라이버·제어기 동시 종료, `vesc_commission.yaml` 서보 범위 중복, LPP STOP 뒤 감속 정지로 STOP→핸드브레이크 약 0.4~0.46초(예전보다 약 0.35~0.4초 더, 가파른 내리막은 200 유지 최대 0.6초 뒤 브레이크로 넘어가면 상한 없음)·거리 약 4~6 cm 증가(11-13 감속 정지).
