@@ -16,13 +16,33 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt5 import QtCore, QtGui, QtWidgets
 import monitor
 from relay import RelayServer
-from windows_spectator import spectator_args
+from windows_spectator import connection_args, spectator_args
 
 
 class WindowsSpectatorTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def test_demo_skips_dialog_and_ignores_saved_manual_address(self):
+        settings = mock.Mock()
+        settings.value.return_value = '192.0.2.123:9999'
+        with mock.patch.object(QtWidgets.QInputDialog, 'getText', side_effect=AssertionError('Demo must not prompt')):
+            args = connection_args(settings, demo=True)
+        self.assertEqual(args.relay_host, '10.42.0.1:8768')
+        self.assertTrue(args.no_ssh)
+        self.assertFalse(args.enable_trial_control)
+        settings.value.assert_not_called()
+        settings.setValue.assert_not_called()
+
+    def test_manual_address_and_cancel_still_work(self):
+        settings = mock.Mock()
+        settings.value.return_value = '192.0.2.123:9999'
+        with mock.patch.object(QtWidgets.QInputDialog, 'getText', return_value=('192.0.2.2:8888', True)):
+            self.assertEqual(connection_args(settings).relay_host, '192.0.2.2:8888')
+        settings.setValue.assert_called_once_with('relay', '192.0.2.2:8888')
+        with mock.patch.object(QtWidgets.QInputDialog, 'getText', return_value=('', False)):
+            self.assertIsNone(connection_args(settings))
 
     def test_forces_readonly_and_does_not_forward_operator_options(self):
         with mock.patch.object(sys, 'argv', ['viewer', '--enable-trial-control', '--relay-listen', '8768']):

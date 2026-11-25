@@ -47,9 +47,15 @@ try {
         $shortcut.WorkingDirectory = $destination
         $shortcut.Description = 'NOMAD read-only spectator for the Ubuntu operator PC'
         $shortcut.Save()
+        $demoShortcut = $shell.CreateShortcut((Join-Path $folder 'NOMAD Demo.lnk'))
+        $demoShortcut.TargetPath = $shortcut.TargetPath
+        $demoShortcut.Arguments = $shortcut.Arguments + ' --demo'
+        $demoShortcut.WorkingDirectory = $destination
+        $demoShortcut.Description = 'NOMAD demo spectator - auto connect to 10.42.0.1:8768'
+        $demoShortcut.Save()
     }
-    Write-Host 'Installed. Open NOMAD Spectator on your desktop.' -ForegroundColor Green
-    Write-Host 'Enter the Ubuntu operator relay address (usually port 8768).'
+    Write-Host 'Installed. Open NOMAD Demo to auto-connect to 10.42.0.1:8768.' -ForegroundColor Green
+    Write-Host 'NOMAD Spectator is also available for manual address entry.'
     Write-Host 'The shared folder is no longer required to run this installed copy.'
     exit 0
 } catch {

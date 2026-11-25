@@ -47,6 +47,8 @@ exit /b %NOMAD_SETUP_RESULT%
     body = bootstrap.replace('\n', '\r\n') + '\r\n'.join(encoded[i:i+120] for i in range(0, len(encoded), 120)) + '\r\n'
     destination = application.parent / 'NOMAD_Windows_Spectator_Setup.cmd'
     destination.write_bytes(body.encode('ascii'))
+    # Same installer, with an explicit demo filename for the demonstration team.
+    (application.parent / 'NOMAD_Windows_Demo_Setup.cmd').write_bytes(destination.read_bytes())
     (application.parent / 'NOMAD_Windows_관전_설치안내.txt').write_bytes((here / 'README.txt').read_bytes())
     print(destination)
     print('version=' + version)
