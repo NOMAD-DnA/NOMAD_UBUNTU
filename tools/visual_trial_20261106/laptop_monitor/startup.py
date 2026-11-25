@@ -260,7 +260,7 @@ def start_boards(
                       " · 인지 " + semantic_model)
 
     if mapper == "indoor":
-        sensor_message = "실내 매퍼: VIO용 영상과 IMU, LiDAR 기동 / ZED와 의미분할 및 OAK 점군 사용 안 함"
+        sensor_message = "실내 매퍼: LiDAR 지도와 VIO 기동 / OAK 영상과 ZED 실내 의미분할은 화면 표시용"
 
     def remote_job(board: str, script, timeout: int) -> dict:
         try:

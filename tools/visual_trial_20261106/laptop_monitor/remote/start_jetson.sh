@@ -308,13 +308,17 @@ if [[ -x /usr/local/lib/nomad-network/time_agent.py ]]; then
   nomad_time=$(python3 /usr/local/lib/nomad-network/time_agent.py --check || true)
   [[ "$nomad_time" == *'"ok": true'* ]] || { printf 'TIME_NOT_READY: %s\n' "${nomad_time#NOMAD_TIME_RESULT=}" >&2; exit 1; }
 fi
-# Indoor branch exits before all ZED/semantic/cloud checks and startup paths.
+# Indoor branch exits before the other mappers. Camera inference below is display-only.
 if [[ "${NOMAD_MAPPER:-legacy}" == indoor ]]; then
   iw="$HOME/nomad_indoor_ws"
   ibin="$iw/install/nomad_indoor_mapper/lib/nomad_indoor_mapper/nomad_indoor_mapper"
   iprobe="$iw/install/nomad_indoor_mapper/lib/nomad_indoor_mapper/indoor_probe"
   [[ -x "$ibin" && -x "$iprobe" && -r "$iw/active_config/indoor.json" ]] || fail 'Indoor mapper is not installed or configured'
   "$iprobe" "$iw/active_config/indoor.json" </dev/null || fail 'Invalid indoor configuration; no sensors started'
+  display_helper="$root/indoor_display_helpers.sh"
+  [[ -r "$display_helper" ]] || fail 'Indoor display helper missing; no sensors started'
+  source "$display_helper"
+  nomad_indoor_display_check || fail 'Indoor display prerequisites invalid; no sensors started'
   exec 9>/tmp/nomad_resume_jetson_final_preview.lock
   flock -n 9 || fail 'Another final-preview startup is active'
   for cmdline in /proc/[0-9]*/cmdline; do
@@ -322,7 +326,7 @@ if [[ "${NOMAD_MAPPER:-legacy}" == indoor ]]; then
     args=(); mapfile -d '' -t args < "$cmdline" 2>/dev/null || continue
     for arg in "${args[@]}"; do
       case "${arg##*/}" in
-        oak_publisher|ydlidar_ros2_driver_node|nomad_indoor_mapper|nomad_terrain_mapper|nomad_mapper|nomad_mapper2|nomad_mapper3|nomad_runtime_manager)
+        oak_publisher|zed_camera.preview.launch.py|semantic.sh|nomad_segformer_indoor5|ydlidar_ros2_driver_node|nomad_indoor_mapper|nomad_terrain_mapper|nomad_mapper|nomad_mapper2|nomad_mapper3|nomad_runtime_manager)
           fail 'Existing sensor or mapper process is running; stop the prior trial first';;
       esac
     done
@@ -351,7 +355,7 @@ if [[ "${NOMAD_MAPPER:-legacy}" == indoor ]]; then
   printf '%s\n' "$prefix" > "$run/private_runtime_path"
   printf '%s\n' "$port" > "$run/lidar_port"
   printf 'indoor\n' > "$run/mapper_kind"
-  # Only the images/IMU required by Pi5 VIO remain. No OAK depth/point cloud or ZED inference.
+  # OAK VIO/IMU and JPEG remain; OAK depth and clouds stay disabled. ZED inference is display-only.
   setsid env ROS_LOG_DIR="$run/oak/ros" bash "$ws/scripts/run_oak_cpp.sh" \
     -p enable_device_depth:=false -p enable_color_jpeg:=true -p color_fps:=10.0 -p color_jpeg_quality:=80 \
     -p rectified_calibration_json:="$root/config/oak_basalt_calib.json" \
@@ -365,9 +369,10 @@ if [[ "${NOMAD_MAPPER:-legacy}" == indoor ]]; then
   setsid env ROS_LOG_DIR="$run/ros" FASTRTPS_DEFAULT_PROFILES_FILE="$planning_output_profile" \
     bash "$(readlink -f "$iw")/../run_jetson.sh" "$run/indoor_cfg/indoor.json" 9>&- </dev/null > "$run/indoor.log" 2>&1 &
   printf '%s\n' "$!" > "$run/indoor.pid"
+  nomad_indoor_display_start "$run"
   for tick in $(seq 1 30); do
     sleep .5
-    for name in oak lidar indoor; do
+    for name in oak lidar indoor zed semantic; do
       kill -0 "$(cat "$run/$name.pid")" 2>/dev/null || { tail -n 8 "$run/$name.log"; fail "$name exited"; }
     done
     if ((tick >= 6)) && grep -q 'OAK: rectified' "$run/oak/oak.log" && grep -q 'Lidar has started' "$run/lidar.log" && grep -q indoor_mapper_started "$run/indoor.log"; then break; fi
@@ -376,7 +381,7 @@ if [[ "${NOMAD_MAPPER:-legacy}" == indoor ]]; then
   grep -q 'OAK: rectified' "$run/oak/oak.log" || fail 'VIO camera stream did not start'
   grep -q 'Lidar has started' "$run/lidar.log" || fail 'LiDAR did not start'
   printf 'RUN=%s\nLIDAR_PORT=%s\nMAPPER=indoor\nSTARTED_ONLY=jetson\n' "$run" "$port"
-  for name in oak lidar indoor; do printf '%s RUNNING pid=%s\n' "$name" "$(cat "$run/$name.pid")"; done
+  for name in oak lidar indoor zed semantic; do printf '%s RUNNING pid=%s\n' "$name" "$(cat "$run/$name.pid")"; done
   exit 0
 fi
 

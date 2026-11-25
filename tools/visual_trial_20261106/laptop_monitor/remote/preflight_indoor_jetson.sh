@@ -19,4 +19,8 @@ for binary in "$iw/install/nomad_indoor_mapper/lib/nomad_indoor_mapper/nomad_ind
   [[ -x "$binary" ]] || { echo "MISSING=$binary"; exit 1; }
 done
 "$iw/install/nomad_indoor_mapper/lib/nomad_indoor_mapper/indoor_probe" "$iw/active_config/indoor.json" </dev/null
-printf 'ROLE=jetson\nMODEL=%s\nWORKSPACE=%s\nMODULES=VIO_camera_IMU,LiDAR,indoor_mapper\n' "$model" "$iw"
+display_helper="$ws/tools/visual_trial_20261106/indoor_display_helpers.sh"
+[[ -r "$display_helper" ]] || { echo INDOOR_DISPLAY_HELPER_MISSING; exit 1; }
+source "$display_helper"
+nomad_indoor_display_check || { echo INDOOR_DISPLAY_PREFLIGHT_FAILED; exit 1; }
+printf 'ROLE=jetson\nMODEL=%s\nWORKSPACE=%s\nMODULES=VIO_camera_IMU,LiDAR,indoor_mapper,OAK_RGB_display,ZED_indoor5_display\n' "$model" "$iw"

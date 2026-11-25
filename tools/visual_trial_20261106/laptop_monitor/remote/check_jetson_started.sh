@@ -7,7 +7,7 @@ root="$ws/tools/visual_trial_20261106"
 run=$(cat /tmp/nomad_integrated_jetson_run_dir)
 [[ "$run" = "$ws/log/visual_trial_"* && -d "$run" ]] || { echo 'INVALID_JETSON_RUN' >&2; exit 1; }
 if [[ "$(cat "$run/mapper_kind" 2>/dev/null)" == indoor ]]; then
-  for name in oak lidar indoor; do
+  for name in oak lidar indoor zed semantic; do
     pid=$(cat "$run/$name.pid")
     [[ "$pid" =~ ^[0-9]+$ && -r "/proc/$pid/cmdline" ]] || { echo "EXITED=$name"; exit 1; }
     cmd=$(tr '\0' ' ' < "/proc/$pid/cmdline")

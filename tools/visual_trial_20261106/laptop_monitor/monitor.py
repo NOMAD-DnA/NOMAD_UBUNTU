@@ -1355,7 +1355,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 "module_logs": self.module_logs,
                 "ssh": self.ssh_progress, "now": self.now(), "wall_now": self.wall_now(),
                 "replay": self.replay_mode, "heading_ui": self.heading_ui(), "vio_ui": self.vio_ui(),
-                "active_model": self.active_model, "startup_semantic_model": getattr(self, "startup_semantic_model", None), "active_cloud_source": self.active_cloud_source,
+                "trial_mapper": getattr(self, "trial_mapper", "legacy"), "active_model": self.active_model, "startup_semantic_model": getattr(self, "startup_semantic_model", None), "active_cloud_source": self.active_cloud_source,
                 "resource_history": self.resource_history.rows,
                 "slope_cpu_history": self.slope_cpu_history, "forward_axis": self.forward_axis,
                 "heading_note": self.heading_note, "trial_stop_result": self.trial_stop_result,
@@ -1656,6 +1656,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         except ValueError:
             values = None
         self.trial_mapper = values["mapper"] if values else "legacy"
+        if self.trial_mapper == "indoor" and not self.replay_mode:
+            self.startup_semantic_model = "indoor"
         if values and self.trial_mapper != "indoor" and not self.replay_mode:
             self.startup_semantic_model = values["semantic_model"]
         indoor = self.trial_mapper == "indoor"

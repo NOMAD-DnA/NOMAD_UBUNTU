@@ -30,6 +30,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
 #include <cstring>
 #include <deque>
 #include <iomanip>
@@ -295,7 +296,11 @@ class Probe final : public rclcpp::Node {
     } else {
       magnetometer_telemetry(sensor_qos);
       image_subscription("rgb", "/zed/zed_node/left/image_rect_color", sensor_qos);
-      image_subscription("semantic", "/perception/semantic/class_ids", sensor_qos);
+      image_subscription("semantic", "/perception/semantic/class_ids", sensor_qos, false);
+      image_subscription("semantic", "/perception/semantic/indoor5/class_ids", sensor_qos, true);
+      subscriptions_.push_back(create_subscription<sensor_msgs::msg::CompressedImage>(
+        "/oak/color/image/compressed", rclcpp::SensorDataQoS().keep_last(1),
+        [this](sensor_msgs::msg::CompressedImage::ConstSharedPtr m) { receive_oak_image(m); }));
       // Mapper diagnostics and maps use reliable/transient-local QoS.
       auto map_qos = rclcpp::QoS(1).reliable().transient_local();
       counters_["slope"] = 0;
@@ -677,10 +682,47 @@ class Probe final : public rclcpp::Node {
       }));
   }
 
-  void image_subscription(const std::string& source, const std::string& topic, const rclcpp::QoS& qos) {
+  bool indoor_display() {
+    if (const char* forced = std::getenv("NOMAD_MONITOR_DISPLAY_MODE"))
+      return std::string(forced) == "indoor";
+    static auto checked = Clock::time_point::min();
+    static bool indoor = false;
+    const auto now = Clock::now();
+    if (checked == Clock::time_point::min() || now - checked >= std::chrono::milliseconds(500)) {
+      checked = now;
+      std::ifstream pointer("/tmp/nomad_integrated_jetson_run_dir");
+      std::string path, kind;
+      if (std::getline(pointer, path) && path.rfind("/home/nvidia/nomad_ws/log/visual_trial_", 0) == 0) {
+        std::ifstream file(path + "/mapper_kind");
+        std::getline(file, kind);
+      }
+      indoor = kind == "indoor";
+    }
+    return indoor;
+  }
+
+  void receive_oak_image(const sensor_msgs::msg::CompressedImage::ConstSharedPtr& m) {
+    if (!indoor_display()) return;
+    ++counters_["rgb"];
+    try {
+      if (stamp_ns(m->header.stamp) <= 0 || m->format.find("jpeg") == std::string::npos || m->data.size() > 2*1024*1024)
+        throw std::runtime_error("Invalid OAK color JPEG");
+      if (!image_due("rgb")) return;
+      const auto dims = nomad_monitor::jpeg_dimensions(m->data);
+      std::ostringstream out;
+      out << std::setprecision(17) << "{\"kind\":\"image\",\"source\":\"rgb\",\"t\":" << seconds(m->header.stamp)
+          << ",\"encoding\":\"jpeg\",\"data\":\"" << base64(m->data)
+          << "\",\"width\":" << dims.first << ",\"height\":" << dims.second
+          << ",\"image_source\":\"oak_color_jpeg\",\"jpeg_passthrough\":true,\"display_only\":true}";
+      emit(out.str());
+    } catch (const std::exception& e) { report_error("rgb", e.what()); }
+  }
+
+  void image_subscription(const std::string& source, const std::string& topic, const rclcpp::QoS& qos, bool indoor_only = false) {
     counters_[source] = 0;
     subscriptions_.push_back(create_subscription<Image>(topic, qos,
-      [this, source](Image::ConstSharedPtr m) {
+      [this, source, indoor_only](Image::ConstSharedPtr m) {
+        if ((source == "rgb" && indoor_display()) || (source == "semantic" && indoor_display() != indoor_only)) return;
         ++counters_[source];
         if (!image_due(source)) return;
         try {

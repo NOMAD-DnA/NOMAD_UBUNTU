@@ -15,6 +15,19 @@ FIELD12 = (
     ("포장면", "#5a697d"), ("암석", "#aa5ad2"), ("낙엽", "#f5a523"),
     ("식생", "#32af4b"), ("인공물", "#f5961e"), ("하늘", "#32afff"),
 )
+# The monitor probe colors the image by numeric ID in both modes.
+INDOOR5 = tuple((name, FIELD12[index][1]) for index, name in enumerate(
+    ("미확인", "바닥", "벽", "장애물", "천장")
+))
+
+
+def semantic_display(snapshot):
+    oak_display = snapshot.get("image_meta", {}).get("rgb", {}).get("image_source") == "oak_color_jpeg"
+    if snapshot.get("trial_mapper") == "indoor" or (snapshot.get("replay") and oak_display) or (snapshot.get("active_model") or snapshot.get("startup_semantic_model")) == "indoor":
+        return "indoor5", INDOOR5
+    return "field12", FIELD12
+
+
 STYLE = "QWidget {background:#111827;color:#e2e8f0;} QLabel {font-size:12px;}"
 
 
@@ -79,8 +92,10 @@ class PerceptionWindow(QtWidgets.QMainWindow):
             images.addWidget(panel, 1)
         layout.addLayout(images, 1)
         legend = QtWidgets.QGridLayout()
+        self.legend_labels = []
         for index, (name, color) in enumerate(FIELD12):
             label = QtWidgets.QLabel(f'<span style="color:{color}">■</span> {index} {name}')
+            self.legend_labels.append(label)
             legend.addWidget(label, index // 4, index % 4)
         layout.addLayout(legend)
         footer = QtWidgets.QLabel("모델 선택 확인과 새 분할 영상의 수신 여부는 별도입니다. 0은 미확정이며 주행 가능 판정이 아닙니다.")
@@ -142,17 +157,18 @@ class PerceptionWindow(QtWidgets.QMainWindow):
         image = snapshot.get("images", {}).get("semantic")
         if not isinstance(image, QtGui.QImage) or image.isNull():
             return self._class_rows
-        key = image.cacheKey()
+        schema, classes = semantic_display(snapshot)
+        key = (image.cacheKey(), schema)
         if key == self._class_key:
             return self._class_rows
         self._class_key = key
         pixels = dbg.image_rgb(image)
         if pixels is None:
             return self._class_rows
-        palette = [tuple(int(color[i:i+2], 16) for i in (1, 3, 5)) for _, color in FIELD12]
+        palette = [tuple(int(color[i:i+2], 16) for i in (1, 3, 5)) for _, color in classes]
         total, counts, unclassified = dbg.palette_counts(pixels, palette)
         rows = [[str(index), name, f"{count/total*100:.1f}%", f"{count:,}"]
-                for index, ((name, _), count) in enumerate(zip(FIELD12, counts))]
+                for index, ((name, _), count) in enumerate(zip(classes, counts))]
         rows.sort(key=lambda row: -int(row[3].replace(",", "")))
         rows.append(["—", "판별 불가 (압축 경계 등)", f"{unclassified/total*100:.1f}%", f"{unclassified:,}"])
         self._class_rows = rows
@@ -177,7 +193,7 @@ class PerceptionWindow(QtWidgets.QMainWindow):
             "영상 정보": (["항목", "원본 영상", "분할 영상"],
                        image_rows, "촬영→지금은 보드 시각과 이 PC 시각의 차이를 포함합니다. 시계가 맞지 않으면 참고만 하세요."),
             "분할 클래스 비율 · 표시 영상 기준": (["ID", "클래스", "비율", "픽셀(2칸 간격 표본)"], self._semantic_classes(snapshot),
-                       "보드가 보낸 field12 색상 영상을 가장 가까운 색으로 셉니다. JPEG 압축 경계는 '판별 불가'로 둡니다. 원본 확률값이 아닙니다."),
+                       "보드가 보낸 분할 색상 영상을 가장 가까운 색으로 셉니다. JPEG 압축 경계는 '판별 불가'로 둡니다. 원본 확률값이 아닙니다."),
             "젯슨 보고 Hz 전체": (["토픽 이름 (보드 집계)", "Hz"],
                        [[str(k), dbg.number_text(v, 2)] for k, v in sorted(rates.items())] if isinstance(rates, dict) else [],
                        "보드 수신 프로그램이 1초마다 센 콜백 수입니다."),
@@ -194,7 +210,21 @@ class PerceptionWindow(QtWidgets.QMainWindow):
         self.status.setText("인지: " + str(status.get("state", "미수신")) + " | " +
                             age_text(age(snapshot, "status:perception")))
         self.status.setToolTip(str(status.get("detail", "")))
-        selected = MODEL_NAMES.get(snapshot.get("active_model"), "—")
+        indoor_display = snapshot.get("trial_mapper") == "indoor"
+        selected = "SegFormer 실내 (화면 표시용)" if indoor_display else MODEL_NAMES.get(snapshot.get("active_model"), "—")
+        if "rgb" in self.panels:
+            camera = snapshot.get("image_meta", {}).get("rgb", {}).get("image_source", "")
+            self.panels["rgb"].title.setText("OAK 컬러 영상" if camera == "oak_color_jpeg" or indoor_display else "ZED 원본 영상 (흑백 미리보기)")
+        schema, classes = semantic_display(snapshot)
+        if getattr(self, "_legend_schema", None) != schema:
+            self._legend_schema = schema
+            for index, label in enumerate(self.legend_labels):
+                label.setVisible(index < len(classes))
+                if index < len(classes):
+                    name, color = classes[index]
+                    label.setText(f'<span style="color:{color}">■</span> {index} {name}')
+            if "semantic" in self.panels:
+                self.panels["semantic"].title.setText("ZED 의미 분할 (" + schema + ")" if indoor_display else "환경 의미 분할 · " + schema)
         rates = snapshot.get("rates", {}).get("jetson", {})
         self.rate.setText("원본 " + hz_text(rates.get("rgb")) + " | 분할 " + hz_text(rates.get("semantic")) +
                           " | Hz 보고: " + age_text(age(snapshot, "rates:jetson")))
@@ -256,3 +286,4 @@ class PerceptionWindow(QtWidgets.QMainWindow):
     def _shown_age(self, snapshot, source):
         received = self._image_received.get(source)
         return None if received is None else max(0., snapshot.get("now", time.monotonic()) - received)
+
