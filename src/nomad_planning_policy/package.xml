@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_planning_policy</name>
+  <version>0.1.0</version>
+  <description>NOMAD planner part 2 (split 2026-11-13, code unchanged): local corridor selection, RPP path following, navigator (replan, observed guard).</description>
+  <maintainer email="nomad@example.com">NOMAD</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>nomad_planning_core</depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

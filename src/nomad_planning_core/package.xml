@@ -1,0 +1,10 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>nomad_planning_core</name>
+  <version>0.1.0</version>
+  <description>NOMAD planner part 1 (split 2026-11-13, code unchanged): map/cost field, global Hybrid A* search, path validation.</description>
+  <maintainer email="nomad@example.com">NOMAD</maintainer>
+  <license>Proprietary</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

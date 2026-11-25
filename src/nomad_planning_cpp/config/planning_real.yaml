@@ -1,0 +1,86 @@
+# Preview profile. Dimensions below come from the previous simulation profile,
+# NOT measured Slash commissioning data. Motor motion remains disabled.
+nomad_planning_cpp:
+  ros__parameters:
+    use_sim_time: false
+    planning_frame: odom
+    vehicle_frame: base_link
+    plan_only: true
+    # Same IMU=base preview axis used by GUI/initial map; not a body calibration.
+    # This mode is rejected if plan_only is disabled. Source Odometry/TF stay intact.
+    preview_camera_heading: true
+    preview_forward_axis_x: -0.004534
+    preview_forward_axis_y: -0.0244295
+    preview_forward_axis_z: -0.999691
+    geometry_confirmed: false
+    commissioning_confirmed: false
+    wheelbase: 0.72
+    track: 0.60
+    wheel_radius: 0.15
+    steering_joint_limit: 0.55
+    max_steer: 0.35
+    reference_offset: -0.36
+    body_length: 1.0
+    body_width: 0.65
+    rear_steer: true
+    forward_speed: 0.5
+    arrival_tolerance: 0.35
+    goal_tolerance: 0.29
+    planning_hz: 5.0
+    command_hz: 20.0
+    # Bounded worker budget differs from upstream 20 s / 200000 expansions.
+    search_seconds: 0.5
+    search_expansions: 50000
+    corridor_seconds: 0.25
+    corridor_expansions: 20000
+    corridor.arrival_tolerance: 0.25
+    odometry_timeout: 0.5
+    map_timeout: 2.5
+    status_timeout: 1.5
+    vehicle_timeout: 0.3
+    result_timeout: 1.0
+    clock_future_tolerance: 0.2
+    command_lease: 0.15
+    max_result_displacement: 0.4
+    max_result_rotation: 0.4
+    max_map_cells: 1000000
+    cost.multi: true
+    cost.obstacle_weight: 16.0
+    cost.proximity_radius: 4.0
+    cost.slope_weight: 5.0
+    cost.terrain_weight: 0.5
+    cost.missing_cost: 1.0
+    cost.unknown_surcharge: 9.0
+    cost.unknown_penalty: 9.0
+    cost.cluster_weight: 32.0
+    cost.cluster_radius: 4.0
+    cost.cluster_influence: 0.75
+    cost.cluster_saturation: 0.4
+    rpp.lookahead: 0.8
+    rpp.adaptive_lookahead: true
+    rpp.lateral_accel: 0.35
+    # Match the output profile's unknown current-cell speed cap.
+    rpp.unknown_speed: 0.10
+    observed_guard.enabled: true
+    # User-selected 0.40 m length x 0.20 m width (2026-11-09); not a calibration assertion.
+    # Shift the 0.40m rectangle 0.15m behind the planning reference (OAK IMU preview).
+    # Forward extent +0.025m, rear extent -0.175m; pose/TF/kinematic origin unchanged.
+    observed_guard.half_length: 0.10
+    observed_guard.half_width: 0.05
+    observed_guard.center_offset: -0.075
+    observed_guard.deceleration: 0.4
+    observed_guard.latency: 0.3
+    observed_guard.margin: 0.1
+    # Existing costmap is authoritative; no additional camera-support mask.
+    # Map-based known-prefix / swept-footprint / braking checks stay enabled.
+    corridor.observation_guard: false
+    corridor.observation_turn_weight: 80.0
+    topics.goal: /goal_pose
+    topics.odometry: /nomad/localization/odometry
+    topics.localization_status: /nomad/localization/status
+    topics.perception_status: /nomad/perception/status
+    topics.layers: /nomad/planning_cost_layers
+    topics.local_costmap: /nomad/navigation_local_costmap
+    topics.camera_support: /nomad/camera_observation_support
+    topics.vehicle_state: /nomad/control/vehicle_state
+    topics.drive_command: /nomad/planning/drive_command

@@ -1,0 +1,118 @@
+# Explicit prototype OUTPUT profile. Wheelbase uses the published Slash 335 mm
+# specification; wheel radius uses the shared 55 mm initial control calibration.
+# Other dimensions remain simulation values, NOT measured commissioning data.
+# Vehicle feedback is not measured.
+# Nominal command limits do not certify actual speed. One explicit arm lasts
+# until output-stop/session end; invalid inputs still produce STOP commands.
+nomad_planning_cpp:
+  ros__parameters:
+    use_sim_time: false
+    planning_frame: odom
+    vehicle_frame: base_link
+    plan_only: false
+    prototype_output: true
+    allow_unmeasured_vehicle_feedback: true
+    # Same IMU=base preview axis used by GUI/initial map; not a body calibration.
+    # Explicit prototype opt-in permits this uncalibrated heading. Source Odometry/TF stay intact.
+    preview_camera_heading: true
+    preview_forward_axis_x: -0.004534
+    preview_forward_axis_y: -0.0244295
+    preview_forward_axis_z: -0.999691
+    geometry_confirmed: false
+    commissioning_confirmed: false
+    wheelbase: 0.335
+    track: 0.60
+    wheel_radius: 0.055
+    # Provisional symmetric equivalent steering command: +/-35 degrees.
+    # Derived inner-wheel model limit: atan(L*tan(35deg)/(L-track/2*tan(35deg)))
+    # for L=0.335 and track=0.60. This preserves model consistency only;
+    # 1.08139 rad is NOT a measured mechanical wheel/servo limit.
+    steering_joint_limit: 1.0813901513620499
+    max_steer: 0.6108652381980153
+    # Existing rear-steer model assumes a mid-wheelbase reference: -wheelbase / 2.
+    # This is a model constraint, not a measured OAK-to-body transform.
+    reference_offset: -0.1675
+    body_length: 1.0
+    body_width: 0.65
+    rear_steer: true
+    forward_speed: 0.25
+    arrival_tolerance: 0.35
+    goal_tolerance: 0.29
+    planning_hz: 5.0
+    command_hz: 20.0
+    # Bounded worker budget differs from upstream 20 s / 200000 expansions.
+    search_seconds: 0.5
+    search_expansions: 50000
+    corridor_seconds: 0.25
+    corridor_expansions: 20000
+    corridor.arrival_tolerance: 0.25
+    odometry_timeout: 0.5
+    map_timeout: 2.5
+    status_timeout: 1.5
+    vehicle_timeout: 0.3
+    result_timeout: 1.0
+    clock_future_tolerance: 0.2
+    command_lease: 0.15
+    max_result_displacement: 0.4
+    max_result_rotation: 0.4
+    max_map_cells: 1000000
+    cost.multi: true
+    cost.obstacle_weight: 16.0
+    cost.proximity_radius: 4.0
+    # Additional SOFT preference near every blocked (>=80) cell, also in unknown.
+    # Distance is from the planning reference to the blocked cell boundary.
+    # 2026-11-11 user: middle set (recommended was 30/0.70, 0.60/6, 0.20). Keep paths farther from obstacles (was 24.0 / 0.45).
+    cost.clearance_weight: 27.0
+    cost.clearance_radius: 0.58
+    footprint_planning: true
+    cost.slope_weight: 5.0
+    # 2026-11-13 user: semantic cost was 10x weaker than slope (0.5 vs 5.0); unseen-semantic cells now ~3x a soil cell. Fallback 2.5 if paths become too long.
+    cost.terrain_weight: 5.0
+    cost.missing_cost: 1.0
+    cost.unknown_surcharge: 9.0
+    cost.unknown_penalty: 9.0
+    cost.cluster_weight: 32.0
+    cost.cluster_radius: 4.0
+    cost.cluster_influence: 0.75
+    cost.cluster_saturation: 0.4
+    rpp.lookahead: 0.8
+    rpp.adaptive_lookahead: true
+    rpp.lateral_accel: 0.35
+    # Unknown current-cell slowdown, not a minimum speed or permission to drive.
+    # Collision, goal/curvature and observed braking limits can still stop/slow.
+    rpp.unknown_speed: 0.10
+    observed_guard.enabled: true
+    # Only the fixed footprint at this goal's start may already straddle a map
+    # edge. Newly entered outside-map space remains blocked.
+    observed_guard.allow_initial_footprint_outside: true
+    # Preserve the current 0.20 m x 0.10 m guard and -0.075 m offset.
+    # These existing values are not measured full-body calibration.
+    # Forward extent +0.025m, rear extent -0.175m; pose/TF/kinematic origin unchanged.
+    observed_guard.half_length: 0.10
+    observed_guard.half_width: 0.05
+    observed_guard.center_offset: -0.075
+    observed_guard.deceleration: 0.4
+    observed_guard.latency: 0.3
+    observed_guard.margin: 0.1
+    # Existing costmap is authoritative; no additional camera-support mask.
+    # Endpoints stay observed-free. Unknown transit is allowed inside map bounds;
+    # known obstacles, swept-footprint checks and command validity stay enforced.
+    corridor.allow_unknown_transit: true
+    corridor.waypoint_radius: 1.5
+    corridor.corner_aware: true
+    # 2026-11-11 user decision: prefer gaps >= ~1 m (was 0.45 / 4.0).
+    corridor.preferred_clearance: 0.52
+    corridor.transit_clearance_weight: 5.0
+    # 2026-11-11 user decision: GPP never passes gaps narrower than about 0.5 m (hard, 0.125 m grid).
+    corridor.min_clearance: 0.15
+    corridor.observation_guard: false
+    corridor.observation_turn_weight: 80.0
+    topics.goal: /goal_pose
+    topics.odometry: /nomad/localization/odometry
+    topics.localization_status: /nomad/localization/status
+    topics.perception_status: /nomad/perception/status
+    topics.layers: /nomad/planning_cost_layers
+    topics.local_costmap: /nomad/navigation_local_costmap
+    topics.camera_support: /nomad/camera_observation_support
+    topics.vehicle_state: /nomad/control/vehicle_state
+    topics.drive_command: /nomad/planning/drive_command
