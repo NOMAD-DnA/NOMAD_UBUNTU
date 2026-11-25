@@ -73,6 +73,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--demo", action="store_true", help="Open the demo hotspot relay without an address dialog")
     parser.add_argument("--init-demo-config", action="store_true", help="Create the user demo config if missing, preserving existing settings")
+    parser.add_argument("--check-installation", action="store_true", help="Construct the installed viewer without network access and exit")
     options = parser.parse_args()
     if options.init_demo_config:
         print(ensure_demo_config())
@@ -86,6 +87,16 @@ def main():
     app = QtWidgets.QApplication([sys.argv[0]])
     app.setApplicationName("NOMAD Spectator")
     settings = QtCore.QSettings(str(state / "connection.ini"), QtCore.QSettings.IniFormat)
+    if options.check_installation:
+        # Importing monitor alone does not load resources used by its window.
+        # no_ssh stays enabled; omit the relay to keep this check fully local.
+        args = spectator_args("127.0.0.1:1")
+        args.relay_host = None
+        import monitor
+        window = monitor.MonitorWindow(args)
+        window.close()
+        app.processEvents()
+        return 0
     try:
         args = connection_args(settings, demo=options.demo)
     except (OSError, ValueError) as error:

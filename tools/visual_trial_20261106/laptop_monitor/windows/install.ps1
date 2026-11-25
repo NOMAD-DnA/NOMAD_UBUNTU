@@ -37,6 +37,8 @@ try {
     Copy-Item -Path (Join-Path $PSScriptRoot 'app\*') -Destination $destination -Recurse -Force
     & $appPython -c 'import sys; sys.path.insert(0, sys.argv[1]); import windows_spectator, monitor' (Join-Path $destination 'laptop_monitor')
     if ($LASTEXITCODE -ne 0) { throw 'App dependency check failed.' }
+    & $appPython (Join-Path $destination 'laptop_monitor\windows_spectator.py') --check-installation
+    if ($LASTEXITCODE -ne 0) { throw 'Installed viewer startup check failed. Shortcuts were not updated.' }
     & $appPython (Join-Path $destination 'laptop_monitor\windows_spectator.py') --init-demo-config
     if ($LASTEXITCODE -ne 0) { throw 'Could not create the demo address settings file.' }
     $demoConfig = Join-Path $root 'demo.ini'

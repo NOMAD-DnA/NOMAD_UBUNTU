@@ -14,9 +14,17 @@ def build():
     # Only source and display settings. Never include recordings or credentials.
     for source in sorted(gui.glob('*.py')):
         entries['app/laptop_monitor/' + source.name] = source.read_bytes()
-    for folder in ('indoor_config', 'mapper2_config', 'mapper3_config'):
-        for source in sorted((gui / folder).glob('*.json')):
-            entries['app/laptop_monitor/' + folder + '/' + source.name] = source.read_bytes()
+    # Ship the source-controlled display/settings resources used by the UI,
+    # including the footprint loaded when MonitorWindow is constructed.
+    # Explicit directories exclude runtime state, credentials and .mplconfig.
+    for folder in ('config', 'indoor_config', 'mapper_config', 'mapper2_config',
+                   'mapper3_config', 'terrain_config', 'planning_config',
+                   'gnss_config', 'perception_config', 'vio_config', 'oak_config', 'fusion_config'):
+        for source in sorted((gui / folder).rglob('*.json')):
+            relative = source.relative_to(gui).as_posix()
+            entries['app/laptop_monitor/' + relative] = source.read_bytes()
+    if 'app/laptop_monitor/config/planning_footprint.json' not in entries:
+        raise FileNotFoundError('Required source display config: config/planning_footprint.json')
     entries['app/config/oak_basalt_calib.json'] = (application / 'config/oak_basalt_calib.json').read_bytes()
     for name in ('install.ps1', 'requirements.txt', 'README.txt'):
         entries[name] = (here / name).read_bytes()
