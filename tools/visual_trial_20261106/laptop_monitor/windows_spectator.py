@@ -10,6 +10,21 @@ import sys
 DEMO_RELAY = "10.42.0.1:8768"
 
 
+def configure_appearance(app):
+    """Use the Ubuntu reference's Fusion style and 11-point UI typography."""
+    from PyQt5 import QtGui
+    app.setStyle("Fusion")
+    if not app.property("nomad_ui_fonts_loaded"):
+        folder = Path(__file__).resolve().parent / "ui_fonts"
+        for name in ("UbuntuSans.ttf", "NotoSansCJK-Regular.ttc", "NotoSansCJK-Bold.ttc"):
+            if QtGui.QFontDatabase.addApplicationFont(str(folder / name)) < 0:
+                raise RuntimeError("화면 글꼴을 읽을 수 없습니다: " + str(folder / name))
+        app.setProperty("nomad_ui_fonts_loaded", True)
+    font = QtGui.QFont("Ubuntu Sans", 11)
+    font.setFamilies(["Ubuntu Sans", "Noto Sans CJK KR"])
+    app.setFont(font)
+
+
 def demo_config_path():
     return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "NOMAD-Spectator" / "demo.ini"
 
@@ -63,7 +78,9 @@ def spectator_args(endpoint):
     import monitor
     previous = sys.argv
     try:
-        sys.argv = [previous[0], "--relay-host", validate_relay_address(endpoint), "--no-ssh"]
+        calibration = Path(__file__).resolve().parent.parent / "config" / "oak_basalt_calib.json"
+        sys.argv = [previous[0], "--relay-host", validate_relay_address(endpoint), "--no-ssh",
+                    "--preview-heading-calibration", str(calibration)]
         return monitor.parse_args()
     finally:
         sys.argv = previous
@@ -84,7 +101,16 @@ def main():
     os.environ["MPLCONFIGDIR"] = str(state / "matplotlib")
     os.environ["XDG_STATE_HOME"] = str(state)
     from PyQt5 import QtCore, QtWidgets
+    if sys.platform == "win32":
+        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
+        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_UseHighDpiPixmaps)
+        QtWidgets.QApplication.setAttribute(QtCore.Qt.AA_Use96Dpi)
     app = QtWidgets.QApplication([sys.argv[0]])
+    try:
+        configure_appearance(app)
+    except RuntimeError as error:
+        QtWidgets.QMessageBox.critical(None, "화면 설정 오류", str(error))
+        return 1
     app.setApplicationName("NOMAD Spectator")
     settings = QtCore.QSettings(str(state / "connection.ini"), QtCore.QSettings.IniFormat)
     if options.check_installation:

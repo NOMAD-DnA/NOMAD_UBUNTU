@@ -16,13 +16,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from PyQt5 import QtCore, QtGui, QtWidgets
 import monitor
 from relay import RelayServer
-from windows_spectator import connection_args, ensure_demo_config, load_demo_relay, spectator_args
+from windows_spectator import configure_appearance, connection_args, ensure_demo_config, load_demo_relay, spectator_args
 
 
 class WindowsSpectatorTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        configure_appearance(cls.app)
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory(prefix='nomad-demo-config-test-')
@@ -81,6 +82,10 @@ class WindowsSpectatorTest(unittest.TestCase):
         self.assertIsNone(args.relay_listen)
         self.assertEqual(args.pi_command, '')
         self.assertEqual(args.jetson_command, '')
+        self.assertTrue(Path(args.preview_heading_calibration).is_file())
+        self.assertEqual(self.app.style().objectName().lower(), 'fusion')
+        self.assertEqual(self.app.font().pointSize(), 11)
+        self.assertEqual(self.app.font().families()[0], 'Ubuntu Sans')
         for invalid in ('', 'host:0', 'host:65536', 'a b:8768', '::1:8768'):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 spectator_args(invalid)

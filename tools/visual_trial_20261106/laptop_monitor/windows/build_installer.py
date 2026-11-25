@@ -26,6 +26,9 @@ def build():
     if 'app/laptop_monitor/config/planning_footprint.json' not in entries:
         raise FileNotFoundError('Required source display config: config/planning_footprint.json')
     entries['app/config/oak_basalt_calib.json'] = (application / 'config/oak_basalt_calib.json').read_bytes()
+    for source in sorted((gui / 'ui_fonts').iterdir()):
+        if source.suffix.lower() in ('.ttf', '.ttc', '.txt'):
+            entries['app/laptop_monitor/ui_fonts/' + source.name] = source.read_bytes()
     for name in ('install.ps1', 'requirements.txt', 'README.txt'):
         entries[name] = (here / name).read_bytes()
     digest = hashlib.sha256()
