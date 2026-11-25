@@ -38,7 +38,7 @@ from render_utils import HistorySampler, history_signature, fit_axes_3d, stable_
 
 POSE_SOURCES = ("vio", "fusion", "public")
 IMAGE_SOURCES = ("rgb", "semantic", "slope", "costmap", "vio_tracking")
-TELEMETRY_SOURCES = ("gnss", "fusion", "vio_features", "magnetometer", "planning", "slope_cpu", "rtk", "resources_jetson", "resources_pi4")
+TELEMETRY_SOURCES = ("gnss", "fusion", "vio_features", "magnetometer", "planning", "planning_ui", "slope_cpu", "rtk", "resources_jetson", "resources_pi4", "resources_pi5")
 MAX_POSES = 20000
 MAX_LINE_BYTES = 16 * 1024 * 1024
 
@@ -982,6 +982,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             model_bar.addWidget(QtWidgets.QLabel("인지 모델"))
             model_bar.addWidget(self.model_combo)
             model_bar.addWidget(self.model_button)
+            from indoor_postprocess_dialog import add_button
+            add_button(model_bar, self.settings_dialog, args.jetson_host,
+                       enabled=not self.replay_mode and not self.spectator_mode and not args.no_ssh)
             model_bar.addStretch(1)
             self.settings_layout.addLayout(model_bar)
             self.settings_button = QtWidgets.QPushButton("설정 변경")
@@ -1108,7 +1111,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.localization_mode_label = QtWidgets.QLabel("위치 모드 · 입력 대기")
         self.localization_mode_label.setWordWrap(True)
         layout.addWidget(self.localization_mode_label)
-        self.resource_label = QtWidgets.QLabel("젯슨 · CPU 미수신 | 라파4 · CPU 미수신")
+        self.resource_label = QtWidgets.QLabel("젯슨 · CPU 미수신 | 라파4 · CPU 미수신 | 라파5 · CPU 미수신")
         self.resource_label.setWordWrap(True)
         layout.addWidget(self.resource_label)
         layout.addWidget(self.rate_label)
@@ -1352,7 +1355,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 "module_logs": self.module_logs,
                 "ssh": self.ssh_progress, "now": self.now(), "wall_now": self.wall_now(),
                 "replay": self.replay_mode, "heading_ui": self.heading_ui(), "vio_ui": self.vio_ui(),
-                "active_model": self.active_model, "active_cloud_source": self.active_cloud_source,
+                "active_model": self.active_model, "startup_semantic_model": getattr(self, "startup_semantic_model", None), "active_cloud_source": self.active_cloud_source,
                 "resource_history": self.resource_history.rows,
                 "slope_cpu_history": self.slope_cpu_history, "forward_axis": self.forward_axis,
                 "heading_note": self.heading_note, "trial_stop_result": self.trial_stop_result,
@@ -1363,7 +1366,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                                 "manual_enabled": self.goal_manual_set.isEnabled(),
                                 "spectator": self.spectator_mode,
                                 "no_ssh": self.args.no_ssh,
-                                "client_active": self.planning_client is not None,
+                                "client_active": self.planner_connection_display()[1],
+                                "connect_text": self.planner_connection_display()[0],
                                 "send_enabled": self.goal_send.isEnabled(),
                                 "cancel_enabled": self.goal_cancel.isEnabled(),
                                 "arm_enabled": self.output_arm.isEnabled(),
@@ -1652,6 +1656,8 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         except ValueError:
             values = None
         self.trial_mapper = values["mapper"] if values else "legacy"
+        if values and self.trial_mapper != "indoor" and not self.replay_mode:
+            self.startup_semantic_model = values["semantic_model"]
         indoor = self.trial_mapper == "indoor"
         for row in getattr(self, "indoor_unused_layouts", ()):
             for index in range(row.count()):
@@ -1687,6 +1693,29 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
 
+    def planner_connection_display(self):
+        if not self.spectator_mode:
+            active = self.planning_client is not None
+            return ("플래너 종료" if active else "플래너 연결", active)
+        report = self.telemetry.get("planning_ui")
+        age = self.age("telemetry", "planning_ui")
+        if (self.relay_progress.get("state") == "connected" and report is not None and
+                age is not None and age <= 3):
+            return report["button_text"], report["client_active"]
+        return "플래너 상태 미확인", False
+
+    def publish_planning_ui(self, force=False):
+        if self.spectator_mode or self.replay_mode or self.relay_server is None:
+            return
+        now = time.monotonic()
+        if not force and now - getattr(self, "_planning_ui_last_published", -10.) < 1.:
+            return
+        self._planning_ui_last_published = now
+        active = self.planning_client is not None
+        self.on_packet("pi4", {"kind": "telemetry", "source": "planning_ui", "t": time.time(),
+                               "client_active": active,
+                               "button_text": "플래너 종료" if active else "플래너 연결"})
+
     def connect_planner(self):
         if self.spectator_mode or self.args.no_ssh:
             return
@@ -1715,6 +1744,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
         self.planning_mode.setEnabled(False)
         self.planning_placement.setEnabled(False)
         self.planning_connect.setText("플래너 종료")
+        self.publish_planning_ui(force=True)
         client.start()
 
     def on_planner_closed(self, client):
@@ -1736,6 +1766,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                  "output_inhibit": "연결 종료", "feedback_source": "unmeasured",
                  "path": [], "trajectory": []}
         self.on_packet("pi4", event)
+        self.publish_planning_ui(force=True)
         client.deleteLater()
 
     def select_goal(self, x, y, frame):
@@ -1938,6 +1969,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             if not accepted:
                 return
         model = self.model_combo.currentData()
+        self.startup_semantic_model = None
         self.model_switch_in_progress = True
         self.model_switch_result = None
         self.active_model = None
@@ -2168,6 +2200,9 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
     @QtCore.pyqtSlot(dict)
     def on_relay_progress(self, value):
         self.relay_progress = value
+        if value.get("state") != "connected":
+            self.telemetry.pop("planning_ui", None)
+            self.received.pop("telemetry:planning_ui", None)
 
     def drain_receivers(self):
         if self.replay_mode:
@@ -2255,7 +2290,13 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                 encoded = json.dumps(event, allow_nan=False)
                 if len(encoded) > 65536:
                     raise ValueError()
-                if source == "planning":
+                if source == "planning_ui":
+                    from relay import valid_planning_ui
+                    if not valid_planning_ui(event):
+                        raise ValueError("Invalid operator planning UI")
+                    self.telemetry[source] = {key: event[key] for key in
+                                              ("kind", "source", "t", "client_active", "button_text")}
+                elif source == "planning":
                     from planning_client import display_event, output_summary, stage_summary
                     clean = display_event(event)
                     self.telemetry[source] = clean
@@ -2265,7 +2306,7 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
                     gpp, lpp = stage_summary(clean)
                     self.planning_message.setText(gpp + " | " + lpp + " | " + output_summary(clean))
                 else:
-                    if source in ("resources_jetson", "resources_pi4"):
+                    if source in ("resources_jetson", "resources_pi4", "resources_pi5"):
                         from resource_metrics import validate_resource
                         validate_resource(event, board)
                         self.resource_history.add(event, received_at)
@@ -2377,9 +2418,14 @@ class MonitorWindow(RecordingMixin, QtWidgets.QMainWindow):
             self.image_dirty.discard(source)
 
     def refresh(self):
+        self.publish_planning_ui()
+        if self.spectator_mode:
+            self.planning_connect.setText(self.planner_connection_display()[0])
+            self.planning_connect.setEnabled(False)
         from resource_metrics import brief
         self.resource_label.setText("젯슨 · " + brief(self.telemetry.get("resources_jetson"), self.age("telemetry", "resources_jetson"))
-                                    + " | 라파4 · " + brief(self.telemetry.get("resources_pi4"), self.age("telemetry", "resources_pi4")))
+                                    + " | 라파4 · " + brief(self.telemetry.get("resources_pi4"), self.age("telemetry", "resources_pi4"))
+                                    + " | 라파5 · " + brief(self.telemetry.get("resources_pi5"), self.age("telemetry", "resources_pi5")))
         self.record_view()
         self.update_recording_bar()
         self.rtk_panel.update_status(self.telemetry.get("rtk", {}).get("rtk", {}),
@@ -2695,3 +2741,4 @@ def main():
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

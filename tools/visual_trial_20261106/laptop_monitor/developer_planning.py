@@ -726,7 +726,7 @@ class PlanningWindow(QtWidgets.QMainWindow):
             self.host.setText(host)
         self.host.setEnabled(not self._readonly and not ui.get('client_active', False))
         self.connect_button.setEnabled(not self._readonly)
-        self.connect_button.setText('플래너 종료' if ui.get('client_active') else '플래너 연결')
+        self.connect_button.setText(ui.get('connect_text', '플래너 종료' if ui.get('client_active') else '플래너 연결'))
         for widget in (self.goal_x_input, self.goal_y_input, self.manual_button):
             widget.setEnabled(not self._readonly and ui.get('manual_enabled', False))
         goal = ui.get('selected_goal')
