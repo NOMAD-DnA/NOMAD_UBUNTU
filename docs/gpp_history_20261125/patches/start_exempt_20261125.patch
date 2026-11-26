@@ -1,0 +1,151 @@
+From 92e951fb732b17021174948193aa5eda144deaae Mon Sep 17 00:00:00 2001
+From: NOMAD GPP <nomad-gpp@local>
+Date: Wed, 25 Nov 2026 20:52:55 +0900
+Subject: [PATCH] Exempt the vehicle's surroundings from the min_clearance band
+ (start_clearance_exempt, node default 0.2)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ nomad_planning_cpp/src/planner_node.cpp       |  1 +
+ nomad_planning_policy/CMakeLists.txt          |  4 +++
+ nomad_planning_policy/README.md               | 12 +++++++
+ .../include/nomad_planning_cpp/policy.hpp     |  3 ++
+ nomad_planning_policy/src/policy.cpp          | 15 +++++++--
+ .../tests/test_start_exempt.cpp               | 31 +++++++++++++++++++
+ 6 files changed, 64 insertions(+), 2 deletions(-)
+ create mode 100644 nomad_planning_policy/tests/test_start_exempt.cpp
+
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index 1d14d2b..0eeee23 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -484,6 +484,7 @@ class PlannerNode final : public rclcpp::Node {
+   config_.corridor.goal_approach_radius=param<double>("corridor.goal_approach_radius",2.0);
+   config_.corridor.gpp_steer_ratio=param<double>("corridor.gpp_steer_ratio",0.85);
+   config_.corridor.exit_check_length=param<double>("corridor.exit_check_length",0.6);
++  config_.corridor.start_clearance_exempt=param<double>("corridor.start_clearance_exempt",0.2);
+   // 2026-11-25 waypoint reissue; parameters are optional and default to the previous behaviour.
+   config_.corridor.reissue_enabled=param<bool>("corridor.reissue_enabled",false);
+   config_.corridor.reissue_travel_ratio=param<double>("corridor.reissue_travel_ratio",.4);
+diff --git a/nomad_planning_policy/CMakeLists.txt b/nomad_planning_policy/CMakeLists.txt
+index b44a0a1..07745f2 100644
+--- a/nomad_planning_policy/CMakeLists.txt
++++ b/nomad_planning_policy/CMakeLists.txt
+@@ -54,6 +54,10 @@ if(BUILD_TESTING)
+   target_link_libraries(goal_approach_test nomad_planning_policy)
+   target_compile_definitions(goal_approach_test PRIVATE NOMAD_CORNER_ENABLED)
+   add_test(NAME goal_approach_test COMMAND goal_approach_test)
++  add_executable(start_exempt_test tests/test_start_exempt.cpp)
++  target_link_libraries(start_exempt_test nomad_planning_policy)
++  target_compile_definitions(start_exempt_test PRIVATE NOMAD_CORNER_ENABLED)
++  add_test(NAME start_exempt_test COMMAND start_exempt_test)
+   add_executable(corner_scenarios tests/corner_scenarios.cpp)
+   target_link_libraries(corner_scenarios nomad_planning_policy)
+   target_compile_definitions(corner_scenarios PRIVATE NOMAD_CORNER_ENABLED)
+diff --git a/nomad_planning_policy/README.md b/nomad_planning_policy/README.md
+index a3cff79..65216fc 100644
+--- a/nomad_planning_policy/README.md
++++ b/nomad_planning_policy/README.md
+@@ -136,3 +136,15 @@ start (0,0), vehicle follows the RPP command): arrivals 8 (before goal_cost/clea
+ -> 9 (those two) -> 11 (all), no collisions; corner_scenarios 0 stops at 0.10/0.125/0.15 m.
+ Known gap: a vehicle already facing away from the goal beside a wall can still stop (replay
+ of run 2 at 22 s); the new approach behaviour is meant to avoid reaching that state.
++
++# Start-area exemption from the min_clearance band (2026-11-25, node default 0.2 m)
++
++With `corridor.min_clearance` raised to 0.20 (Jetson saved settings, 20:35), run 20:39 stopped
++beside the plate end: the vehicle's own cell lay in the band, so GPP answered
++`start_blocked_or_outside_map` 40 times. `corridor.start_clearance_exempt` (library 0, node 0.2)
++restores the pre-band cells within that radius of the vehicle each planning step; outside it
++the band applies unchanged. Closed loop on 22 recorded final maps x2 (min_clearance 0.20):
++arrivals 23/44 -> 27-29/44, start_blocked runs 9 -> 0, mean minimum clearance 0.194 -> 0.18-0.19 m.
++A 0.4 m radius arrived as often but averaged 0.167 m. Limit: alongside a long wall the vehicle
++needs more than 0.2 m of travel to leave the band, so that case can still stop.
++Test: `start_exempt_test`.
+diff --git a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+index 41dba45..e706d1b 100644
+--- a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
++++ b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+@@ -81,6 +81,9 @@ struct CorridorConfig {
+   // forward arc of this length (left/half-left/straight/half-right/right at the GPP
+   // steering limit) through traversable cells outside the min_clearance band.
+   double exit_check_length=0;
++  // start_clearance_exempt (node default 0.2): within this radius of the vehicle the
++  // min_clearance band is not applied (vehicle may already be inside it). 0 = off.
++  double start_clearance_exempt=0;
+   // 2026-11-25 waypoint reissue (default off = previous behaviour). With a safe
+   // active route, a fresh waypoint selection is evaluated after a new global map
+   // once the vehicle has progressed along the adopted GPP path. The new waypoint
+diff --git a/nomad_planning_policy/src/policy.cpp b/nomad_planning_policy/src/policy.cpp
+index 94dbdc7..1cec3e1 100644
+--- a/nomad_planning_policy/src/policy.cpp
++++ b/nomad_planning_policy/src/policy.cpp
+@@ -304,7 +304,7 @@ double observation_speed_limit(double d,double latency,double deceleration,doubl
+ 
+ CorridorSelector::CorridorSelector(CorridorConfig c):config_(c){
+   if(!std::isfinite(c.goal_cost_clearance_weight)||c.goal_cost_clearance_weight<0)throw std::invalid_argument("invalid goal cost clearance weight");
+-  for(double v:{c.final_goal_tolerance,c.goal_approach_radius,c.exit_check_length})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid goal approach/exit parameters");
++  for(double v:{c.final_goal_tolerance,c.goal_approach_radius,c.exit_check_length,c.start_clearance_exempt})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid goal approach/exit parameters");
+   if(!std::isfinite(c.gpp_steer_ratio)||c.gpp_steer_ratio<=0||c.gpp_steer_ratio>1)throw std::invalid_argument("invalid gpp steer ratio");
+   for(double v:{c.horizon,c.inset,c.arrival,c.seconds,c.risk_scale,c.reselect_half_width,c.reselect_lookahead,c.waypoint_radius,c.preferred_clearance})if(!std::isfinite(v)||v<=0)throw std::invalid_argument("invalid corridor dimensions/budget");
+   for(double v:{c.goal_weight,c.length_weight,c.narrow_weight,c.heading_weight,c.visit_weight,c.clearance_weight,c.risk_weight,c.bearing_weight,c.final_approach_radius,c.continuation_distance,c.retained_slope_increase,c.observation_turn_weight,c.min_clearance,c.transit_clearance_weight})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid corridor weight");
+@@ -628,7 +628,18 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+     if(config_.allow_initial_footprint_outside&&!start_footprint_anchor_&&
+        traversable(layers.grid,pose,config_.corridor.allow_unknown_transit)&&traversable(local,pose,config_.corridor.allow_unknown_transit))start_footprint_anchor_=pose;
+     if(distance(pose,*goal_)<config_.arrival){NavigationOutput out=stop("mission reached",true);out.arrived=true;out.state="ARRIVED";return out;}
+-    CostField field=compose_costs(layers,config_.costs);add_direction_cost(field,need_support?support:nullptr,pose,config_);add_clearance(field,config_.corridor.min_clearance);
++    CostField field=compose_costs(layers,config_.costs);add_direction_cost(field,need_support?support:nullptr,pose,config_);
++    {
++      // 2026-11-25 start_clearance_exempt: cells within this radius of the vehicle keep
++      // their pre-band state, so a vehicle already inside the min_clearance band can still
++      // plan its way out (otherwise "start_blocked_or_outside_map" until moved by hand).
++      const double exempt=config_.corridor.start_clearance_exempt;
++      std::optional<CostField> before;if(exempt>0&&config_.corridor.min_clearance>0)before=field;
++      add_clearance(field,config_.corridor.min_clearance);
++      if(before)for(int y=0;y<field.grid.height;++y)for(int x=0;x<field.grid.width;++x){const int i=y*field.grid.width+x;
++        if(before->grid.data[i]<80&&field.grid.data[i]!=before->grid.data[i]&&distance(cell_to_world(field.grid,Cell{x,y}),pose)<=exempt){
++          field.grid.data[i]=before->grid.data[i];field.weights[i]=before->weights[i];}}
++    }
+     CostField motion_field=field;
+     const Pose* anchor=config_.allow_initial_footprint_outside&&start_footprint_anchor_?&*start_footprint_anchor_:nullptr;
+     if(config_.footprint_planning){
+diff --git a/nomad_planning_policy/tests/test_start_exempt.cpp b/nomad_planning_policy/tests/test_start_exempt.cpp
+new file mode 100644
+index 0000000..54bb574
+--- /dev/null
++++ b/nomad_planning_policy/tests/test_start_exempt.cpp
+@@ -0,0 +1,31 @@
++// 2026-11-25 start_clearance_exempt: a vehicle already inside the min_clearance band
++// (run 20:39, min_clearance 0.20) beside an obstacle end must still plan its way out
++// instead of stopping with "start_blocked_or_outside_map". (Alongside a long wall a 0.2 m
++// radius is not enough to leave the band; that case still stops.)
++#include "corner_profile.hpp"
++#include <iostream>
++#include <stdexcept>
++namespace {
++int checks=0;
++void expect(bool ok,const char* what){++checks;if(!ok){std::cerr<<"FAIL: "<<what<<"\n";std::exit(1);}}
++Layers corridor(){Layers l;auto& g=l.grid;g.resolution=.125;g.width=40;g.height=48;g.origin_x=-2.5;g.origin_y=-.5;g.stamp_ns=1;g.data.assign(g.width*g.height,0);
++  // Plate end (as at the 20:03/20:39 corner): a wall column near x=-0.2 that ends at
++  // y=0.45; the vehicle stands 0.08 m beside its end (inside the 0.20 band), heading on.
++  for(int y=0;y<g.height;++y){const double wy=g.origin_y+(y+.5)*g.resolution;if(wy>=.45)continue;const int x=static_cast<int>((-0.2-g.origin_x)/g.resolution);g.data[y*g.width+x]=100;}
++  l.slope_cost.assign(g.data.size(),0);l.terrain_cost.assign(g.data.size(),0);return l;}
++}
++int main(){
++  const auto l=corridor();const double wall_edge=-2.5+static_cast<int>((-0.2+2.5)/.125)*.125+.125;
++  const Pose start{wall_edge+.08,0.5,kPi/2},goal{0.6,3.5,0};
++  for(double exempt:{0.,.2}){auto c=profile();c.corridor.waypoint_radius=2;c.corridor.min_clearance=.20;c.corridor.start_clearance_exempt=exempt;
++    Navigator nav(c);nav.set_goal(goal);auto out=nav.step(l,l.grid,start,1);
++    std::cout<<"exempt="<<exempt<<": state="<<out.state<<" reason="<<out.reason<<"\n";
++    if(exempt>0){expect(out.motion_valid,"exempt 0.2: vehicle inside the band still plans");
++      // Beyond the exempt radius the route respects the 0.20 m band.
++      auto d=blocked_clearances(l.grid);bool ok=true;for(const auto& p:out.path){if(distance(p,start)<=.2+.13)continue;auto cl=world_to_cell(l.grid,p.x,p.y);ok=ok&&d[cl.y*l.grid.width+cl.x]>=.20-.0625-1e-6-.07;}
++      expect(ok,"exempt 0.2: route leaves the band and keeps min_clearance afterwards");}
++    else expect(!out.motion_valid&&out.reason.find("start_blocked")!=std::string::npos,"no exempt: previous behaviour stops with start_blocked");}
++  auto c=profile();c.corridor.start_clearance_exempt=-1;bool threw=false;try{CorridorSelector s(c.corridor);}catch(const std::invalid_argument&){threw=true;}
++  expect(threw,"negative exempt radius rejected");
++  std::cout<<"start_exempt: "<<checks<<" checks PASS\n";
++}
+-- 
+2.43.0
+

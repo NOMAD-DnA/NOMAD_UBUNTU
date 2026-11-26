@@ -1,0 +1,39 @@
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index 570c5b8..6883e65 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -481,7 +481,7 @@ class PlannerNode final : public rclcpp::Node {
+   config_.corridor.reissue_end_margin=param<double>("corridor.reissue_end_margin",.6);
+   config_.corridor.reissue_margin=param<double>("corridor.reissue_margin",.15);
+   config_.corridor.reissue_min_interval=param<double>("corridor.reissue_min_interval",1.0);
+-  config_.corridor.reissue_search_seconds=param<double>("corridor.reissue_search_seconds",.3);
++  config_.corridor.reissue_search_seconds=param<double>("corridor.reissue_search_seconds",.5);
+   config_.footprint_planning=param<bool>("footprint_planning",false);
+   config_.rpp.unknown_speed=param<double>("rpp.unknown_speed",0.0);
+   if(!std::isfinite(config_.rpp.unknown_speed)||config_.rpp.unknown_speed<0||config_.rpp.unknown_speed>config_.rpp.speed)throw std::invalid_argument("rpp.unknown_speed must be between zero and forward_speed");
+diff --git a/nomad_planning_policy/README.md b/nomad_planning_policy/README.md
+index ddc256a..b25c619 100644
+--- a/nomad_planning_policy/README.md
++++ b/nomad_planning_policy/README.md
+@@ -43,7 +43,7 @@ vehicle has progressed along the adopted GPP path by
+ `reissue_end_margin` (0.6 m) or less left, a fresh candidate set is computed
+ without the active-waypoint shortcut. Only candidates scoring better than the
+ active waypoint by `reissue_margin` (0.15), or the final goal, are tried with
+-Hybrid A* within `reissue_search_seconds` (0.3 s, counted from the reissue start).
++Hybrid A* within `reissue_search_seconds` (0.5 s since 2026-11-25 field review, was 0.3; counted from the reissue start).
+ On success the new waypoint/path is adopted; otherwise the safe active route and
+ waypoint are kept unchanged (no reject, no retry flag, no new status text).
+ 
+diff --git a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+index 2e3a98c..f3d918c 100644
+--- a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
++++ b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+@@ -64,7 +64,7 @@ struct CorridorConfig {
+   double reissue_margin=.15,reissue_min_interval=1;
+   // Own Hybrid A* budget for a reissue attempt, counted from the reissue start (the
+   // safe route keeps being followed; planner results stay valid for 1 s).
+-  double reissue_search_seconds=.3;
++  double reissue_search_seconds=.5;
+ };
+ struct CorridorCandidate {
+   Pose point;

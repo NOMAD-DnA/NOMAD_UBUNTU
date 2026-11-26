@@ -1,0 +1,107 @@
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index 0d02de9..3b1127d 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -457,7 +457,7 @@ class PlannerNode final : public rclcpp::Node {
+    if(norm<.25||norm>2.25)throw std::invalid_argument("invalid preview forward axis magnitude");
+   }
+   config_.vehicle.wheelbase=param<double>("wheelbase",.72);config_.vehicle.track=param<double>("track",.60);config_.vehicle.wheel_radius=param<double>("wheel_radius",.15);config_.vehicle.joint_limit=param<double>("steering_joint_limit",.55);config_.vehicle.max_steer=param<double>("max_steer",.35);config_.vehicle.reference_offset=param<double>("reference_offset",-.36);config_.vehicle.body_length=param<double>("body_length",1.0);config_.vehicle.body_width=param<double>("body_width",.65);config_.vehicle.rear_steer=param<bool>("rear_steer",true);
+-  config_.rpp.speed=param<double>("forward_speed",.5);config_.arrival=param<double>("arrival_tolerance",.35);config_.search.goal_tolerance=param<double>("goal_tolerance",.29);config_.search.seconds=param<double>("search_seconds",.5);config_.search.max_expansions=param<int>("search_expansions",50000);config_.corridor.seconds=param<double>("corridor_seconds",.25);config_.corridor.max_expansions=param<int>("corridor_expansions",20000);config_.corridor.arrival=param<double>("corridor.arrival_tolerance",1.0);
++  config_.rpp.speed=param<double>("forward_speed",.5);config_.arrival=param<double>("arrival_tolerance",.35);config_.replan_period=param<double>("replan_period",1.0);config_.search.goal_tolerance=param<double>("goal_tolerance",.29);config_.search.seconds=param<double>("search_seconds",.5);config_.search.max_expansions=param<int>("search_expansions",50000);config_.corridor.seconds=param<double>("corridor_seconds",.25);config_.corridor.max_expansions=param<int>("corridor_expansions",20000);config_.corridor.arrival=param<double>("corridor.arrival_tolerance",1.0);
+   config_.corridor.allow_unknown_transit=param<bool>("corridor.allow_unknown_transit",false);config_.corridor.waypoint_radius=param<double>("corridor.waypoint_radius",1.5);
+   config_.allow_initial_footprint_outside=param<bool>("observed_guard.allow_initial_footprint_outside",false);
+   planning_hz_=param<double>("planning_hz",5);const double command_hz=param<double>("command_hz",20);odom_timeout_=param<double>("odometry_timeout",.5);map_timeout_=param<double>("map_timeout",2.5);status_timeout_=param<double>("status_timeout",1.5);vehicle_timeout_=param<double>("vehicle_timeout",.3);result_timeout_=param<double>("result_timeout",1);future_tolerance_=param<double>("clock_future_tolerance",.2);command_lease_=param<double>("command_lease",.15);max_displacement_=param<double>("max_result_displacement",.4);max_rotation_=param<double>("max_result_rotation",.4);const int max_cells=param<int>("max_map_cells",1000000);max_cells_=static_cast<std::size_t>(std::max(0,max_cells));
+diff --git a/nomad_planning_policy/CMakeLists.txt b/nomad_planning_policy/CMakeLists.txt
+index ff12d0a..bd833ff 100644
+--- a/nomad_planning_policy/CMakeLists.txt
++++ b/nomad_planning_policy/CMakeLists.txt
+@@ -38,6 +38,10 @@ if(BUILD_TESTING)
+   target_link_libraries(waypoint_reissue_test nomad_planning_policy)
+   target_compile_definitions(waypoint_reissue_test PRIVATE NOMAD_CORNER_ENABLED)
+   add_test(NAME waypoint_reissue_test COMMAND waypoint_reissue_test)
++  add_executable(waypoint_handover_test tests/test_waypoint_handover.cpp)
++  target_link_libraries(waypoint_handover_test nomad_planning_policy)
++  target_compile_definitions(waypoint_handover_test PRIVATE NOMAD_CORNER_ENABLED)
++  add_test(NAME waypoint_handover_test COMMAND waypoint_handover_test)
+   add_executable(corner_scenarios tests/corner_scenarios.cpp)
+   target_link_libraries(corner_scenarios nomad_planning_policy)
+   target_compile_definitions(corner_scenarios PRIVATE NOMAD_CORNER_ENABLED)
+diff --git a/nomad_planning_policy/README.md b/nomad_planning_policy/README.md
+index 8f55ee1..903461c 100644
+--- a/nomad_planning_policy/README.md
++++ b/nomad_planning_policy/README.md
+@@ -50,3 +50,14 @@ waypoint are kept unchanged (no reject, no retry flag, no new status text).
+ Interfaces (ROS topics/messages, status strings, existing public functions) are
+ unchanged. With the feature off, the corner scenario traces are byte-identical to
+ the previous code. Test: `waypoint_reissue_test`.
++
++# Immediate waypoint handover (2026-11-25, always on)
++
++Reaching an intermediate waypoint (within `corridor.arrival_tolerance`, not the
++final goal, with no other invalidation reason) now plans the next waypoint in the
++same planning step. Previously the route was cleared and the vehicle stopped with
++"waiting for global path retry interval" until `replan_period` (1 s) had elapsed
++since the last plan. Obstacle/unknown invalidation and failed searches keep the
++`replan_period` backoff unchanged. `replan_period` is now a node parameter
++(default 1.0 s, must be > 0). In the corner scenarios the handover stops went from
++2-7 per run to 0, and all runs still arrive. Test: `waypoint_handover_test`.
+diff --git a/nomad_planning_policy/src/policy.cpp b/nomad_planning_policy/src/policy.cpp
+index 461ee12..ae1cf70 100644
+--- a/nomad_planning_policy/src/policy.cpp
++++ b/nomad_planning_policy/src/policy.cpp
+@@ -585,7 +585,14 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+     }
+     bool path_changed=!invalid.empty()&&!previous_route_clear;
+     std::string replan_pending=!invalid.empty()&&previous_route_clear?"; replan pending: "+invalid:std::string{};
+-    bool due=now-last_plan_>=config_.replan_period;
++    // 2026-11-25: reaching an intermediate waypoint (and nothing else invalidating the
++    // route) plans the next waypoint in this step instead of stopping until
++    // replan_period elapses. Obstacle/unknown invalidation and failed searches keep
++    // the previous replan_period behaviour.
++    const bool handover=previous_target&&!previous_reference.empty()&&reference_.empty()&&
++      invalid=="remaining_reference_no_longer_valid"&&distance(*previous_target,*goal_)>=.30&&
++      distance(pose,*previous_target)<config_.corridor.arrival;
++    bool due=handover||now-last_plan_>=config_.replan_period;
+     if(due){
+       last_plan_=now;auto probe=selector_.observed_goal_candidate(field,pose,*goal_,now);
+       const bool reissue=!probe&&reissue_due(layers,pose,now,previous_route_clear);
+diff --git a/nomad_planning_policy/tests/test_waypoint_handover.cpp b/nomad_planning_policy/tests/test_waypoint_handover.cpp
+new file mode 100644
+index 0000000..758fa58
+--- /dev/null
++++ b/nomad_planning_policy/tests/test_waypoint_handover.cpp
+@@ -0,0 +1,34 @@
++// 2026-11-25 waypoint handover regression: reaching the active waypoint less than
++// replan_period after the last plan must select the next waypoint in the same step
++// instead of stopping with "waiting for global path retry interval".
++#include "corner_profile.hpp"
++#include <cmath>
++#include <iostream>
++#include <stdexcept>
++using namespace nomad_planning_cpp;
++static void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
++// Straight corridor along +x (|y|<=0.6), everything else known obstacle.
++static Layers corridor(){
++  Layers l;auto& g=l.grid;g.resolution=.1;g.width=100;g.height=40;g.origin_x=-2;g.origin_y=-2;g.stamp_ns=1000000000;
++  g.data.assign(g.width*g.height,100);
++  for(int y=0;y<g.height;++y)for(int x=0;x<g.width;++x){const double wy=g.origin_y+(y+.5)*g.resolution;if(std::abs(wy)<=.6)g.data[y*g.width+x]=0;}
++  l.slope_cost.assign(g.data.size(),0);l.terrain_cost.assign(g.data.size(),0);return l;
++}
++static Pose near_end(const Path& p,double back){double acc=0;for(std::size_t i=p.size()-1;i>0;--i){acc+=distance(p[i-1],p[i]);if(acc>=back)return p[i-1];}return p.front();}
++int main(){try{
++  auto c=profile();
++  const Pose goal{6.5,0,0},start{0,0,0};auto m=corridor();
++  // 1) arrival 0.3 s after the last plan: next waypoint is planned immediately.
++  {Navigator nav(c);nav.set_goal(goal);
++   auto first=nav.step(m,m.grid,start,1.0);
++   check(first.motion_valid&&first.has_target,"initial plan failed");
++   check(distance(first.target,goal)>.3,"test needs an intermediate waypoint");
++   const Pose p=near_end(first.path,.15);
++   auto second=nav.step(m,m.grid,p,1.3);
++   std::cout<<"handover: first target=("<<first.target.x<<","<<first.target.y<<") second reason=\""<<second.reason<<"\" target=("<<second.target.x<<","<<second.target.y<<")\n";
++   check(second.motion_valid,"stopped at waypoint handover");
++   check(second.path_changed&&second.target.x>first.target.x+.3,"next waypoint not selected at handover");}
++  // 2) replan_period remains configurable and validated.
++  {auto k=c;k.replan_period=0;bool threw=false;try{Navigator n(k);}catch(const std::invalid_argument&){threw=true;}check(threw,"replan_period=0 accepted");}
++  std::cout<<"waypoint_handover: 2 checks PASS\n";return 0;
++}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}}

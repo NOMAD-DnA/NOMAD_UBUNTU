@@ -1,0 +1,106 @@
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index 1d14d2b..d7e3d43 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -484,6 +484,7 @@ class PlannerNode final : public rclcpp::Node {
+   config_.corridor.goal_approach_radius=param<double>("corridor.goal_approach_radius",2.0);
+   config_.corridor.gpp_steer_ratio=param<double>("corridor.gpp_steer_ratio",0.85);
+   config_.corridor.exit_check_length=param<double>("corridor.exit_check_length",0.6);
++  config_.corridor.preferred_min_clearance=param<double>("corridor.preferred_min_clearance",0.30);
+   // 2026-11-25 waypoint reissue; parameters are optional and default to the previous behaviour.
+   config_.corridor.reissue_enabled=param<bool>("corridor.reissue_enabled",false);
+   config_.corridor.reissue_travel_ratio=param<double>("corridor.reissue_travel_ratio",.4);
+diff --git a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+index 41dba45..3bcf9ca 100644
+--- a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
++++ b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+@@ -81,6 +81,10 @@ struct CorridorConfig {
+   // forward arc of this length (left/half-left/straight/half-right/right at the GPP
+   // steering limit) through traversable cells outside the min_clearance band.
+   double exit_check_length=0;
++  // preferred_min_clearance (node default 0.30): GPP first searches with this hard band
++  // instead of min_clearance and falls back to min_clearance only when no candidate route
++  // exists (narrow passages stay usable). 0 or <= min_clearance = off.
++  double preferred_min_clearance=0;
+   // 2026-11-25 waypoint reissue (default off = previous behaviour). With a safe
+   // active route, a fresh waypoint selection is evaluated after a new global map
+   // once the vehicle has progressed along the adopted GPP path. The new waypoint
+diff --git a/nomad_planning_policy/src/policy.cpp b/nomad_planning_policy/src/policy.cpp
+index 94dbdc7..da392bf 100644
+--- a/nomad_planning_policy/src/policy.cpp
++++ b/nomad_planning_policy/src/policy.cpp
+@@ -304,7 +304,7 @@ double observation_speed_limit(double d,double latency,double deceleration,doubl
+ 
+ CorridorSelector::CorridorSelector(CorridorConfig c):config_(c){
+   if(!std::isfinite(c.goal_cost_clearance_weight)||c.goal_cost_clearance_weight<0)throw std::invalid_argument("invalid goal cost clearance weight");
+-  for(double v:{c.final_goal_tolerance,c.goal_approach_radius,c.exit_check_length})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid goal approach/exit parameters");
++  for(double v:{c.final_goal_tolerance,c.goal_approach_radius,c.exit_check_length,c.preferred_min_clearance})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid goal approach/exit parameters");
+   if(!std::isfinite(c.gpp_steer_ratio)||c.gpp_steer_ratio<=0||c.gpp_steer_ratio>1)throw std::invalid_argument("invalid gpp steer ratio");
+   for(double v:{c.horizon,c.inset,c.arrival,c.seconds,c.risk_scale,c.reselect_half_width,c.reselect_lookahead,c.waypoint_radius,c.preferred_clearance})if(!std::isfinite(v)||v<=0)throw std::invalid_argument("invalid corridor dimensions/budget");
+   for(double v:{c.goal_weight,c.length_weight,c.narrow_weight,c.heading_weight,c.visit_weight,c.clearance_weight,c.risk_weight,c.bearing_weight,c.final_approach_radius,c.continuation_distance,c.retained_slope_increase,c.observation_turn_weight,c.min_clearance,c.transit_clearance_weight})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid corridor weight");
+@@ -722,20 +722,38 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+         if(!reissue)choices=selector_.candidates(field,pose,*goal_,now);
+         if(probe){choices.erase(std::remove_if(choices.begin(),choices.end(),[&](auto q){return same_point(q.point,probe->point);}),choices.end());choices.insert(choices.begin(),*probe);}
+         auto observed=traversal_field(motion_field,config_.corridor.allow_unknown_transit);PlanResult result;std::optional<CorridorCandidate> target;
++        // 2026-11-25 preferred_min_clearance: first search a route that keeps this
++        // distance from blocked cells (same body box); only when none exists, fall back to
++        // corridor.min_clearance. Same direction/clearance costs, only the hard band differs.
++        const bool wide_pass=config_.corridor.preferred_min_clearance>config_.corridor.min_clearance;
++        std::optional<CostField> wide;
++        if(wide_pass){CostField w=compose_costs(layers,config_.costs);add_direction_cost(w,need_support?support:nullptr,pose,config_);
++          add_clearance(w,config_.corridor.preferred_min_clearance);
++          // The vehicle may already be inside the wider band: within 0.5 m of it the
++          // ordinary min_clearance band applies, so the search can still leave.
++          for(int y=0;y<w.grid.height;++y)for(int x=0;x<w.grid.width;++x){const int i=y*w.grid.width+x;
++            if(distance(cell_to_world(w.grid,Cell{x,y}),pose)<=.5){w.grid.data[i]=field.grid.data[i];w.weights[i]=field.weights[i];}}
++          w.gates=motion_field.gates;wide=traversal_field(w,config_.corridor.allow_unknown_transit);}
++        struct SearchPass{const CostField* field;const VehicleConfig* vehicle;double share;};
++        std::vector<SearchPass> passes;
++        const bool steer_fallback=config_.corridor.gpp_steer_ratio<1;
++        if(wide_pass)passes.push_back({&*wide,&gpp_vehicle,.45});
++        passes.push_back({&observed,&gpp_vehicle,steer_fallback?(wide_pass?.75:.6):1.});
++        if(steer_fallback)passes.push_back({&observed,&config_.vehicle,1.});
+         std::string reason=selector_.detail;
+         const auto attempts=std::min<std::size_t>(config_.corridor.allow_unknown_transit?16:3,choices.size());
+         // 2026-11-25: first pass at max_steer*gpp_steer_ratio (RPP tracking margin); only when
+         // no candidate succeeds, a second pass at full max_steer uses the remaining budget
+         // (tight spots / looping back). RPP feasibility is checked for every candidate.
+-        for(int steer_pass=0;steer_pass<2&&!target;++steer_pass){
+-        if(steer_pass==1&&config_.corridor.gpp_steer_ratio>=1)break;
+-        const auto& search_vehicle=steer_pass==0?gpp_vehicle:config_.vehicle;
++        // Passes: [preferred clearance] -> min_clearance at max_steer*gpp_steer_ratio ->
++        // [min_clearance at full max_steer]. Each pass may use budget up to its share.
++        for(std::size_t pass=0;pass<passes.size()&&!target;++pass){
++        const auto& pass_field=*passes[pass].field;const auto& search_vehicle=*passes[pass].vehicle;const bool last_pass=pass+1==passes.size();
+         for(std::size_t i=0;i<attempts;++i){
+           // All candidate searches share one fresh-result deadline. A new
+           // candidate must not restart the complete wall-clock allowance.
+           // Keep current-pose RPP updates timely while a usable route exists.
+-          // With a full-steer fallback pending, the first pass keeps 40% of the budget for it.
+-          const double share=steer_pass==0&&config_.corridor.gpp_steer_ratio<1?.6:1.;
++          const double share=passes[pass].share;
+           const double remaining=reissue?share*config_.corridor.reissue_search_seconds-elapsed(reissue_began):share*(previous_route_clear?.15:.98)-elapsed(began);
+           if(remaining<=0){reason="candidate search deadline exhausted";break;}
+           auto search=config_.search;
+@@ -749,10 +767,10 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+           // 2026-11-25: the final goal may finish anywhere within final_goal_tolerance of the goal.
+           if(candidate.final&&config_.corridor.final_goal_tolerance>0)
+             search.goal_tolerance=std::max(search.goal_tolerance,config_.corridor.final_goal_tolerance-distance(candidate.point,*goal_));
+-          auto trial=hybrid_astar(observed,pose,candidate.point,search_vehicle,search);
++          auto trial=hybrid_astar(pass_field,pose,candidate.point,search_vehicle,search);
+           double length=path_length(trial.path),horizon=candidate.final?std::max(config_.corridor.horizon,candidate.distance):config_.corridor.horizon;
+           bool short_path=!trial.path.empty()&&std::isfinite(length)&&length<=std::min(1.5*horizon,1.8*candidate.distance+1);
+-          bool valid=short_path&&distance(trial.path.back(),candidate.point)<=.30&&std::isfinite(observed.path_cost(trial.path));
++          bool valid=short_path&&distance(trial.path.back(),candidate.point)<=.30&&std::isfinite(pass_field.path_cost(trial.path));
+           if(valid&&candidate.final&&config_.corridor.final_goal_tolerance>0)valid=distance(trial.path.back(),*goal_)<=config_.corridor.final_goal_tolerance+1e-9;
+           if(valid&&config_.corridor.allow_unknown_transit)valid=trial.path.size()>=2&&known_free(layers.grid,trial.path.back())&&distance(pose,trial.path.back())<=config_.corridor.waypoint_radius+1e-9&&
+             (candidate.final||length>=std::max(.1,config_.corridor.arrival*.6));
+@@ -773,7 +791,7 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+           }
+           if(valid){result=std::move(trial);target=candidate;if(config_.corridor.allow_unknown_transit&&!candidate.final)target->point=result.path.back();break;}
+           reason=!candidate_rejection.empty()?candidate_rejection:(trial.detail.empty()?"invalid candidate path":trial.detail);
+-          if(steer_pass==(config_.corridor.gpp_steer_ratio<1?1:0)&&(config_.corridor.allow_unknown_transit||!probe||!same_point(candidate.point,probe->point)))selector_.reject(candidate.point,now);
++          if(last_pass&&(config_.corridor.allow_unknown_transit||!probe||!same_point(candidate.point,probe->point)))selector_.reject(candidate.point,now);
+         }
+         }
+         if(!target&&reissue){

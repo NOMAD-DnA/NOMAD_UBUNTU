@@ -1,0 +1,317 @@
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index 2cae319..0d02de9 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -470,6 +470,14 @@ class PlannerNode final : public rclcpp::Node {
+   // 2026-11-11: hard GPP clearance (cells within this distance of a blocked cell become impassable). Default 0 = previous behaviour.
+   config_.corridor.min_clearance=param<double>("corridor.min_clearance",0.0);
+   config_.corridor.transit_clearance_weight=param<double>("corridor.transit_clearance_weight",4.0);
++  // 2026-11-25 waypoint reissue; parameters are optional and default to the previous behaviour.
++  config_.corridor.reissue_enabled=param<bool>("corridor.reissue_enabled",false);
++  config_.corridor.reissue_travel_ratio=param<double>("corridor.reissue_travel_ratio",.4);
++  config_.corridor.reissue_min_travel=param<double>("corridor.reissue_min_travel",.2);
++  config_.corridor.reissue_end_margin=param<double>("corridor.reissue_end_margin",.6);
++  config_.corridor.reissue_margin=param<double>("corridor.reissue_margin",.15);
++  config_.corridor.reissue_min_interval=param<double>("corridor.reissue_min_interval",1.0);
++  config_.corridor.reissue_search_seconds=param<double>("corridor.reissue_search_seconds",.3);
+   config_.footprint_planning=param<bool>("footprint_planning",false);
+   config_.rpp.unknown_speed=param<double>("rpp.unknown_speed",0.0);
+   if(!std::isfinite(config_.rpp.unknown_speed)||config_.rpp.unknown_speed<0||config_.rpp.unknown_speed>config_.rpp.speed)throw std::invalid_argument("rpp.unknown_speed must be between zero and forward_speed");
+diff --git a/nomad_planning_policy/CMakeLists.txt b/nomad_planning_policy/CMakeLists.txt
+index 3c71bfc..ff12d0a 100644
+--- a/nomad_planning_policy/CMakeLists.txt
++++ b/nomad_planning_policy/CMakeLists.txt
+@@ -34,6 +34,10 @@ if(BUILD_TESTING)
+   target_link_libraries(corner_regressions_test nomad_planning_policy)
+   target_compile_definitions(corner_regressions_test PRIVATE NOMAD_CORNER_ENABLED)
+   add_test(NAME corner_regressions_test COMMAND corner_regressions_test)
++  add_executable(waypoint_reissue_test tests/test_waypoint_reissue.cpp)
++  target_link_libraries(waypoint_reissue_test nomad_planning_policy)
++  target_compile_definitions(waypoint_reissue_test PRIVATE NOMAD_CORNER_ENABLED)
++  add_test(NAME waypoint_reissue_test COMMAND waypoint_reissue_test)
+   add_executable(corner_scenarios tests/corner_scenarios.cpp)
+   target_link_libraries(corner_scenarios nomad_planning_policy)
+   target_compile_definitions(corner_scenarios PRIVATE NOMAD_CORNER_ENABLED)
+diff --git a/nomad_planning_policy/README.md b/nomad_planning_policy/README.md
+index 97e6640..8f55ee1 100644
+--- a/nomad_planning_policy/README.md
++++ b/nomad_planning_policy/README.md
+@@ -32,3 +32,21 @@ executed. Different candidates can fail for different reasons.
+ 
+ Tests: rpp_rejections_test, existing policy/corner/footprint/result validation
+ regressions, and the ROS package's lpp_diagnostics_test.
++
++# Waypoint reissue (2026-11-25, default off)
++
++With `corridor.reissue_enabled: true` (unknown-transit profile only), a safe active
++route no longer blocks waypoint reselection until arrival. After a new global map
++(`stamp_ns` changed), at most once per `reissue_min_interval` (1 s), and once the
++vehicle has progressed along the adopted GPP path by
++`max(reissue_min_travel 0.2 m, reissue_travel_ratio 0.4 x path length)` or has
++`reissue_end_margin` (0.6 m) or less left, a fresh candidate set is computed
++without the active-waypoint shortcut. Only candidates scoring better than the
++active waypoint by `reissue_margin` (0.15), or the final goal, are tried with
++Hybrid A* within `reissue_search_seconds` (0.3 s, counted from the reissue start).
++On success the new waypoint/path is adopted; otherwise the safe active route and
++waypoint are kept unchanged (no reject, no retry flag, no new status text).
++
++Interfaces (ROS topics/messages, status strings, existing public functions) are
++unchanged. With the feature off, the corner scenario traces are byte-identical to
++the previous code. Test: `waypoint_reissue_test`.
+diff --git a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+index 0e2ab94..5556f2e 100644
+--- a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
++++ b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+@@ -55,6 +55,16 @@ struct CorridorConfig {
+   double waypoint_radius=1.5;
+   bool corner_aware=false;
+   double preferred_clearance=.45,transit_clearance_weight=4;
++  // 2026-11-25 waypoint reissue (default off = previous behaviour). With a safe
++  // active route, a fresh waypoint selection is evaluated after a new global map
++  // once the vehicle has progressed along the adopted GPP path. The new waypoint
++  // replaces the active one only when its score is better by reissue_margin.
++  bool reissue_enabled=false;
++  double reissue_travel_ratio=.4,reissue_min_travel=.2,reissue_end_margin=.6;
++  double reissue_margin=.15,reissue_min_interval=1;
++  // Own Hybrid A* budget for a reissue attempt, counted from the reissue start (the
++  // safe route keeps being followed; planner results stay valid for 1 s).
++  double reissue_search_seconds=.3;
+ };
+ struct CorridorCandidate {
+   Pose point;
+@@ -71,6 +81,9 @@ class CorridorSelector {
+   std::vector<CorridorCandidate> candidates(const CostField& field,const Pose& start,const Pose& goal,double now);
+   std::string invalidate(const CostField& field,const Layers& layers,const Pose& start,const Pose& goal,double now);
+   std::optional<std::pair<CorridorCandidate,Path>> retained_path(const CostField& field,const Pose& start,const Pose& goal);
++  // Same selection as candidates() without returning the active waypoint early.
++  // active_score receives the active waypoint's fresh score (infinity if absent).
++  std::vector<CorridorCandidate> reissue_candidates(const CostField& field,const Pose& start,const Pose& goal,double now,double* active_score);
+   std::string detail;
+  private:
+   bool continuation_blocked(const Grid& grid,const Pose& start,const Pose& point,const Pose& goal) const;
+@@ -84,6 +97,8 @@ class CorridorSelector {
+   double last_probe_=-kInf,previous_resolution_=0;
+   std::set<std::pair<int,int>> previous_blocked_;
+   bool have_previous_blocked_=false;
++  bool skip_active_shortcut_=false;
++  double fresh_active_score_=kInf;
+ };
+ struct NavigatorConfig {
+   VehicleConfig vehicle;
+@@ -130,6 +145,8 @@ class Navigator {
+   NavigationOutput stop(std::string reason,bool clear_reference);
+   void motion_failed(double now);
+   void request_motion_replan(double now);
++  bool reissue_due(const Layers& layers,const Pose& pose,double now,bool previous_route_clear);
++  void adopt_plan(const Path& path,const Layers& layers,const Pose& pose,double now);
+   NavigatorConfig config_;
+   CorridorSelector selector_;
+   std::optional<Pose> goal_,target_;
+@@ -137,5 +154,11 @@ class Navigator {
+   Path reference_;
+   double last_plan_=-kInf,failed_since_=-kInf,execution_failed_since_=-kInf;
+   bool retry_=true;
++  // Waypoint reissue bookkeeping (see CorridorConfig::reissue_enabled).
++  Path plan_path_;
++  std::vector<double> plan_cumulative_;
++  std::size_t progress_index_=0;
++  std::int64_t plan_map_stamp_=0;
++  double last_reissue_=-kInf;
+ };
+ } // namespace nomad_planning_cpp
+diff --git a/nomad_planning_policy/src/policy.cpp b/nomad_planning_policy/src/policy.cpp
+index 248024e..461ee12 100644
+--- a/nomad_planning_policy/src/policy.cpp
++++ b/nomad_planning_policy/src/policy.cpp
+@@ -342,7 +342,9 @@ std::vector<CorridorCandidate> CorridorSelector::candidates(const CostField& f,c
+     rejected_.erase(std::remove_if(rejected_.begin(),rejected_.end(),[&](auto p){return p.second<=now;}),rejected_.end());
+     const double separation=std::max(.12,g.resolution*.75);
+     auto was_rejected=[&](const Pose& p){return std::any_of(rejected_.begin(),rejected_.end(),[&](auto q){return distance(p,q.first)<separation;});};
+-    if(c.incremental&&active_&&!active_path_.empty()&&!was_rejected(*active_)&&known_free(g,*active_)&&distance(start,*active_)<=c.waypoint_radius+1e-9){
++    fresh_active_score_=kInf;
++    const auto active_cell=active_?std::optional<Cell>(world_to_cell(g,active_->x,active_->y)):std::nullopt;
++    if(!skip_active_shortcut_&&c.incremental&&active_&&!active_path_.empty()&&!was_rejected(*active_)&&known_free(g,*active_)&&distance(start,*active_)<=c.waypoint_radius+1e-9){
+       auto i=nearest(start,active_path_);const double heading=std::abs(wrap(active_path_[i].yaw-start.yaw));
+       Path remaining{start};remaining.insert(remaining.end(),active_path_.begin()+i,active_path_.end());
+       if(distance(start,active_path_[i])<=.5&&heading<=kPi/6&&std::isfinite(f.path_cost(remaining))){detail="active_transit_path_revalidated";return {{*active_,-kInf,distance(start,*active_),0,heading,0,same_point(*active_,goal)}};}
+@@ -374,6 +376,7 @@ std::vector<CorridorCandidate> CorridorSelector::candidates(const CostField& f,c
+               c.transit_clearance_weight*std::pow(std::max(0.,1-clear/c.preferred_clearance),2):
+             10*std::floor(error/(10*kPi/180))+(c.waypoint_radius-radial)/c.waypoint_radius+.05*visit+.001*cost;
+           options.push_back({p,score,radial,clear,heading,cost/std::max(radial,g.resolution),final});
++          if(active_cell&&cell==*active_cell)fresh_active_score_=std::min(fresh_active_score_,score);
+         }
+       }
+       for(Cell d:std::vector<Cell>{{1,0},{-1,0},{0,1},{0,-1},{1,1},{-1,1},{1,-1},{-1,-1}}){
+@@ -452,6 +455,15 @@ std::vector<CorridorCandidate> CorridorSelector::candidates(const CostField& f,c
+   detail=exhausted?(selected.empty()?"selection_budget_exhausted":"partial_candidates"):(selected.empty()?(rejected_.empty()?"no_observed_corridor":"candidate_retry_cooldown"):(short_fallback?"short_observed_frontier":"candidates"));return selected;
+ }
+ 
++std::vector<CorridorCandidate> CorridorSelector::reissue_candidates(const CostField& f,const Pose& start,const Pose& goal,double now,double* active_score){
++  skip_active_shortcut_=true;
++  std::vector<CorridorCandidate> out;
++  try{out=candidates(f,start,goal,now);}catch(...){skip_active_shortcut_=false;throw;}
++  skip_active_shortcut_=false;
++  if(active_score)*active_score=active_?fresh_active_score_:kInf;
++  return out;
++}
++
+ Navigator::Navigator(NavigatorConfig c):config_(std::move(c)),selector_(config_.corridor){
+   validate_vehicle(config_.vehicle);
+   if(config_.frame.empty())throw std::invalid_argument("empty planning frame");
+@@ -460,6 +472,33 @@ Navigator::Navigator(NavigatorConfig c):config_(std::move(c)),selector_(config_.
+   for(double v:{config_.unknown_direction_weight,config_.guard_latency,config_.guard_margin})if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid navigation weight");
+   if(!std::isfinite(config_.unknown_direction_free_angle)||config_.unknown_direction_free_angle<0||config_.unknown_direction_free_angle>=kPi/2)throw std::invalid_argument("invalid unknown-direction angle");
+   if(config_.corridor.allow_unknown_transit)config_.rpp.allow_unknown=true;
++  {const auto& k=config_.corridor;
++   for(double v:{k.reissue_travel_ratio,k.reissue_min_travel,k.reissue_end_margin,k.reissue_margin,k.reissue_min_interval})
++     if(!std::isfinite(v)||v<0)throw std::invalid_argument("invalid waypoint reissue parameter");
++   if(k.reissue_travel_ratio>1)throw std::invalid_argument("waypoint reissue travel ratio must be in [0,1]");
++   if(!std::isfinite(k.reissue_search_seconds)||k.reissue_search_seconds<=0||k.reissue_search_seconds>.8)throw std::invalid_argument("waypoint reissue search seconds must be in (0,0.8]");}
++}
++void Navigator::adopt_plan(const Path& path,const Layers& layers,const Pose&,double now){
++  plan_path_=path;plan_cumulative_.assign(path.size(),0);
++  for(std::size_t i=1;i<path.size();++i)plan_cumulative_[i]=plan_cumulative_[i-1]+distance(path[i-1],path[i]);
++  progress_index_=0;plan_map_stamp_=layers.grid.stamp_ns;last_reissue_=now;
++}
++bool Navigator::reissue_due(const Layers& layers,const Pose& pose,double now,bool previous_route_clear){
++  const auto& k=config_.corridor;
++  if(!k.reissue_enabled||!k.allow_unknown_transit||!goal_||!target_||plan_path_.size()<2)return false;
++  if(!previous_route_clear||retry_||std::isfinite(failed_since_))return false;
++  if(distance(*target_,*goal_)<.30)return false;                       // final target locked
++  if(layers.grid.stamp_ns==plan_map_stamp_)return false;              // wait for a new map
++  if(now-last_reissue_<k.reissue_min_interval)return false;
++  // Progress along the adopted GPP path; search forward only so S-curves cannot jump back.
++  const double s_prev=plan_cumulative_[progress_index_];
++  std::size_t best=progress_index_;double best_d=distance(pose,plan_path_[best]);
++  for(std::size_t i=progress_index_+1;i<plan_path_.size()&&plan_cumulative_[i]<=s_prev+1.0;++i){
++    const double d=distance(pose,plan_path_[i]);if(d<best_d){best_d=d;best=i;}}
++  progress_index_=best;
++  const double total=plan_cumulative_.back(),s=plan_cumulative_[progress_index_];
++  if(s<k.reissue_min_travel)return false;
++  return s>=std::max(k.reissue_min_travel,k.reissue_travel_ratio*total)||total-s<=k.reissue_end_margin;
+ }
+ void Navigator::set_goal(const Pose& goal){if(!finite_pose(goal))throw std::invalid_argument("invalid goal pose");if(goal_&&same_point(*goal_,goal))return;cancel();goal_=goal;}
+ void Navigator::cancel(){goal_.reset();target_.reset();start_footprint_anchor_.reset();reference_.clear();selector_.reset();last_plan_=-kInf;failed_since_=-kInf;execution_failed_since_=-kInf;retry_=true;}
+@@ -549,11 +588,23 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+     bool due=now-last_plan_>=config_.replan_period;
+     if(due){
+       last_plan_=now;auto probe=selector_.observed_goal_candidate(field,pose,*goal_,now);
++      const bool reissue=!probe&&reissue_due(layers,pose,now,previous_route_clear);
++      const auto reissue_began=Clock::now();
+       std::optional<std::pair<CorridorCandidate,Path>> retained;
+-      if(!probe&&config_.corridor.retain_safe_path&&!retry_&&!std::isfinite(failed_since_))retained=selector_.retained_path(motion_field,pose,*goal_);
+-      if(retained){reference_=retained->second;target_=retained->first.point;}
++      if(!reissue&&!probe&&config_.corridor.retain_safe_path&&!retry_&&!std::isfinite(failed_since_))retained=selector_.retained_path(motion_field,pose,*goal_);
++      std::vector<CorridorCandidate> choices;
++      if(reissue){
++        // Evaluated once per new map: keep the active route unless a clearly better waypoint exists.
++        plan_map_stamp_=layers.grid.stamp_ns;last_reissue_=now;double active_score=kInf;
++        choices=selector_.reissue_candidates(field,pose,*goal_,now,&active_score);
++        const double margin=config_.corridor.reissue_margin;
++        choices.erase(std::remove_if(choices.begin(),choices.end(),[&](const auto& q){
++          return !q.final&&!(q.score+margin<active_score);}),choices.end());
++        if(choices.empty()){reference_=previous_reference;target_=previous_target;retained=std::make_pair(CorridorCandidate{},previous_reference);}
++      }
++      if(retained){if(!reissue){reference_=retained->second;target_=retained->first.point;}}
+       else{
+-        auto choices=selector_.candidates(field,pose,*goal_,now);
++        if(!reissue)choices=selector_.candidates(field,pose,*goal_,now);
+         if(probe){choices.erase(std::remove_if(choices.begin(),choices.end(),[&](auto q){return same_point(q.point,probe->point);}),choices.end());choices.insert(choices.begin(),*probe);}
+         auto observed=traversal_field(motion_field,config_.corridor.allow_unknown_transit);PlanResult result;std::optional<CorridorCandidate> target;
+         std::string reason=selector_.detail;
+@@ -562,7 +613,7 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+           // All candidate searches share one fresh-result deadline. A new
+           // candidate must not restart the complete wall-clock allowance.
+           // Keep current-pose RPP updates timely while a usable route exists.
+-          const double remaining=(previous_route_clear?.15:.98)-elapsed(began);
++          const double remaining=reissue?config_.corridor.reissue_search_seconds-elapsed(reissue_began):(previous_route_clear?.15:.98)-elapsed(began);
+           if(remaining<=0){reason="candidate search deadline exhausted";break;}
+           auto search=config_.search;
+           search.seconds=search.seconds>0?std::min(search.seconds,remaining):remaining;
+@@ -592,7 +643,10 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+           reason=!candidate_rejection.empty()?candidate_rejection:(trial.detail.empty()?"invalid candidate path":trial.detail);
+           if(config_.corridor.allow_unknown_transit||!probe||!same_point(candidate.point,probe->point))selector_.reject(candidate.point,now);
+         }
+-        if(!target){
++        if(!target&&reissue){
++          // A failed reissue never disturbs the safe active route or its waypoint.
++          reference_=previous_reference;target_=previous_target;path_changed=false;
++        }else if(!target){
+           retry_=true;
+           if(previous_route_clear){
+             reference_=previous_reference;target_=previous_target;path_changed=false;
+@@ -602,6 +656,7 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+           }
+         }else{
+           reference_=result.path;target_=target->point;selector_.accept(*target,reference_,layers);retry_=false;path_changed=true;
++          adopt_plan(reference_,layers,pose,now);
+         }
+       }
+     }
+diff --git a/nomad_planning_policy/tests/test_waypoint_reissue.cpp b/nomad_planning_policy/tests/test_waypoint_reissue.cpp
+new file mode 100644
+index 0000000..d388cfb
+--- /dev/null
++++ b/nomad_planning_policy/tests/test_waypoint_reissue.cpp
+@@ -0,0 +1,61 @@
++// 2026-11-25 waypoint reissue regression: a branch that becomes observed while
++// following a safe route replaces the active waypoint only when the feature is on,
++// a new map arrived, enough of the adopted path was consumed and the score gain
++// exceeds the margin. Disabled behaviour must match the previous retention.
++#include "corner_profile.hpp"
++#include <cmath>
++#include <iostream>
++#include <stdexcept>
++using namespace nomad_planning_cpp;
++static void check(bool ok,const char* why){if(!ok)throw std::runtime_error(why);}
++static bool same_point(const Pose& a,const Pose& b){return distance(a,b)<1e-6;}
++// ㅏ-shaped course: corridor along +x (|y|<=0.6) and a branch towards +y at x in [1.0,2.2].
++static Layers course(bool branch_known,std::int64_t stamp){
++  Layers l;auto& g=l.grid;g.resolution=.1;g.width=80;g.height=60;g.origin_x=-2;g.origin_y=-2;g.stamp_ns=stamp;
++  g.data.assign(g.width*g.height,100);
++  for(int y=0;y<g.height;++y)for(int x=0;x<g.width;++x){
++    const double wx=g.origin_x+(x+.5)*g.resolution,wy=g.origin_y+(y+.5)*g.resolution;
++    auto& v=g.data[y*g.width+x];
++    if(std::abs(wy)<=.6)v=0;
++    else if(wy>.6&&wx>=1.0&&wx<=2.2&&wy<=3.9)v=branch_known?0:-1;
++  }
++  l.slope_cost.assign(g.data.size(),0);l.terrain_cost.assign(g.data.size(),0);return l;
++}
++static Pose along(const Path& p,double s){double acc=0;for(std::size_t i=1;i<p.size();++i){acc+=distance(p[i-1],p[i]);if(acc>=s)return p[i];}return p.back();}
++static double length(const Path& p){double acc=0;for(std::size_t i=1;i<p.size();++i)acc+=distance(p[i-1],p[i]);return acc;}
++struct Outcome{NavigationOutput first,second;};
++static Outcome run(NavigatorConfig c,double progress_ratio,bool new_stamp){
++  const Pose goal{1.6,3.5,0},start{0,0,0};
++  Navigator nav(c);nav.set_goal(goal);
++  auto m1=course(false,1000000000);
++  auto first=nav.step(m1,m1.grid,start,1.0);
++  check(first.motion_valid&&first.has_target,"initial plan failed");
++  const Pose p=along(first.path,progress_ratio*length(first.path));
++  auto m2=course(true,new_stamp?2000000000:1000000000);
++  auto second=nav.step(m2,m2.grid,p,new_stamp?2.0:1.0+1.0);
++  return {first,second};
++}
++int main(){try{
++  auto base=profile();
++  // 1) disabled: safe route retained even though the branch is now observed.
++  {auto c=base;auto r=run(c,.5,true);
++   check(r.second.motion_valid,"disabled: motion lost");
++   check(!r.second.path_changed&&same_point(r.second.target,r.first.target),"disabled: waypoint changed (previous behaviour broken)");}
++  // 2) enabled: after 50% progress and a new map, the branch waypoint wins.
++  {auto c=base;c.corridor.reissue_enabled=true;auto r=run(c,.5,true);
++   std::cout<<"enabled: first target=("<<r.first.target.x<<","<<r.first.target.y<<") second target=("<<r.second.target.x<<","<<r.second.target.y<<")\n";
++   check(r.second.motion_valid,"enabled: motion lost");
++   check(r.second.path_changed&&r.second.target.y>r.first.target.y+.2,"enabled: better branch waypoint not reissued");}
++  // 3) hysteresis: an unreachable margin keeps the active waypoint.
++  {auto c=base;c.corridor.reissue_enabled=true;c.corridor.reissue_margin=100;auto r=run(c,.5,true);
++   check(r.second.motion_valid&&!r.second.path_changed&&same_point(r.second.target,r.first.target),"margin: waypoint switched without enough gain");}
++  // 4) same map stamp: no reissue (nothing new observed by the mapper).
++  {auto c=base;c.corridor.reissue_enabled=true;auto r=run(c,.5,false);
++   check(r.second.motion_valid&&same_point(r.second.target,r.first.target),"same map: waypoint reissued");}
++  // 5) too little progress along the adopted path: no reissue yet.
++  {auto c=base;c.corridor.reissue_enabled=true;c.corridor.reissue_end_margin=0;auto r=run(c,.05,true);
++   check(r.second.motion_valid&&same_point(r.second.target,r.first.target),"progress: reissued before travel threshold");}
++  // 6) invalid parameters are rejected.
++  {auto c=base;c.corridor.reissue_travel_ratio=1.5;bool threw=false;try{Navigator n(c);}catch(const std::invalid_argument&){threw=true;}check(threw,"invalid ratio accepted");}
++  std::cout<<"waypoint_reissue: 6 checks PASS\n";return 0;
++}catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}}

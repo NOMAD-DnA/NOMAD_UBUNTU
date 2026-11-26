@@ -1,0 +1,166 @@
+From 3fa62c3ced2b48d15b1e81b32b64af6026c32dfd Mon Sep 17 00:00:00 2001
+From: NOMAD GPP <nomad-gpp@local>
+Date: Wed, 25 Nov 2026 18:43:07 +0900
+Subject: [PATCH] Relative clearance cost (cost.clearance_factor, node default
+ 2) against corner hugging
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ .../include/nomad_planning_cpp/types.hpp      |  4 ++
+ nomad_planning_core/src/core.cpp              | 12 ++++--
+ nomad_planning_cpp/src/planner_node.cpp       |  2 +
+ nomad_planning_policy/CMakeLists.txt          |  4 ++
+ nomad_planning_policy/README.md               | 18 +++++++++
+ .../tests/test_clearance_factor.cpp           | 40 +++++++++++++++++++
+ 6 files changed, 76 insertions(+), 4 deletions(-)
+ create mode 100644 nomad_planning_policy/tests/test_clearance_factor.cpp
+
+diff --git a/nomad_planning_core/include/nomad_planning_cpp/types.hpp b/nomad_planning_core/include/nomad_planning_cpp/types.hpp
+index 7049aa4..be5e0a5 100644
+--- a/nomad_planning_core/include/nomad_planning_cpp/types.hpp
++++ b/nomad_planning_core/include/nomad_planning_cpp/types.hpp
+@@ -35,6 +35,10 @@ struct CostConfig {
+   // Soft centre-to-blocked-cell-edge preference, independent of body geometry.
+   // Applies to unknown transit too; never changes occupancy/permission.
+   double clearance_weight=0,clearance_radius=.45;
++  // 2026-11-25: relative clearance cost. A cell nearer than clearance_radius costs
++  // base*(1+clearance_factor*(1-d/clearance_radius)^2), so the preference scales with the
++  // proximity/cluster/terrain base instead of being diluted by it. 0 = previous behaviour.
++  double clearance_factor=0;
+ };
+ struct SearchConfig {
+   double seconds=0;
+diff --git a/nomad_planning_core/src/core.cpp b/nomad_planning_core/src/core.cpp
+index 385ed65..5bfa878 100644
+--- a/nomad_planning_core/src/core.cpp
++++ b/nomad_planning_core/src/core.cpp
+@@ -176,10 +176,14 @@ CostField occupancy_costs(const Grid& g,double unknown,const std::vector<double>
+ CostField compose_costs(const Layers& l,const CostConfig& c) {
+   const auto& g=l.grid;validate_grid(g);
+   nonnegative(c.clearance_weight,"Invalid clearance weight");positive(c.clearance_radius,"Invalid clearance radius");
+-  std::vector<double> clearance(g.data.size(),0);
+-  if(c.clearance_weight>0){clearance=blocked_clearances(g);for(auto& d:clearance)d=c.clearance_weight*std::pow(std::max(0.,1-d/c.clearance_radius),2);}
++  if(!std::isfinite(c.clearance_factor)||c.clearance_factor<0)throw std::invalid_argument("Invalid clearance factor");
++  std::vector<double> clearance(g.data.size(),0),relative(g.data.size(),1);
++  if(c.clearance_weight>0||c.clearance_factor>0){
++    const auto d=blocked_clearances(g);
++    for(std::size_t i=0;i<d.size();++i){const double q=std::pow(std::max(0.,1-d[i]/c.clearance_radius),2);clearance[i]=c.clearance_weight*q;relative[i]=1+c.clearance_factor*q;}
++  }
+   if(!c.multi){auto f=occupancy_costs(g,c.unknown_penalty,proximity_costs(g,c.radius,c.obstacle_weight));
+-    for(std::size_t i=0;i<f.weights.size();++i)f.weights[i]+=clearance[i];
++    for(std::size_t i=0;i<f.weights.size();++i)if(std::isfinite(f.weights[i]))f.weights[i]=f.weights[i]*relative[i]+clearance[i];
+     return f;
+   }
+   for(double v:{c.obstacle_weight,c.slope_weight,c.terrain_weight,c.unknown_surcharge,c.cluster_weight})nonnegative(v,"Invalid multi-factor weight");
+@@ -192,7 +196,7 @@ CostField compose_costs(const Layers& l,const CostConfig& c) {
+   for(std::size_t i=0;i<g.data.size();++i){double s=l.slope_cost[i],t=l.terrain_cost[i];for(double a:{s,t})if(std::isinf(a)||(std::isfinite(a)&&(a<0||a>1)))throw std::invalid_argument("Feature must be [0,1] or NaN");if(std::isnan(s))s=c.missing_cost;if(std::isnan(t))t=c.missing_cost;
+     double w=1.+c.obstacle_weight*prox[i]+c.slope_weight*s+c.terrain_weight*t;
+     if(g.data[i]<0)w=1.+(c.slope_weight+c.terrain_weight)*c.missing_cost+c.unknown_surcharge;
+-    w+=c.cluster_weight*cluster[i]+clearance[i];f.weights[i]=g.data[i]>=80?kInf:w;
++    w=(w+c.cluster_weight*cluster[i])*relative[i]+clearance[i];f.weights[i]=g.data[i]>=80?kInf:w;
+   }
+   return f;
+ }
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index b115897..c4714ae 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -469,6 +469,8 @@ class PlannerNode final : public rclcpp::Node {
+   config_.rpp.lookahead=param<double>("rpp.lookahead",.8);config_.rpp.adaptive_lookahead=param<bool>("rpp.adaptive_lookahead",true);config_.rpp.lateral_accel=param<double>("rpp.lateral_accel",.35);config_.observed_guard=param<bool>("observed_guard.enabled",true);config_.guard_half_length=param<double>("observed_guard.half_length",.20);config_.guard_half_width=param<double>("observed_guard.half_width",.10);config_.guard_center_offset=param<double>("observed_guard.center_offset",-.15);config_.guard_deceleration=param<double>("observed_guard.deceleration",.4);config_.guard_latency=param<double>("observed_guard.latency",.3);config_.guard_margin=param<double>("observed_guard.margin",.1);config_.corridor.observation_guard=param<bool>("corridor.observation_guard",true);config_.corridor.observation_turn_weight=param<double>("corridor.observation_turn_weight",80);
+   config_.costs.clearance_weight=param<double>("cost.clearance_weight",0.0);
+   config_.costs.clearance_radius=param<double>("cost.clearance_radius",.45);
++  // 2026-11-25: relative clearance cost (corner hugging fix); 0 = previous additive-only behaviour.
++  config_.costs.clearance_factor=param<double>("cost.clearance_factor",2.0);
+   config_.corridor.corner_aware=param<bool>("corridor.corner_aware",false);
+   config_.corridor.preferred_clearance=param<double>("corridor.preferred_clearance",.45);
+   // 2026-11-11: hard GPP clearance (cells within this distance of a blocked cell become impassable). Default 0 = previous behaviour.
+diff --git a/nomad_planning_policy/CMakeLists.txt b/nomad_planning_policy/CMakeLists.txt
+index 7b7d673..7affc1e 100644
+--- a/nomad_planning_policy/CMakeLists.txt
++++ b/nomad_planning_policy/CMakeLists.txt
+@@ -46,6 +46,10 @@ if(BUILD_TESTING)
+   target_link_libraries(goal_cost_scoring_test nomad_planning_policy)
+   target_compile_definitions(goal_cost_scoring_test PRIVATE NOMAD_CORNER_ENABLED)
+   add_test(NAME goal_cost_scoring_test COMMAND goal_cost_scoring_test)
++  add_executable(clearance_factor_test tests/test_clearance_factor.cpp)
++  target_link_libraries(clearance_factor_test nomad_planning_policy)
++  target_compile_definitions(clearance_factor_test PRIVATE NOMAD_CORNER_ENABLED)
++  add_test(NAME clearance_factor_test COMMAND clearance_factor_test)
+   add_executable(corner_scenarios tests/corner_scenarios.cpp)
+   target_link_libraries(corner_scenarios nomad_planning_policy)
+   target_compile_definitions(corner_scenarios PRIVATE NOMAD_CORNER_ENABLED)
+diff --git a/nomad_planning_policy/README.md b/nomad_planning_policy/README.md
+index 2e2732f..e530b25 100644
+--- a/nomad_planning_policy/README.md
++++ b/nomad_planning_policy/README.md
+@@ -93,3 +93,21 @@ cost ~6x and chose a long detour, so the default is 1. Test: `goal_cost_scoring_
+ Corner simulation (corner_scenarios): all scenarios arrive at 0.08/0.10/0.125/0.15 m; at 0.10 m
+ right_corner now has 6 stop cycles (0 before) caused by a different early trajectory, 0 at the
+ other resolutions.
++
++# Relative clearance cost (2026-11-25, `cost.clearance_factor`, node default 2)
++
++Field records 2026-11-25: corner paths ran 0.09-0.18 m (reference point to blocked-cell edge)
++from obstacles although clearance parameters were raised. With obstacle_weight 16 over a 4 m
++proximity radius and cluster_weight 32, every cell near the course already cost ~30-45, so the
++additive clearance term (<= ~23 at 0.16 m) was diluted and a shorter hugging path stayed
++cheapest; clearance_radius changes had no effect in replays.
++
++`compose_costs` (core) now applies `w = base*(1+clearance_factor*q) + clearance_weight*q`,
++q = (1-d/clearance_radius)^2, to free and unknown cells (blocked stays infinite). Core default 0
++keeps the old weights exactly (`clearance_factor_test`); the planner node defaults to 2.
++Replay of all 135 GPP replans in the 10 records (goal_cost_scoring on): paths under 0.15 m after
++the first 0.3 m 12 -> 3, under 0.20 m 41 -> 29, mean 0.343 -> 0.366 m; adoption 133 -> 132
++(one marginal scene where nearly every candidate already failed RPP). Factor 6 gave the same
++paths as 2. Corner simulation: all scenarios arrive with 0 stops at 0.10/0.125/0.15 m (the
++0.10 m right_corner stops seen with goal_cost_scoring alone disappear).
++`corridor.min_clearance` (hard, 0.15 m) is unchanged: narrow passages still pass at that limit.
+diff --git a/nomad_planning_policy/tests/test_clearance_factor.cpp b/nomad_planning_policy/tests/test_clearance_factor.cpp
+new file mode 100644
+index 0000000..3f5a4e9
+--- /dev/null
++++ b/nomad_planning_policy/tests/test_clearance_factor.cpp
+@@ -0,0 +1,40 @@
++// 2026-11-25 cost.clearance_factor: relative clearance cost (corner hugging fix).
++#include "corner_profile.hpp"
++#include <cmath>
++#include <iostream>
++#include <stdexcept>
++namespace {
++int checks=0;
++void expect(bool ok,const char* what){++checks;if(!ok){std::cerr<<"FAIL: "<<what<<"\n";std::exit(1);}}
++// L corridor 1.3m wide at 0.125m (field costmap resolution), turning left at x=4..5.5.
++Layers corner(){
++  Layers l;auto& g=l.grid;g.resolution=.125;g.width=60;g.height=60;g.stamp_ns=1;g.data.assign(g.width*g.height,100);
++  for(int y=0;y<g.height;++y)for(int x=0;x<g.width;++x){const double wx=(x+.5)*g.resolution,wy=(y+.5)*g.resolution;
++    if((wx>=.2&&wx<5.5&&wy>=.2&&wy<1.5)||(wx>=4&&wx<5.5&&wy>=.2&&wy<6.5))g.data[y*g.width+x]=0;}
++  l.slope_cost.assign(g.data.size(),0);l.terrain_cost.assign(g.data.size(),0);return l;}
++CostConfig field_costs(double factor){auto c=profile().costs;c.clearance_weight=40;c.clearance_radius=.58;c.clearance_factor=factor;return c;}
++double min_clearance(const Grid& g,const Path& p){auto d=blocked_clearances(g);double m=kInf,s=0;for(std::size_t i=1;i<p.size();++i){s+=distance(p[i-1],p[i]);if(s<.3)continue;auto c=world_to_cell(g,p[i].x,p[i].y);m=std::min(m,d[c.y*g.width+c.x]);}return m;}
++}
++int main(){
++  auto l=corner();
++  // factor 0 keeps the previous additive weights exactly.
++  auto base=field_costs(0);base.clearance_weight=0;auto add=field_costs(0);
++  auto f_base=compose_costs(l,base),f_add=compose_costs(l,add),f_rel=compose_costs(l,field_costs(2));
++  auto d=blocked_clearances(l.grid);bool exact=true,relative=true;
++  for(std::size_t i=0;i<d.size();++i){if(!std::isfinite(f_base.weights[i]))continue;const double q=std::pow(std::max(0.,1-d[i]/.58),2);
++    exact=exact&&std::abs(f_add.weights[i]-(f_base.weights[i]+40*q))<1e-9;
++    relative=relative&&std::abs(f_rel.weights[i]-(f_base.weights[i]*(1+2*q)+40*q))<1e-9;}
++  expect(exact,"factor 0 equals previous additive clearance cost");
++  expect(relative,"factor 2 scales the base cost near blocked cells");
++  // Hybrid A* around the corner keeps more clearance with the relative cost.
++  auto c=profile();c.search.seconds=1;c.search.primitive_length=.125;c.search.goal_tolerance=.09;
++  const Pose start{3.,.85,0},goal{4.75,2.6,kPi/2};
++  auto p0=hybrid_astar(f_add,start,goal,c.vehicle,c.search),p2=hybrid_astar(f_rel,start,goal,c.vehicle,c.search);
++  expect(!p0.path.empty()&&!p2.path.empty(),"both corner searches succeed");
++  const double m0=min_clearance(l.grid,p0.path),m2=min_clearance(l.grid,p2.path);
++  std::cout<<"corner min clearance: additive="<<m0<<" relative="<<m2<<"\n";
++  expect(m2>=m0+.05,"relative clearance cost keeps the corner path further from the wall");
++  auto bad=field_costs(-1);bool threw=false;try{compose_costs(l,bad);}catch(const std::invalid_argument&){threw=true;}
++  expect(threw,"negative clearance factor rejected");
++  std::cout<<"clearance_factor: "<<checks<<" checks PASS\n";
++}
+-- 
+2.43.0
+

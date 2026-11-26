@@ -1,0 +1,172 @@
+diff --git a/nomad_planning_cpp/src/planner_node.cpp b/nomad_planning_cpp/src/planner_node.cpp
+index 3b1127d..570c5b8 100644
+--- a/nomad_planning_cpp/src/planner_node.cpp
++++ b/nomad_planning_cpp/src/planner_node.cpp
+@@ -253,7 +253,7 @@ class PlannerNode final : public rclcpp::Node {
+  }
+  void run_worker(){
+   npc::Navigator navigator(config_);std::uint64_t seen_revision=~std::uint64_t(0),seen_epoch=~std::uint64_t(0);
+-  std::string last_plan_failure;
++  std::string last_plan_failure;std::uint64_t logged_reissue=0;
+   auto next=Clock::now();
+   while(!stopping_&&rclcpp::ok()){
+    Inputs i;Result previous;{std::unique_lock<std::mutex> l(mutex_);cv_.wait_until(l,next,[this]{return stopping_.load();});if(stopping_)break;i=input_;previous=result_;}
+@@ -275,6 +275,10 @@ class PlannerNode final : public rclcpp::Node {
+       navigator.execution_feedback(why.find("FOOTPRINT_")==0||why=="PATH_KNOWN_OBSTACLE"||why=="PATH_UNOBSERVED"||why=="PATH_OUTSIDE_MAP",now_ros);
+     }else navigator.execution_feedback(false,now_ros);
+     r.nav=navigator.step(layers,local,r.pose,now_ros,support?&*support:nullptr);
++    // 2026-11-25: one planner.log line per waypoint reissue attempt (at most once per new map).
++    if(const auto& ev=navigator.reissue_event();ev.seq!=logged_reissue){logged_reissue=ev.seq;
++      RCLCPP_INFO(get_logger(),"[GPP_REISSUE] outcome=%s from=(%.2f,%.2f) to=(%.2f,%.2f) progress=%.2f/%.2f m active_score=%.3f best_score=%.3f candidates=%d",
++        ev.outcome.c_str(),ev.from.x,ev.from.y,ev.to.x,ev.to.y,ev.progress,ev.length,ev.active_score,ev.best_score,ev.candidates);}
+     if(r.nav.arrived||r.nav.motion_valid)last_plan_failure.clear();
+     else if(r.nav.reason=="waiting for global path retry interval"){if(!last_plan_failure.empty())r.nav.reason=last_plan_failure+" | retry pending";}
+     else last_plan_failure=r.nav.reason;
+diff --git a/nomad_planning_policy/README.md b/nomad_planning_policy/README.md
+index 903461c..ddc256a 100644
+--- a/nomad_planning_policy/README.md
++++ b/nomad_planning_policy/README.md
+@@ -51,6 +51,11 @@ Interfaces (ROS topics/messages, status strings, existing public functions) are
+ unchanged. With the feature off, the corner scenario traces are byte-identical to
+ the previous code. Test: `waypoint_reissue_test`.
+ 
++Logging (2026-11-25): every reissue attempt writes one planner.log line,
++`[GPP_REISSUE] outcome=switched|kept_no_better|kept_search_failed from=(x,y) to=(x,y)
++progress=s/L m active_score=.. best_score=.. candidates=N`, at most once per new map.
++`Navigator::reissue_event()` exposes the same data; no ROS interface changed.
++
+ # Immediate waypoint handover (2026-11-25, always on)
+ 
+ Reaching an intermediate waypoint (within `corridor.arrival_tolerance`, not the
+diff --git a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+index 5556f2e..2e3a98c 100644
+--- a/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
++++ b/nomad_planning_policy/include/nomad_planning_cpp/policy.hpp
+@@ -133,8 +133,18 @@ struct NavigationOutput {
+ // No ROS, threads, sensor or actuator ownership. Caller serializes goal/step.
+ // Absolute timestamps use the same clock as Grid::stamp_ns. A missing/mismatched
+ // camera-support grid stops the default observation-guarded profile.
++// 2026-11-25: outcome of the latest waypoint reissue attempt (logging only).
++struct ReissueEvent {
++  std::uint64_t seq=0;          // increments on every reissue attempt
++  std::string outcome;          // switched | kept_no_better | kept_search_failed
++  Pose from,to;                 // active waypoint before / after the attempt
++  double progress=0,length=0;   // metres travelled / total along the adopted GPP path
++  double active_score=kInf,best_score=kInf;
++  int candidates=0;             // candidates left after the score-margin filter
++};
+ class Navigator {
+  public:
++  const ReissueEvent& reissue_event() const {return reissue_event_;}
+   explicit Navigator(NavigatorConfig config=NavigatorConfig{});
+   void set_goal(const Pose& goal);
+   void cancel();
+@@ -160,5 +170,7 @@ class Navigator {
+   std::size_t progress_index_=0;
+   std::int64_t plan_map_stamp_=0;
+   double last_reissue_=-kInf;
++  double reissue_progress_=0;
++  ReissueEvent reissue_event_;
+ };
+ } // namespace nomad_planning_cpp
+diff --git a/nomad_planning_policy/src/policy.cpp b/nomad_planning_policy/src/policy.cpp
+index ae1cf70..80dad5a 100644
+--- a/nomad_planning_policy/src/policy.cpp
++++ b/nomad_planning_policy/src/policy.cpp
+@@ -497,6 +497,7 @@ bool Navigator::reissue_due(const Layers& layers,const Pose& pose,double now,boo
+     const double d=distance(pose,plan_path_[i]);if(d<best_d){best_d=d;best=i;}}
+   progress_index_=best;
+   const double total=plan_cumulative_.back(),s=plan_cumulative_[progress_index_];
++  reissue_progress_=s;
+   if(s<k.reissue_min_travel)return false;
+   return s>=std::max(k.reissue_min_travel,k.reissue_travel_ratio*total)||total-s<=k.reissue_end_margin;
+ }
+@@ -600,6 +601,7 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+       std::optional<std::pair<CorridorCandidate,Path>> retained;
+       if(!reissue&&!probe&&config_.corridor.retain_safe_path&&!retry_&&!std::isfinite(failed_since_))retained=selector_.retained_path(motion_field,pose,*goal_);
+       std::vector<CorridorCandidate> choices;
++      ReissueEvent event;
+       if(reissue){
+         // Evaluated once per new map: keep the active route unless a clearly better waypoint exists.
+         plan_map_stamp_=layers.grid.stamp_ns;last_reissue_=now;double active_score=kInf;
+@@ -607,6 +609,11 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+         const double margin=config_.corridor.reissue_margin;
+         choices.erase(std::remove_if(choices.begin(),choices.end(),[&](const auto& q){
+           return !q.final&&!(q.score+margin<active_score);}),choices.end());
++        event.seq=reissue_event_.seq+1;event.from=previous_target?*previous_target:Pose{};event.to=event.from;
++        event.progress=reissue_progress_;event.length=plan_cumulative_.empty()?0:plan_cumulative_.back();
++        event.active_score=active_score;event.candidates=static_cast<int>(choices.size());
++        for(const auto& q:choices)event.best_score=std::min(event.best_score,q.score);
++        event.outcome="kept_no_better";
+         if(choices.empty()){reference_=previous_reference;target_=previous_target;retained=std::make_pair(CorridorCandidate{},previous_reference);}
+       }
+       if(retained){if(!reissue){reference_=retained->second;target_=retained->first.point;}}
+@@ -651,6 +658,7 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+           if(config_.corridor.allow_unknown_transit||!probe||!same_point(candidate.point,probe->point))selector_.reject(candidate.point,now);
+         }
+         if(!target&&reissue){
++          event.outcome="kept_search_failed";
+           // A failed reissue never disturbs the safe active route or its waypoint.
+           reference_=previous_reference;target_=previous_target;path_changed=false;
+         }else if(!target){
+@@ -664,8 +672,10 @@ NavigationOutput Navigator::step(const Layers& layers,const Grid& local,const Po
+         }else{
+           reference_=result.path;target_=target->point;selector_.accept(*target,reference_,layers);retry_=false;path_changed=true;
+           adopt_plan(reference_,layers,pose,now);
++          if(reissue){event.outcome="switched";event.to=*target_;}
+         }
+       }
++      if(reissue)reissue_event_=event;
+     }
+     const double computation_age=elapsed(began);
+     if(computation_age>1||global_age+computation_age>3||local_age+computation_age>2)
+diff --git a/nomad_planning_policy/tests/test_waypoint_reissue.cpp b/nomad_planning_policy/tests/test_waypoint_reissue.cpp
+index d388cfb..8716a03 100644
+--- a/nomad_planning_policy/tests/test_waypoint_reissue.cpp
++++ b/nomad_planning_policy/tests/test_waypoint_reissue.cpp
+@@ -23,7 +23,7 @@ static Layers course(bool branch_known,std::int64_t stamp){
+ }
+ static Pose along(const Path& p,double s){double acc=0;for(std::size_t i=1;i<p.size();++i){acc+=distance(p[i-1],p[i]);if(acc>=s)return p[i];}return p.back();}
+ static double length(const Path& p){double acc=0;for(std::size_t i=1;i<p.size();++i)acc+=distance(p[i-1],p[i]);return acc;}
+-struct Outcome{NavigationOutput first,second;};
++struct Outcome{NavigationOutput first,second;ReissueEvent event;};
+ static Outcome run(NavigatorConfig c,double progress_ratio,bool new_stamp){
+   const Pose goal{1.6,3.5,0},start{0,0,0};
+   Navigator nav(c);nav.set_goal(goal);
+@@ -33,22 +33,25 @@ static Outcome run(NavigatorConfig c,double progress_ratio,bool new_stamp){
+   const Pose p=along(first.path,progress_ratio*length(first.path));
+   auto m2=course(true,new_stamp?2000000000:1000000000);
+   auto second=nav.step(m2,m2.grid,p,new_stamp?2.0:1.0+1.0);
+-  return {first,second};
++  return {first,second,nav.reissue_event()};
+ }
+ int main(){try{
+   auto base=profile();
+   // 1) disabled: safe route retained even though the branch is now observed.
+   {auto c=base;auto r=run(c,.5,true);
+    check(r.second.motion_valid,"disabled: motion lost");
+-   check(!r.second.path_changed&&same_point(r.second.target,r.first.target),"disabled: waypoint changed (previous behaviour broken)");}
++   check(!r.second.path_changed&&same_point(r.second.target,r.first.target),"disabled: waypoint changed (previous behaviour broken)");
++   check(r.event.seq==0,"disabled: reissue event recorded");}
+   // 2) enabled: after 50% progress and a new map, the branch waypoint wins.
+   {auto c=base;c.corridor.reissue_enabled=true;auto r=run(c,.5,true);
+    std::cout<<"enabled: first target=("<<r.first.target.x<<","<<r.first.target.y<<") second target=("<<r.second.target.x<<","<<r.second.target.y<<")\n";
+    check(r.second.motion_valid,"enabled: motion lost");
+-   check(r.second.path_changed&&r.second.target.y>r.first.target.y+.2,"enabled: better branch waypoint not reissued");}
++   check(r.second.path_changed&&r.second.target.y>r.first.target.y+.2,"enabled: better branch waypoint not reissued");
++   check(r.event.seq==1&&r.event.outcome=="switched"&&same_point(r.event.to,r.second.target)&&same_point(r.event.from,r.first.target)&&r.event.length>0,"enabled: switched event not recorded");}
+   // 3) hysteresis: an unreachable margin keeps the active waypoint.
+   {auto c=base;c.corridor.reissue_enabled=true;c.corridor.reissue_margin=100;auto r=run(c,.5,true);
+-   check(r.second.motion_valid&&!r.second.path_changed&&same_point(r.second.target,r.first.target),"margin: waypoint switched without enough gain");}
++   check(r.second.motion_valid&&!r.second.path_changed&&same_point(r.second.target,r.first.target),"margin: waypoint switched without enough gain");
++   check(r.event.seq==1&&r.event.outcome=="kept_no_better"&&r.event.candidates==0,"margin: kept event not recorded");}
+   // 4) same map stamp: no reissue (nothing new observed by the mapper).
+   {auto c=base;c.corridor.reissue_enabled=true;auto r=run(c,.5,false);
+    check(r.second.motion_valid&&same_point(r.second.target,r.first.target),"same map: waypoint reissued");}
+@@ -57,5 +60,5 @@ int main(){try{
+    check(r.second.motion_valid&&same_point(r.second.target,r.first.target),"progress: reissued before travel threshold");}
+   // 6) invalid parameters are rejected.
+   {auto c=base;c.corridor.reissue_travel_ratio=1.5;bool threw=false;try{Navigator n(c);}catch(const std::invalid_argument&){threw=true;}check(threw,"invalid ratio accepted");}
+-  std::cout<<"waypoint_reissue: 6 checks PASS\n";return 0;
++  std::cout<<"waypoint_reissue: 6 checks + 3 event checks PASS\n";return 0;
+ }catch(const std::exception& e){std::cerr<<"FAIL: "<<e.what()<<"\n";return 1;}}
