@@ -1,0 +1,81 @@
+{
+ "lock_obstacle_cells": {
+  "title": "장애물 셀 고정",
+  "unit": "",
+  "description": "켬: 한 번 장애물로 관측된 셀은 광선이 통과해도 유지. 끔: 광선 통과 시 포장면으로 해제. 다음 새 시험부터 적용하며 지도 범위 밖 삭제는 유지"
+ },
+ "lidar_half_fov_deg": {
+  "title": "LiDAR 전방 좌우 반각",
+  "unit": "도 (±)",
+  "description": "카메라 정면 기준 좌우 각각의 사용 각도. 10~100 사이 소수 입력 가능. 기본 ±80도는 전체 160도",
+  "min": 10.0,
+  "max": 100.0
+ },
+ "title": "실내 매퍼 설정",
+ "scope": "로컬 수정본 전용. 기존 GUI 연결과 잿슨 업로드 없음",
+ "fields": {
+  "floor_z_cm": {
+   "label": "포장면으로 볼 기준 Z",
+   "unit": "cm",
+   "default": 5.0,
+   "description": "지도 odom 좌표계의 절대 기준. 이 값 이하 포장면, 초과 장애물. 추가 여유 폭 없음"
+  },
+  "vio_fixed_z_m": {
+   "label": "VIO 위치 Z 고정값",
+   "unit": "m",
+   "default": 0.0,
+   "description": "X와 Y 및 회전은 유지. public base_link의 위치 Z를 이 값으로 대체"
+  },
+  "resolution_m": {
+   "label": "지도 셀 크기",
+   "unit": "m",
+   "min": 0.01,
+   "max": 1.0,
+   "default": 0.125
+  },
+  "startup_radius_m": {
+   "label": "초기 자유 공간과 경사 0도 영역 반경",
+   "unit": "m",
+   "default": 1.5,
+   "description": "초기 차량 중심의 360도 원형. 실제 장애물 관측이 우선"
+  },
+  "map_length_m": {
+   "label": "차량 중심 지도 길이",
+   "unit": "m",
+   "default": 10.0,
+   "description": "0은 무제한, 그 외 4~100m"
+  },
+  "cost_area": {
+   "label": "지도 출력 범위",
+   "choices": [
+    "known_cells",
+    "map_window"
+   ]
+  },
+  "max_map_cells": {
+   "label": "셀 수 상한",
+   "default": 0,
+   "description": "0은 끔, 그 외 정수 1000~1000000. 보존 반경 안 셀은 보호"
+  },
+  "map_keep_radius_m": {
+   "label": "상한 적용 시 셀 보존 반경",
+   "unit": "m",
+   "default": 6.0
+  },
+  "moving_free_region": {
+   "label": "기존 이동 자유 영역과 주행 경로 메모리",
+   "description": "기존 전방 반경과 뒤쪽 길이 및 좌우 폭 유지. 모든 높이 장애물은 비용 0 덮어쓰기에서 제외"
+  },
+  "slope_score_per_deg": {
+   "label": "기존 융합 경사 점수 계수",
+   "default": 8.0,
+   "description": "실내 경사는 0도 또는 미관측이므로 새로운 경사 판정을 하지 않음"
+  },
+  "slope_block_deg": {
+   "label": "기존 융합 경사 차단 각도",
+   "unit": "deg",
+   "default": 10.0,
+   "description": "실내에서 평면을 추정하거나 경사를 검출하는 설정이 아님"
+  }
+ }
+}

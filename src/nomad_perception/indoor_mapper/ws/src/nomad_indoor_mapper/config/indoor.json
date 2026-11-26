@@ -1,0 +1,58 @@
+{
+ "build_id": "nomad-indoor-mapper-20261124-obstacle-lock-1",
+ "floor_z_cm": 5.0,
+ "vio_fixed_z_m": 0.0,
+ "resolution_m": 0.125,
+ "map_length_m": 10.0,
+ "cost_area": "known_cells",
+ "max_map_cells": 0,
+ "map_keep_radius_m": 6.0,
+ "startup_radius_m": 1.5,
+ "slope_score_per_deg": 8.0,
+ "slope_block_deg": 10.0,
+ "initialization_stationary_hold_s": 2.0,
+ "max_pending_frames": 80,
+ "max_pose_gap_ms": 200.0,
+ "imu_frame": "oak_imu_frame",
+ "T_imu_from_lidar": [
+  [
+   -0.8497960884254557,
+   -0.5257462939151748,
+   0.037913619337298324,
+   0.021071892202899845
+  ],
+  [
+   -0.0454461532007307,
+   0.0014180885228310628,
+   -0.9989657832899965,
+   0.16558645906858066
+  ],
+  [
+   0.5251487934443444,
+   -0.8506402432635076,
+   -0.02509823269772793,
+   0.08971497966056222
+  ],
+  [
+   0.0,
+   0.0,
+   0.0,
+   1.0
+  ]
+ ],
+ "slope_forward_axis_base_link": [
+  -0.004534,
+  -0.0244295,
+  -0.999691
+ ],
+ "moving_free_region": {
+  "enabled": true,
+  "radius_m": 0.5,
+  "rear_length_m": 0.35,
+  "rear_half_width_m": 0.2,
+  "driven_path_memory": true,
+  "driven_front_m": 0.025
+ },
+ "lidar_half_fov_deg": 80.0,
+ "lock_obstacle_cells": false
+}

@@ -1,0 +1,28 @@
+{
+  "status": "passed",
+  "checks": [
+    "Ray to ground beyond2m creates previously unobserved paved cells within2m",
+    "Measured endpoint outside2m does not create an obstacle",
+    "Projected path is clipped to vehicle2m disk",
+    "12.5cm grid retained",
+    "No camera or semantic subscriptions",
+    "Grid capture uses actual per-return acquisition time",
+    "Negative-Z endpoint is obstacle with slopeNaN and final100",
+    "Same-scan endpoint wins over a crossing ray",
+    "Ray crossing follows obstacle-lock toggle with correct slope and terrain costs",
+    "Ray cells without obstacle stay paved in both modes",
+    "Rear-sector return is ignored",
+    "95-degree endpoint follows configured half FOV including greater than90",
+    "Both global and local retain chosen mode state beyond61 seconds",
+    "New endpoint observation can reblock a remembered paved cell",
+    "Sensor freshness still revokes READY independently of per-cell retention"
+  ],
+  "checks_passed": 15,
+  "lock_obstacle_cells": true,
+  "selected_half_fov_deg": 80.0,
+  "domain": "189",
+  "actual_active_vio_fixed_z_m": 0.19,
+  "legacy_floor_z_ignored": 0.0,
+  "synthetic_only": true,
+  "actual_sensor_or_normal_trial_started": false
+}

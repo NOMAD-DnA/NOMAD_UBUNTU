@@ -1,0 +1,16 @@
+Internal ctest changing into directory: /home/hyeonsu/Documents/ChatGPT/Jetson xavier nx/indoor_mapper_github_20261126/build-core
+Test project /home/hyeonsu/Documents/ChatGPT/Jetson xavier nx/indoor_mapper_github_20261126/build-core
+    Start 1: indoor_geometry
+1/5 Test #1: indoor_geometry ..................   Passed    0.03 sec
+    Start 2: indoor_updates
+2/5 Test #2: indoor_updates ...................   Passed    0.01 sec
+    Start 3: indoor_retention
+3/5 Test #3: indoor_retention .................   Passed    0.01 sec
+    Start 4: indoor_poses
+4/5 Test #4: indoor_poses .....................   Passed    0.00 sec
+    Start 5: indoor_config
+5/5 Test #5: indoor_config ....................   Passed    0.02 sec
+
+100% tests passed, 0 tests failed out of 5
+
+Total Test time (real) =   0.09 sec

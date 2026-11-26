@@ -119,3 +119,7 @@ With record_results enabled, terrain/obstacle_diagnostics.jsonl records each sav
 ## 기존 매퍼 개선 Jetson 소스 (2026-11-19)
 
 GUI의 "기존 매퍼 개선"으로 실행하는 `nomad_terrain_mapper`의 전체 소스와 수집 당시 설정은 [terrain_mapper/](terrain_mapper/README.md)에 보관했습니다. OAK 수평거리 제한과 높이 차이 GUI 설정을 포함합니다. 독립 ROS 2 Humble 작업공간이며 `COLCON_IGNORE`로 상위 인지 패키지 빌드와 분리합니다. 기존 `traversability/` 및 시뮬레이션 인지 구현은 그대로 유지합니다.
+
+## GUI 실내 매퍼 소스 (2026-11-26)
+
+GUI의 실내 매퍼 `nomad-indoor-mapper-20261124-obstacle-lock-1` 소스와 메시지, 기본 설정, 마지막 확인된 보드 설정 및 테스트를 [indoor_mapper/](indoor_mapper/README.md)에 보관했습니다. LiDAR와 VIO를 사용하며 전방 반각과 장애물 셀 고정 선택을 지원합니다. 독립 작업공간이며 상위 colcon 탐색은 `COLCON_IGNORE`로 분리합니다. Jetson에서 회수한 검증 사본이며 2026-11-26 보드 상태를 새로 확인한 결과는 아닙니다. GUI 연결과 빌드 방법 및 검증 범위는 해당 README를 참고하세요.
