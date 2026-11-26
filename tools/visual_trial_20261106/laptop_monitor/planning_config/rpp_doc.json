@@ -39,5 +39,12 @@
   "min": 0.0,
   "max": 1.0,
   "safety": true
+ },
+ "rpp.path_follow": {
+  "title": "GPP 경로 그대로 따라가기 (경로추종 LPP)",
+  "description": "켜면 RPP의 캐럿 선택 대신 GPP 경로 자체를 따라가요(경로 곡률 + 옆 어긋남·방향 보정). 조향 명령은 20 Hz로 최신 위치에서 다시 계산돼요. 경로 추종 예측이 막히면 RPP로 대신 움직이고, 그것도 막히면 멈춰요. 제어(Pi4)로 가는 명령 형식은 같아요. 끄면 기존 RPP 그대로예요. 다음 Jetson 플래너 시작부터 적용돼요.",
+  "unit": "켬/끔",
+  "default": false,
+  "safety": true
  }
 }

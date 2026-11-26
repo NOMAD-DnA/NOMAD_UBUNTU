@@ -80,7 +80,7 @@ class CandidateTests(unittest.TestCase):
                 self.assertEqual(saved[part], cfg[part])
             table = gui.tabs.widget(5)
             visible = [table.item(i, 0).toolTip() for i in range(table.rowCount()) if not table.isRowHidden(i)]
-            self.assertEqual(visible, ["rpp.lookahead_candidates", "rpp.lateral_accel", "rpp.unknown_speed"])
+            self.assertEqual(visible, ["rpp.lookahead_candidates", "rpp.lateral_accel", "rpp.unknown_speed", "rpp.path_follow"])
             gui.dialog.close()
             baseline.dialog.close()
 
